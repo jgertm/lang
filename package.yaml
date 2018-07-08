@@ -1,0 +1,20 @@
+name:                lang
+version:             0.1.0.0
+#synopsis:
+#description:
+homepage:            https://github.com/jgertm/lang#readme
+license:             BSD3
+author:              Tim Jäger
+maintainer:          jger.tm@gmail.com
+copyright:           2018 Tim Jäger
+category:            Web
+extra-source-files:
+- README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+
+executables:
+  lang:
+    source-dirs:      src
+    main:             Main.hs
