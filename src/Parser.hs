@@ -29,10 +29,12 @@ parseExpr =
     , parseMatch
     , parseVector
     , parseSymbol
+    , parseQuote
     , parseString
     , parseInteger
     , parseKeyword
     , parseUnit
+    , parseComment
     ]
 
 parseExprs = sepEndBy parseExpr spaces
@@ -109,18 +111,22 @@ parseMatch =
     spaces
     matches <- sepEndBy1 match spaces
     pure $ Match prototype matches
-  where match =
-          sexp $ do
-            pat <- parseExpr
-            spaces
-            body <- parseExpr
-            pure $ (,) pat body
+  where
+    match =
+      sexp $ do
+        pat <- parseExpr
+        spaces
+        body <- parseExpr
+        pure $ (,) pat body
 
 parseVector = Vector <$> vector parseExprs
 
 parseSymbol = Symbol <$> identifier
 
-parseString = String <$> between (char '"') (char '"') (T.pack <$> many (noneOf "\""))
+parseQuote = Quote <$> (char '\'' *> parseExpr)
+
+parseString =
+  String <$> between (char '"') (char '"') (T.pack <$> many (noneOf "\""))
 
 parseInteger = Integer . read <$> many1 digit
 
@@ -130,3 +136,6 @@ parseUnit = do
   string "()"
   pure Unit
 
+parseComment = do
+  char ';'
+  Comment . T.pack <$> noneOf "\n" `manyTill` endOfLine

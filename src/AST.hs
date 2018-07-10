@@ -26,10 +26,12 @@ data Expr
   -- | Let
   | Vector [Expr]
   | Symbol Identifier
+  | Quote Expr
   | String Text
   | Integer Integer
   | Keyword Name
   | Unit
+  | Comment Text
   deriving (Show, Eq)
 
 data Identifier =

@@ -58,4 +58,14 @@ parser =
                       [Symbol (Identifier Nothing $ Name "quuz")]
                   ]
               ]
+        , testGroup "Quotation" $
+          let test = tester parseExpr
+           in [ test "quoted symbol" "'foo" $
+                Quote $ Symbol (Identifier Nothing $ Name "foo")
+              , test "quoted application" "'(foo)" $
+                Quote $ Application (Identifier Nothing $ Name "foo") []
+              ]
+        , testGroup "Comment" $
+          let test = tester parseExpr
+           in [test "plain comment" "; foobar\n" $ Comment " foobar"]
         ]
