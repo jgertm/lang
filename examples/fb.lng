@@ -1,0 +1,26 @@
+(defmodule foo.fb)
+
+(defn void [])
+
+(ann main (io unit))
+(defn main 
+  [& args]
+  (->> args
+       head
+       (option/fallback (println "error") fizzbuzz)))
+
+(ann fizzbuzz (fn int (io unit)))
+(defn fizzbuzz 
+  [n]
+  (if (not (= n 0))
+      (>> (match [(mod n 3) (mod n 5)]
+            ([true true] (println "fizzbuzz!"))
+            ([true _] ())
+            ([_ true] ())
+            (_ ()))
+          (fizzbuzz (dec n)))
+   (pure ())))
+
+;; Local Variables:
+;; mode: lisp
+;; End:

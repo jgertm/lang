@@ -13,8 +13,26 @@ extra-source-files:
 
 dependencies:
   - base >= 4.7 && < 5
+  - parsec
+  - text
 
-executables:
-  lang:
-    source-dirs:      src
-    main:             Main.hs
+default-extensions:
+  - OverloadedStrings
+  - PartialTypeSignatures
+
+library:
+  source-dirs:        src
+  exposed-modules:
+    - AST
+    - Parser
+    - Types
+    - Main
+
+tests:
+  lang-tests:
+    source-dirs:      test
+    main:             Spec.hs
+    dependencies:
+      - lang
+      - tasty
+      - tasty-hunit
