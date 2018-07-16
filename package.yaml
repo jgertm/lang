@@ -11,22 +11,28 @@ category:            Web
 extra-source-files:
 - README.md
 
+ghc-options:
+  - -fhide-source-paths
+
 dependencies:
   - base >= 4.7 && < 5
   - parsec
   - text
 
 default-extensions:
+  - DeriveDataTypeable
+  - DeriveFoldable
+  - DeriveFunctor
+  - DeriveTraversable
   - OverloadedStrings
   - PartialTypeSignatures
 
 library:
   source-dirs:        src
   exposed-modules:
-    - AST
-    - Parser
+    - Parser.Abstract
+    - Syntax.Abstract
     - Types
-    - Main
 
 tests:
   lang-tests:

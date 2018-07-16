@@ -7,8 +7,8 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Text.Parsec
 
-import           AST
-import           Parser
+import           Parser.Abstract  hiding (parser)
+import           Syntax.Abstract
 
 main = defaultMain tests
 
@@ -20,52 +20,49 @@ parser =
   let tester p name inp out = testCase name $ parse p "" inp @?= Right out
    in testGroup
         "Parser"
-        [ testGroup "Identifier" $
-          let test = tester identifier
-           in [ test "unqualified identifier" "foobar" $
-                Identifier Nothing (Name "foobar")
-              , test "singly qualified identifier" "foo/bar" $
-                Identifier (Just [Name "foo"]) (Name "bar")
-              , test "multiply qualified identifier" "foo.baz/bar" $
-                Identifier (Just [Name "foo", Name "baz"]) (Name "bar")
-              ]
-        , testGroup "Name" $
-          let test = tester name
-           in [ test "simple name" "foobar" $ Name "foobar"
-              , test "name with earmuffs" "*foo*" $ Name "*foo*"
-              , tester
-                  dottedNames
-                  "dotted names"
-                  "foo.bar"
-                  [Name "foo", Name "bar"]
-              ]
-        , testGroup "Application" $
-          let test = tester parseApplication
-           in [ test "nullary function" "(foo)" $
-                Application (Identifier Nothing $ Name "foo") []
-              , test "binary function" "(foo bar baz)" $
-                Application
-                  (Identifier Nothing $ Name "foo")
-                  [ Symbol (Identifier Nothing $ Name "bar")
-                  , Symbol (Identifier Nothing $ Name "baz")
-                  ]
-              , test "nested functions" "(foo bar (baz quuz))" $
-                Application
-                  (Identifier Nothing $ Name "foo")
-                  [ Symbol (Identifier Nothing $ Name "bar")
-                  , Application
-                      (Identifier Nothing $ Name "baz")
-                      [Symbol (Identifier Nothing $ Name "quuz")]
-                  ]
-              ]
-        , testGroup "Quotation" $
-          let test = tester parseExpr
-           in [ test "quoted symbol" "'foo" $
-                Quote $ Symbol (Identifier Nothing $ Name "foo")
-              , test "quoted application" "'(foo)" $
-                Quote $ Application (Identifier Nothing $ Name "foo") []
-              ]
-        , testGroup "Comment" $
-          let test = tester parseExpr
-           in [test "plain comment" "; foobar\n" $ Comment " foobar"]
+        [ testGroup
+            "Primitives"
+            [ let test = tester name
+               in testGroup
+                    "Lexeme"
+                    [ test "compact name" "foobar" $ VSymbol "foobar"
+                    , test "qualified name" "foo.bar" $ VSymbol "foo.bar"
+                    ]
+            ]
+        , testGroup
+            "Values"
+            [ let test = tester vectorValue
+               in testGroup
+                    "Vectors"
+                    [ test "empty" "[]" (VVector mempty)
+                    , test "empty w/ space" "[ ]" (VVector mempty)
+                    , test "unit element" "[()]" (VVector [VAtom AUnit])
+                    , test
+                        "numbers"
+                        "[1 2 3]"
+                        (VVector $ fmap (VAtom . AInteger) [1, 2, 3])
+                    ]
+            , testGroup
+                "Pattern matches"
+                [ testGroup
+                    "pattern clauses"
+                    [ let test = tester pattrn
+                       in testGroup
+                            "Patterns"
+                            [ test
+                                "trivial"
+                                "(nil nil)"
+                                (VSymbol "nil", VSymbol "nil")
+                            , test
+                                "unit"
+                                "(() nil)"
+                                (VAtom AUnit, VSymbol "nil")
+                            , test
+                                "vector"
+                                "([()] nil)"
+                                (VVector [VAtom AUnit], VSymbol "nil")
+                            ]
+                    ]
+                ]
+            ]
         ]

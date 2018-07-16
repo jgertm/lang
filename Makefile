@@ -7,8 +7,10 @@ shell: generate-nix-files
 
 format:
 	fd -e hs | xargs hindent
-	fd -e hs | xargs stylish-haskell -i
-	fd -e hs | xargs hlint
+	fd -e hs | xargs stylish-haskell -i 
+
+lint:
+	fd -e hs | xargs hlint | less
 
 build: generate-nix-files
 	nix-shell --attr env lang.nix --command "cabal new-build"
@@ -21,8 +23,8 @@ ghcid: generate-nix-files
 		"ghcid \
 		--reload=./src \
 		--reload=./examples \
-		 --command='cabal new-repl' \
-		 --test='Main.main'" 
+		--command='cabal new-repl' \
+		--test='Main.main'"
 
 test: generate-nix-files
 	nix-shell --attr env lang.nix --command "fd -e hs | entr cabal new-test" 
