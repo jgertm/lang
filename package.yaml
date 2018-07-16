@@ -34,6 +34,14 @@ library:
     - Syntax.Abstract
     - Types
 
+executables:
+  lang-repl:
+    source-dirs:        exe/repl
+    main:               Main.hs
+    dependencies:
+      - lang
+      - haskeline
+
 tests:
   lang-tests:
     source-dirs:      test
