@@ -7,35 +7,98 @@ license:             BSD3
 author:              Tim Jäger
 maintainer:          jger.tm@gmail.com
 copyright:           2018 Tim Jäger
-category:            Web
+category:            Language
 extra-source-files:
 - README.md
 
 ghc-options:
   - -fhide-source-paths
-
-dependencies:
-  - base >= 4.7 && < 5
-  - parsec
-  - text
+  - -fwarn-incomplete-patterns
+  - -fwarn-incomplete-uni-patterns
+  - -fwarn-incomplete-record-updates
+  - -O2
+  - -Wall
+  - -Wcompat
+  # - -Werror
 
 default-extensions:
+  - ApplicativeDo
+  - AutoDeriveTypeable
+  - BangPatterns
+  - ConstrainedClassMethods
+  - ConstraintKinds
+  - DataKinds
+  - DefaultSignatures
+  - DeriveAnyClass
   - DeriveDataTypeable
   - DeriveFoldable
   - DeriveFunctor
+  - DeriveGeneric
+  - DeriveLift
   - DeriveTraversable
+  - DuplicateRecordFields
+  - ExistentialQuantification
+  - ExplicitForAll
+  - FlexibleContexts
+  - FlexibleInstances
+  - FunctionalDependencies
+  - GADTs
+  - GeneralizedNewtypeDeriving
+  - InstanceSigs
+  - KindSignatures
+  - LambdaCase
+  - MultiParamTypeClasses
+  - MultiWayIf
+  - NamedFieldPuns
+  - NamedWildCards
+  - NoMonomorphismRestriction
+  - OverloadedLabels
+  - OverloadedLists
   - OverloadedStrings
   - PartialTypeSignatures
+  - PatternSynonyms
+  - PolyKinds
+  - QuasiQuotes
+  - RankNTypes
+  - RoleAnnotations
+  - ScopedTypeVariables
+  - StandaloneDeriving
+  - StaticPointers
+  - TemplateHaskell
+  - TupleSections
+  - TypeApplications
+  - TypeFamilies
+  - TypeInType
+  - TypeOperators
+  - TypeSynonymInstances
+  - UndecidableInstances
+  - ViewPatterns
+  
+dependencies:
+  - base >= 4.7 && < 5
+  - text
+  - parsec
 
 library:
   source-dirs:        src
-  exposed-modules:
-    - Parser.Abstract
-    - Syntax.Abstract
-    - Types
+  # exposed-modules:
+  #   - Builtins
+  #   - Handlers
+  #   - Interpreter
+  #   - Parser.Abstract
+  #   - Syntax.Abstract
+  #   - Types
+  dependencies:
+    - containers
+    - generic-lens
+    - generic-lens-labels
+    - microlens-platform
+    - mtl
+    - pretty-simple
+    - parsec
 
 executables:
-  lang-repl:
+  langi:
     source-dirs:        exe/repl
     main:               Main.hs
     dependencies:

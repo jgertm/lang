@@ -1,33 +1,36 @@
+PROJECT = lang
+NIX_SHELL = nix-shell --attr env $(PROJECT).nix
+
 generate-nix-files: 
 	hpack
 	cabal2nix --hpack . > default.nix
 
-shell: generate-nix-files 
-	nix-shell --attr env lang.nix
+shell: generate-nix-files
+	$(NIX_SHELL)
 
-format:
-	fd -e hs | xargs hindent
-	fd -e hs | xargs stylish-haskell -i 
-
-lint:
-	fd -e hs | xargs hlint | less
 
 build: generate-nix-files
-	nix-shell --attr env lang.nix --command "cabal new-build"
+	$(NIX_SHELL) --run "cabal new-build"
 
 repl: generate-nix-files
-	nix-shell --attr env lang.nix --command "cabal new-repl"
+	$(NIX_SHELL) --run "cabal new-repl"
 
 ghcid: generate-nix-files
-	nix-shell --attr env lang.nix --command \
+	$(NIX_SHELL) --run \
 		"ghcid \
 		--reload=./src \
-		--reload=./examples \
-		--command='cabal new-repl' \
-		--test='Main.main'"
+		--reload=./exe \
+		--reload=./test \
+		--command='cabal new-repl lib:$(PROJECT)' \
+		--warnings \
+		--test=Dev.main"
 
 test: generate-nix-files
-	nix-shell --attr env lang.nix --command "fd -e hs | entr cabal new-test" 
+	$(NIX_SHELL) --run "fd -e hs | entr cabal new-test" 
 
 run: generate-nix-files
-	nix-shell --attr env lang.nix --command "cabal run"
+	$(NIX_SHELL) --run "cabal run"
+
+format:
+	fd -e hs -x hindent
+	fd -e hs -x stylish-haskell -i

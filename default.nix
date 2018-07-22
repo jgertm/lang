@@ -1,5 +1,6 @@
-{ mkDerivation, base, haskeline, hpack, parsec, stdenv, tasty
-, tasty-hunit, text
+{ mkDerivation, base, containers, generic-lens, generic-lens-labels
+, haskeline, hpack, microlens-platform, mtl, parsec, pretty-simple
+, stdenv, tasty, tasty-hunit, text
 }:
 mkDerivation {
   pname = "lang";
@@ -7,7 +8,10 @@ mkDerivation {
   src = ./.;
   isLibrary = true;
   isExecutable = true;
-  libraryHaskellDepends = [ base parsec text ];
+  libraryHaskellDepends = [
+    base containers generic-lens generic-lens-labels microlens-platform
+    mtl parsec pretty-simple text
+  ];
   libraryToolDepends = [ hpack ];
   executableHaskellDepends = [ base haskeline parsec text ];
   testHaskellDepends = [ base parsec tasty tasty-hunit text ];

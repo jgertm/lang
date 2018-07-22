@@ -9,7 +9,9 @@ import qualified Text.Parsec.Token as P
 
 import           Syntax.Abstract
 
-parser :: Parsec Text () Definition
+type Parser a = Parsec Text () a
+
+parser :: Parser Definition
 parser = file
 
 lang =
@@ -47,73 +49,70 @@ reserved = P.reserved lexer
 
 name = VSymbol <$> identifier
 
+file :: Parser Definition
 file = do
-  (DModule moduleName []) <- moduleDefinition
+  (DModule moduleName []) <- definition
   definitions <- many definition
   pure $ DModule moduleName definitions
 
+definition :: Parser Definition
 definition =
   cases
     [moduleDefinition, typeDefinition, constantDefinition, functionDefinition]
-
-moduleDefinition =
-  sexp $ do
-    reserved "defmodule"
-    DModule <$> identifier <*> many definition
-
-typeDefinition =
-  sexp $ do
-    reserved "deftype"
-    typeName <- identifier
-    typeBody <- typeExpr
-    DType <$> identifier <*> typeExpr
-
-constantDefinition =
-  sexp $ do
-    reserved "def"
-    DConstant <$> identifier <*> valueExpr
-
-functionDefinition =
-  sexp $ do
-    reserved "defn"
-    functionName <- identifier
-    functionArguments <- vector $ many identifier
-    functionBody <- many valueExpr
-    pure $
-      DFunction functionName functionArguments $
-      case functionBody of
-        [form] -> form
-        forms  -> VSequence forms
-
-typeExpr = cases [productType, sumType, recordType, tagType, functionType]
-
-productType =
-  sexp $ do
-    reserved "product"
-    TProduct <$> many1 typeExpr
-
-sumType =
-  sexp $ do
-    reserved "sum"
-    TSum <$> many1 typeExpr
-
-recordType =
-  sexp $ do
-    reserved "record"
-    TRecord <$> record (many1 row)
   where
-    row = (,) <$> identifier <*> typeExpr
+    moduleDefinition =
+      sexp $ do
+        reserved "defmodule"
+        DModule <$> identifier <*> many definition
+    typeDefinition =
+      sexp $ do
+        reserved "deftype"
+        typeName <- identifier
+        typeBody <- typeExpr
+        DType <$> identifier <*> typeExpr
+    constantDefinition =
+      sexp $ do
+        reserved "def"
+        DConstant <$> identifier <*> valueExpr
+    functionDefinition =
+      sexp $ do
+        reserved "defn"
+        functionName <- identifier
+        functionArguments <- vector $ many identifier
+        functionBody <- many valueExpr
+        pure $
+          DFunction functionName functionArguments $
+          case functionBody of
+            [form] -> form
+            forms  -> VSequence forms
 
-tagType =
-  sexp $ do
-    reserved "tag"
-    TTag <$> identifier <*> typeExpr
+typeExpr :: Parser TypeExpr
+typeExpr = cases [productType, sumType, recordType, tagType, functionType]
+  where
+    productType =
+      sexp $ do
+        reserved "product"
+        TProduct <$> many1 typeExpr
+    sumType =
+      sexp $ do
+        reserved "sum"
+        TSum <$> many1 typeExpr
+    recordType =
+      sexp $ do
+        reserved "record"
+        TRecord <$> record (many1 row)
+      where
+        row = (,) <$> identifier <*> typeExpr
+    tagType =
+      sexp $ do
+        reserved "tag"
+        TTag <$> identifier <*> typeExpr
+    functionType =
+      sexp $ do
+        reserved "fn"
+        TFunction <$> many1 typeExpr
 
-functionType =
-  sexp $ do
-    reserved "fn"
-    TFunction <$> many1 typeExpr
-
+valueExpr :: Parser ValueExpr
 valueExpr =
   cases
     [ lambdaValue
@@ -124,60 +123,68 @@ valueExpr =
     , applicationValue
     , recordValue
     , vectorValue
-    , symbolValue
     , atomValue
+    , symbolValue
     ]
-
-lambdaValue =
-  sexp $ do
-    reserved "fn"
-    VLambda <$> many identifier <*> valueExpr
-
-ifValue =
-  sexp $ do
-    reserved "if"
-    VIf <$> valueExpr <*> valueExpr <*> valueExpr
-
-matchValue =
-  sexp $ do
-    reserved "match"
-    VMatch <$> valueExpr <*> many1 pattrn
-
-pattrn = sexp $ (,) <$> valueExpr <*> valueExpr
-
-sequenceValue =
-  sexp $ do
-    reserved "do"
-    VSequence <$> many1 valueExpr
-
-letValue =
-  sexp $ do
-    reserved "let"
-    VLet <$> vector (many binding) <*> valueExpr
   where
-    binding = vector $ (,) <$> identifier <*> valueExpr
+    lambdaValue =
+      sexp $ do
+        reserved "fn"
+        args <- vector $ many identifier
+        body <- valueExpr
+        pure $ foldr VLambda body args
+    ifValue =
+      sexp $ do
+        reserved "if"
+        VIf <$> valueExpr <*> valueExpr <*> valueExpr
+    matchValue =
+      sexp $ do
+        reserved "match"
+        VMatch <$> valueExpr <*> many1 pattrn
+      where
+        pattrn = sexp $ (,) <$> patternExpr <*> valueExpr
+    sequenceValue =
+      sexp $ do
+        reserved "do"
+        VSequence <$> many1 valueExpr
+    letValue =
+      sexp $ do
+        reserved "let"
+        bindings <- vector $ many binding
+        body <- valueExpr
+        pure $ foldr (\(name, body) inner -> VLet name body inner) body bindings
+      where
+        binding = vector $ (,) <$> identifier <*> valueExpr
+    applicationValue =
+      sexp $ do
+        function <- valueExpr
+        args <- many valueExpr
+        pure $ foldl (\closure arg -> VApplication closure arg) function args
+    recordValue = record $ VRecord <$> many1 row
+      where
+        row = (,) <$> identifier <*> valueExpr
+    vectorValue = VVector <$> vector (many valueExpr)
+    symbolValue = VSymbol <$> identifier
+    atomValue = VAtom <$> atom
 
-applicationValue = sexp $ VApplication <$> identifier <*> many valueExpr
-
-recordValue = record $ VRecord <$> many1 row
+patternExpr :: Parser PatternExpr
+patternExpr = cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
   where
-    row = (,) <$> identifier <*> valueExpr
+    symbolPattern = PSymbol <$> identifier
+    vectorPattern = PVector <$> vector (many patternExpr)
+    atomPattern = PAtom <$> atom
+    wildcardPattern = PWildcard <$ reserved "_"
 
-vectorValue = VVector <$> vector (many valueExpr)
-
-symbolValue = VSymbol <$> identifier
-
-atomValue = VAtom <$> atom
-
-atom = cases [unitAtom, integerAtom, stringAtom, keywordAtom]
-
-unitAtom = do
-  reserved "()"
-  pure AUnit
-
-integerAtom = AInteger . read <$> many1 digit
-
-stringAtom =
-  AString . T.pack <$> between (char '"') (char '"') (many $ noneOf "\"")
-
-keywordAtom = AKeyword <$> (char ':' *> identifier)
+atom :: Parser Atom
+atom = cases [unitAtom, integerAtom, stringAtom, keywordAtom, booleanAtom]
+  where
+    unitAtom = do
+      reserved "()"
+      pure AUnit
+    integerAtom = AInteger . read <$> many1 digit
+    stringAtom =
+      AString . T.pack <$> between (char '"') (char '"') (many $ noneOf "\"")
+    keywordAtom = AKeyword <$> (char ':' *> identifier)
+    booleanAtom =
+      ABoolean <$>
+      choice [reserved "true" *> pure True, reserved "false" *> pure False]
