@@ -4,26 +4,23 @@ module Parser.Abstract
   , file
   , definition
   , typeExpr
-  , valueExpr
+  , expr
   , patternExpr
   , atom
   , cases
   ) where
 
-import           Control.Monad
 import           Data.Functor
-import           Data.Text         (Text)
-import qualified Data.Text         as T
+import           Data.Functor.Identity
+import           Data.Text             (Text)
+import qualified Data.Text             as T
 import           Text.Parsec
-import           Text.Parsec.Token hiding (identifier, reserved)
-import qualified Text.Parsec.Token as P
+import           Text.Parsec.Token     hiding (identifier, reserved)
+import qualified Text.Parsec.Token     as P
 
 import           Syntax.Abstract
 
-type Parser a = Parsec Text () a
-
-parser :: Parser Definition
-parser = file
+type Parser a = ParsecT Text () Identity a
 
 lang =
   LanguageDef
@@ -58,13 +55,24 @@ identifier = T.pack <$> P.identifier lexer
 
 reserved = P.reserved lexer
 
-name = VSymbol <$> identifier
+name =
+  withExtent $ do
+    n <- identifier
+    pure $ \meta -> ESymbol meta n
 
 file :: Parser Definition
 file = do
   (DModule moduleName []) <- definition
   definitions <- many definition
   pure $ DModule moduleName definitions
+
+withExtent :: Parser (Meta -> ExprA Meta) -> Parser (ExprA Meta)
+withExtent p = do
+  start <- getPosition
+  result <- p
+  end <- getPosition
+  let meta = Meta {extent = (start, end)}
+  pure $ result meta
 
 definition :: Parser Definition
 definition =
@@ -84,18 +92,21 @@ definition =
     constantDefinition =
       sexp $ do
         reserved "def"
-        DConstant <$> identifier <*> valueExpr
-    functionDefinition =
+        DConstant <$> identifier <*> expr
+    functionDefinition = do
+      start <- getPosition
       sexp $ do
         reserved "defn"
         functionName <- identifier
         functionArguments <- vector $ many identifier
-        functionBody <- many valueExpr
+        functionBody <- many expr
+        end <- getPosition
+        let meta = Meta {extent = (start, end)}
         pure $
           DFunction functionName functionArguments $
           case functionBody of
             [form] -> form
-            forms  -> VSequence forms
+            forms  -> ESequence meta forms
 
 typeExpr :: Parser TypeExpr
 typeExpr = cases [productType, sumType, recordType, tagType, functionType]
@@ -123,8 +134,9 @@ typeExpr = cases [productType, sumType, recordType, tagType, functionType]
         reserved "fn"
         TFunction <$> many1 typeExpr
 
-valueExpr :: Parser ValueExpr
-valueExpr =
+expr :: Parser (ExprA Meta)
+expr =
+  withExtent $
   cases
     [ lambdaValue
     , ifValue
@@ -142,43 +154,60 @@ valueExpr =
       sexp $ do
         reserved "fn"
         args <- vector $ many identifier
-        body <- valueExpr
-        pure $ foldr VLambda body args
+        body <- expr
+        pure $ \meta -> foldr (ELambda meta) body args
     ifValue =
       sexp $ do
         reserved "if"
-        VIf <$> valueExpr <*> valueExpr <*> valueExpr
+        test <- expr
+        thn <- expr
+        els <- expr
+        pure $ \meta -> EIf meta test thn els
     matchValue =
       sexp $ do
         reserved "match"
-        VMatch <$> valueExpr <*> many1 pattrn
+        body <- expr
+        patterns <- many1 pattrn
+        pure $ \meta -> EMatch meta body patterns
       where
-        pattrn = sexp $ (,) <$> patternExpr <*> valueExpr
+        pattrn = sexp $ (,) <$> patternExpr <*> expr
     sequenceValue =
       sexp $ do
         reserved "do"
-        VSequence <$> many1 valueExpr
+        steps <- many1 expr
+        pure $ \meta -> ESequence meta steps
     letValue =
       sexp $ do
         reserved "let"
         bindings <- vector $ many binding
-        body <- valueExpr
-        pure $ foldr (\(name, body) inner -> VLet name body inner) body bindings
+        body <- expr
+        pure $ \meta ->
+          foldr (\(name, body) inner -> ELet meta name body inner) body bindings
       where
-        binding = vector $ (,) <$> identifier <*> valueExpr
+        binding = vector $ (,) <$> identifier <*> expr
     applicationValue =
       sexp $ do
-        function <- valueExpr
-        args <- many valueExpr
-        pure $ foldl VApplication function args
-    recordValue = record $ VRecord <$> many1 row
+        function <- expr
+        args <- many expr
+        pure $ \meta -> foldl (EApplication meta) function args
+    recordValue =
+      record $ do
+        rows <- many1 row
+        pure $ \meta -> ERecord meta rows
       where
-        row = (,) <$> identifier <*> valueExpr
-    vectorValue = VVector <$> vector (many valueExpr)
-    symbolValue = VSymbol <$> identifier
-    atomValue = VAtom <$> atom
+        row = (,) <$> identifier <*> expr
+    vectorValue =
+      vector $ do
+        elements <- many expr
+        pure $ \meta -> EVector meta elements
+    symbolValue = do
+      sym <- identifier
+      pure $ \meta -> ESymbol meta sym
+    atomValue = do
+      a <- atom
+      pure $ \meta -> EAtom meta a
 
-patternExpr :: Parser PatternExpr
+patternExpr :: Parser Pattern
 patternExpr = cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
   where
     symbolPattern = PSymbol <$> identifier

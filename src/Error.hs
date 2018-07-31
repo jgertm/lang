@@ -13,8 +13,9 @@ data Error
   | Inference InferenceError
   deriving (Show, Eq)
 
-data InterpretationError =
-  Unimplemented
+data InterpretationError
+  = Unimplemented
+  | Semantics
   deriving (Show, Eq)
 
 data InferenceError =

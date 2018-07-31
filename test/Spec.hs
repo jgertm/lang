@@ -1,5 +1,6 @@
 module Main where
 
+import           Data.Functor
 import           Data.Monoid
 import           Data.Text        (Text)
 import           Test.Tasty
@@ -22,7 +23,7 @@ interpreter, parser, typeInference :: TestTree
 interpreter =
   let test name inp out =
         testCase name $
-        (runInterpreter mempty . interpretValue =<< parse valueExpr "<test>" inp) @?=
+        (runInterpreter mempty . interpretValue =<< parse expr "<test>" inp) @?=
         Right out
    in testGroup
         "Interpreter"
@@ -41,38 +42,42 @@ parser =
         "Parser"
         [ testGroup
             "Primitives"
-            [ let test = tester name
+            [ let test = tester (void <$> name)
                in testGroup
                     "Lexeme"
-                    [ test "compact name" "foobar" $ VSymbol "foobar"
-                    , test "qualified name" "foo.bar" $ VSymbol "foo.bar"
+                    [ test "compact name" "foobar" $ ESymbol () "foobar"
+                    , test "qualified name" "foo.bar" $ ESymbol () "foo.bar"
                     ]
             ]
         , testGroup "Values" $
-          let test = tester valueExpr
+          let test = tester (void <$> expr)
            in [ testGroup
                   "Lambdas"
-                  [ test "id lambda" "(fn [x] x)" (VLambda "x" (VSymbol "x"))
+                  [ test
+                      "id lambda"
+                      "(fn [x] x)"
+                      (ELambda () "x" (ESymbol () "x"))
                   , test
                       "const lambda"
                       "(fn [x y] x)"
-                      (VLambda "x" (VLambda "y" (VSymbol "x")))
+                      (ELambda () "x" (ELambda () "y" (ESymbol () "x")))
                   , test
                       "id application"
                       "((fn [x] x) 1)"
-                      (VApplication
-                         (VLambda "x" (VSymbol "x"))
-                         (VAtom (AInteger 1)))
+                      (EApplication
+                         ()
+                         (ELambda () "x" (ESymbol () "x"))
+                         (EAtom () (AInteger 1)))
                   ]
               , testGroup
                   "Vectors"
-                  [ test "empty" "[]" (VVector mempty)
-                  , test "empty w/ space" "[ ]" (VVector mempty)
-                  , test "unit element" "[()]" (VVector [VAtom AUnit])
+                  [ test "empty" "[]" (EVector () mempty)
+                  , test "empty w/ space" "[ ]" (EVector () mempty)
+                  , test "unit element" "[()]" (EVector () [EAtom () AUnit])
                   , test
                       "numbers"
                       "[1 2 3]"
-                      (VVector $ fmap (VAtom . AInteger) [1, 2, 3])
+                      (EVector () $ fmap (EAtom () . AInteger) [1, 2, 3])
                   ]
               ]
         , testGroup
@@ -97,13 +102,19 @@ typeInference =
         testCase name $ runInfer (inferValue inp) @?= Left (Inference err)
    in testGroup
         "Type Inference"
-        [ test "integer literal" (VAtom (AInteger 42)) integer
-        , test "string literal" (VAtom (AString "foobar")) string
-        , test "boolean literal" (VAtom (ABoolean True)) boolean
-        , test "integer vector" (VVector [VAtom (AInteger 42)]) (vector integer)
+        [ test "integer literal" (EAtom () (AInteger 42)) integer
+        , test "string literal" (EAtom () (AString "foobar")) string
+        , test "boolean literal" (EAtom () (ABoolean True)) boolean
+        , test
+            "integer vector"
+            (EVector () [EAtom () (AInteger 42)])
+            (vector integer)
         , testError
             "heterogenous vector"
-            (VVector [VAtom (AInteger 42), VAtom AUnit])
+            (EVector () [EAtom () (AInteger 42), EAtom () AUnit])
             (TypeMismatch integer unit)
-        , test "let-bound unit" (VLet "foo" (VAtom (AUnit)) (VSymbol "foo")) unit
+        , test
+            "let-bound unit"
+            (ELet () "foo" (EAtom () AUnit) (ESymbol () "foo"))
+            unit
         ]

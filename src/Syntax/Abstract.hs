@@ -2,8 +2,10 @@ module Syntax.Abstract
   ( Name
   , Definition(..)
   , TypeExpr(..)
-  , ValueExpr(..)
-  , PatternExpr(..)
+  , ExprA(..)
+  , Expr
+  , Meta(..)
+  , Pattern(..)
   , Atom(..)
   , Env
   , descendM
@@ -11,9 +13,11 @@ module Syntax.Abstract
   ) where
 
 import           Data.Bifunctor
+import           Data.Functor.Classes
 import           Data.Functor.Identity
 import           Data.Map              (Map)
 import           Data.Text             (Text)
+import           Text.Parsec           (SourcePos)
 
 type Name = Text
 
@@ -28,10 +32,10 @@ data Definition
   | DType Name
           TypeExpr
   | DConstant Name
-              ValueExpr
+              (ExprA Meta)
   | DFunction Name
               [Name] -- ^ arguments
-              ValueExpr
+              (ExprA Meta)
   deriving (Show, Eq)
 
 type MacroExpr = () -- TODO
@@ -45,30 +49,49 @@ data TypeExpr
   | TFunction [TypeExpr]
   deriving (Show, Eq)
 
-data ValueExpr
-  = VLambda Name
-            ValueExpr
-  | VIf ValueExpr -- ^ test
-        ValueExpr -- ^ true
-        ValueExpr -- ^ false
-  | VMatch ValueExpr -- ^ prototype
-           [(PatternExpr, ValueExpr)] -- ^ match clauses
-  | VSequence [ValueExpr]
-  | VLet Name -- ^ bound name
-         ValueExpr -- ^ body
-         ValueExpr -- ^ scope
-  | VApplication ValueExpr -- ^ function
-                 ValueExpr -- ^ argument
-  | VRecord [(Name, ValueExpr)]
-  | VVector [ValueExpr]
-  | VSymbol Name
-  | VAtom Atom
-  deriving (Show, Eq, Ord)
+data ExprA ann
+  = ELambda ann
+            Name
+            (ExprA ann)
+  | EIf ann
+        (ExprA ann) -- ^ test
+        (ExprA ann) -- ^ true
+        (ExprA ann) -- ^ (ExprA ann)alse
+  | EMatch ann
+           (ExprA ann) -- ^ prototype
+           [(Pattern, ExprA ann)] -- ^ match clauses
+  | ESequence ann
+              [ExprA ann]
+  | ELet ann
+         Name -- ^ bound name
+         (ExprA ann) -- ^ body
+         (ExprA ann) -- ^ scope
+  | EApplication ann
+                 (ExprA ann) -- ^ (ExprA ann)unction
+                 (ExprA ann) -- ^ argument
+  | ERecord ann
+            [(Name, ExprA ann)]
+  | EVector ann
+            [ExprA ann]
+  | ESymbol ann
+            Name
+  | EAtom ann
+          Atom
+  deriving (Show, Eq, Ord, Functor)
 
-data PatternExpr
+data Meta = Meta
+  { extent :: (SourcePos, SourcePos)
+  } deriving (Show, Eq, Ord)
+
+type Expr = ExprA ()
+
+-- deriving instance Show Expr
+-- deriving instance Eq Expr
+-- deriving instance Ord Expr
+data Pattern
   = PSymbol Name
-  -- | PTag Name [PatternExpr]
-  | PVector [PatternExpr]
+  -- | PTag Name [Pattern]
+  | PVector [Pattern]
   | PAtom Atom
   | PWildcard
   deriving (Show, Eq, Ord)
@@ -80,29 +103,31 @@ data Atom
   | AKeyword Name
   | ABoolean Bool
   -- | AVector [Atom] -- FIXME: this isn't atomic
-  | AClosure ValueExpr
+  | AClosure Expr
              Name
   deriving (Show, Eq, Ord)
 
 type Env = Map Name Atom
 
-descendM :: (Monad m) => (ValueExpr -> m ValueExpr) -> ValueExpr -> m ValueExpr
-descendM f expr =
+descendM ::
+     (Monad m) => (ExprA ann -> m (ExprA ann)) -> ExprA ann -> m (ExprA ann)
+descendM f ex =
   f =<<
-  case expr of
-    VLambda n ex -> VLambda n <$> descendM f ex
-    VIf test thn els ->
-      VIf <$> descendM f test <*> descendM f thn <*> descendM f els
-    VMatch sample matches ->
-      VMatch <$> descendM f sample <*>
+  case ex of
+    ELambda m n ex -> ELambda m n <$> descendM f ex
+    EIf m test thn els ->
+      EIf m <$> descendM f test <*> descendM f thn <*> descendM f els
+    EMatch m sample matches ->
+      EMatch m <$> descendM f sample <*>
       traverse (sequenceA . second (descendM f)) matches
-    VSequence exs -> VSequence <$> traverse (descendM f) exs
-    VLet name body ex -> VLet name <$> descendM f body <*> descendM f ex
-    VApplication n arg -> VApplication n <$> descendM f arg
-    VRecord rows -> VRecord <$> traverse (sequenceA . second (descendM f)) rows
-    VVector els -> VVector <$> traverse (descendM f) els
-    VSymbol n -> pure $ VSymbol n
-    VAtom atom -> pure $ VAtom atom
+    ESequence m exs -> ESequence m <$> traverse (descendM f) exs
+    ELet m name body ex -> ELet m name <$> descendM f body <*> descendM f ex
+    EApplication m n arg -> EApplication m n <$> descendM f arg
+    ERecord m rows ->
+      ERecord m <$> traverse (sequenceA . second (descendM f)) rows
+    EVector m els -> EVector m <$> traverse (descendM f) els
+    ESymbol m n -> pure $ ESymbol m n
+    EAtom m atom -> pure $ EAtom m atom
 
-descend :: (ValueExpr -> ValueExpr) -> ValueExpr -> ValueExpr
+descend :: (ExprA ann -> ExprA ann) -> ExprA ann -> ExprA ann
 descend f = runIdentity . descendM (pure . f)
