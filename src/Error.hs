@@ -1,8 +1,23 @@
-module Error where
+module Error
+  ( Error(..)
+  , InterpretationError(..)
+  , InferenceError(..)
+  ) where
 
-import           Text.Parsec (ParseError)
+import qualified Text.Parsec as Parsec
+import           Types
 
 data Error
-  = Parsing ParseError
-  | Interpreting String
+  = Parsing Parsec.ParseError
+  | Interpretation InterpretationError
+  | Inference InferenceError
+  deriving (Show, Eq)
+
+data InterpretationError =
+  Unimplemented
+  deriving (Show, Eq)
+
+data InferenceError =
+  TypeMismatch Type
+               Type
   deriving (Show, Eq)

@@ -1,7 +1,6 @@
 module Builtins where
 
 import           Data.Map.Lazy
-import           Data.Text       (Text)
 
 import           Syntax.Abstract
 
@@ -11,6 +10,6 @@ getInt _            = Nothing
 
 functions :: Map Name ([Atom] -> Maybe Atom)
 functions =
-  [ ("+", (\args -> AInteger . sum <$> traverse getInt args))
-  , ("*", (\args -> AInteger . product <$> traverse getInt args))
+  [ ("+", fmap (AInteger . sum) . traverse getInt)
+  , ("*", fmap (AInteger . product) . traverse getInt)
   ]

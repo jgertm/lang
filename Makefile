@@ -1,13 +1,12 @@
 PROJECT = lang
 NIX_SHELL = nix-shell --attr env $(PROJECT).nix
 
-generate-nix-files: 
+generate-nix-files:
 	hpack
 	cabal2nix --hpack . > default.nix
 
 shell: generate-nix-files
 	$(NIX_SHELL)
-
 
 build: generate-nix-files
 	$(NIX_SHELL) --run "cabal new-build"
@@ -26,7 +25,7 @@ ghcid: generate-nix-files
 		--test=Dev.main"
 
 test: generate-nix-files
-	$(NIX_SHELL) --run "fd -e hs | entr cabal new-test" 
+	$(NIX_SHELL) --run "fd -e hs | entr cabal new-test"
 
 run: generate-nix-files
 	$(NIX_SHELL) --run "cabal run"
@@ -34,3 +33,6 @@ run: generate-nix-files
 format:
 	fd -e hs -x hindent
 	fd -e hs -x stylish-haskell -i
+
+lint:
+	fd -e hs | xargs hlint

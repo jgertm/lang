@@ -79,7 +79,7 @@ data Atom
   | AString Text
   | AKeyword Name
   | ABoolean Bool
-  | AVector [Atom]
+  -- | AVector [Atom] -- FIXME: this isn't atomic
   | AClosure ValueExpr
              Name
   deriving (Show, Eq, Ord)

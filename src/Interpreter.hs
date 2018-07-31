@@ -19,17 +19,25 @@ import           Lens.Micro.Platform
 import           Error
 import           Syntax.Abstract
 
-type MonadInterpret m = (MonadReader Env m, MonadError Error m)
+type MonadInterpret m = (MonadReader Env m, MonadError InterpretationError m)
 
-type Interpreter a = ReaderT Env (Except Error) a
+newtype Interpreter a = Interpret
+  { unInterpret :: ReaderT Env (Except InterpretationError) a
+  } deriving ( Functor
+             , Applicative
+             , Monad
+             , MonadError InterpretationError
+             , MonadReader Env
+             )
 
 runInterpreter :: Env -> Interpreter a -> Either Error a
-runInterpreter env = runExcept . flip runReaderT env
+runInterpreter env =
+  runExcept . withExcept Interpretation . flip runReaderT env . unInterpret
 
-liftMaybe = maybe (throwError $ Interpreting "liftMaybe") pure
+liftMaybe = maybe (throwError Unimplemented) pure
 
 interpretAtom :: (MonadInterpret m) => Atom -> m Atom
-interpretAtom a = pure a
+interpretAtom = pure
 
 interpretValue :: (MonadInterpret m) => ValueExpr -> m Atom
 interpretValue (VLambda arg body) = pure $ AClosure body arg
@@ -46,9 +54,9 @@ interpretValue (VLet name body expr) = do
 interpretValue (VApplication app argVal) = do
   argVal' <- interpretValue argVal
   AClosure body argName <- interpretValue app
-  interpretValue $ replaceSymbol argName argVal' body
-  -- local (M.insert argName argVal') $ interpretValue body
-interpretValue (VVector exprs) = AVector <$> traverse interpretValue exprs
+  interpretValue $ replaceSymbol argName argVal' body -- FIXME: this is ugly
+  -- local (M.insert argName argVal') $ interpretValue body -- FIXME: this should work
+interpretValue (VVector exprs) = undefined -- AVector <$> traverse interpretValue exprs
 interpretValue (VSymbol sym) = liftMaybe . M.lookup sym =<< ask
 interpretValue (VAtom atom) = interpretAtom atom
 

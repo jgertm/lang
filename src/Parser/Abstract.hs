@@ -1,6 +1,17 @@
-module Parser.Abstract where
+module Parser.Abstract
+  ( Parser
+  , name
+  , file
+  , definition
+  , typeExpr
+  , valueExpr
+  , patternExpr
+  , atom
+  , cases
+  ) where
 
 import           Control.Monad
+import           Data.Functor
 import           Data.Text         (Text)
 import qualified Data.Text         as T
 import           Text.Parsec
@@ -159,7 +170,7 @@ valueExpr =
       sexp $ do
         function <- valueExpr
         args <- many valueExpr
-        pure $ foldl (\closure arg -> VApplication closure arg) function args
+        pure $ foldl VApplication function args
     recordValue = record $ VRecord <$> many1 row
       where
         row = (,) <$> identifier <*> valueExpr
@@ -186,5 +197,4 @@ atom = cases [unitAtom, integerAtom, stringAtom, keywordAtom, booleanAtom]
       AString . T.pack <$> between (char '"') (char '"') (many $ noneOf "\"")
     keywordAtom = AKeyword <$> (char ':' *> identifier)
     booleanAtom =
-      ABoolean <$>
-      choice [reserved "true" *> pure True, reserved "false" *> pure False]
+      ABoolean <$> choice [reserved "true" $> True, reserved "false" $> False]
