@@ -13,8 +13,8 @@ mkDerivation {
     mtl parsec pretty-simple text
   ];
   libraryToolDepends = [ hpack ];
-  executableHaskellDepends = [ base haskeline parsec text ];
-  testHaskellDepends = [ base parsec tasty tasty-hunit text ];
+  executableHaskellDepends = [ base haskeline text ];
+  testHaskellDepends = [ base tasty tasty-hunit text ];
   preConfigure = "hpack";
   homepage = "https://github.com/jgertm/lang#readme";
   license = stdenv.lib.licenses.bsd3;

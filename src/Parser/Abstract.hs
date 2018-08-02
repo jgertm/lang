@@ -62,6 +62,7 @@ name =
 
 file :: Parser Definition
 file = do
+  ws
   (DModule moduleName []) <- definition
   definitions <- many definition
   pure $ DModule moduleName definitions
@@ -219,7 +220,7 @@ atom :: Parser Atom
 atom = cases [unitAtom, integerAtom, stringAtom, keywordAtom, booleanAtom]
   where
     unitAtom = do
-      reserved "()"
+      reserved "nil"
       pure AUnit
     integerAtom = AInteger . read <$> many1 digit
     stringAtom =

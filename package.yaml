@@ -70,13 +70,11 @@ default-extensions:
   - TypeInType
   - TypeOperators
   - TypeSynonymInstances
-  - UndecidableInstances
   - ViewPatterns
   
 dependencies:
   - base >= 4.7 && < 5
   - text
-  - parsec
 
 library:
   source-dirs:        src

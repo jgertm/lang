@@ -1,5 +1,6 @@
 module Main where
 
+import           Data.Foldable
 import qualified Data.Text                as T
 import           System.Console.Haskeline
 
@@ -9,6 +10,12 @@ main = runInputT defaultSettings loop
   where
     loop = do
       minput <- getInputLine "> "
-      printHandler outputStrLn minput
-      evalHandler outputStrLn minput
-      loop
+      case minput of
+        Nothing -> pure ()
+        Just ":quit" -> pure ()
+        Just "" -> loop
+        Just input -> do
+          traverse_
+            (\h -> outputStrLn $ h input)
+            ([printHandler, symbolHandler, evalHandler] :: [String -> String])
+          loop

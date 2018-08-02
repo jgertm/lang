@@ -20,6 +20,7 @@ ghcid: generate-nix-files
 		--reload=./src \
 		--reload=./exe \
 		--reload=./test \
+		--reload=./examples \
 		--command='cabal new-repl lib:$(PROJECT)' \
 		--warnings \
 		--test=Dev.main"

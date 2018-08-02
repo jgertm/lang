@@ -11,20 +11,55 @@ import           Inference
 import           Interpreter
 import           Parser
 import           Parser.Abstract  hiding (parser)
+import           Renaming
 import           Syntax.Abstract
 import           Types
 
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [interpreter, parser, typeInference]
+tests = testGroup "Tests" [renaming, interpreter, parser, typeInference]
 
-interpreter, parser, typeInference :: TestTree
+renaming, interpreter, parser, typeInference :: TestTree
+renaming =
+  let tester outC name inp out =
+        testCase name $
+        (rename =<< parse (void <$> expr) "<test>" inp) @?= outC out
+      test = tester Right
+      testError = tester (Left . Renaming)
+   in testGroup
+        "Renaming"
+        [ testError "bare symbol" "a" (UnknownSymbol "a")
+        , test
+            "lambda-bound symbol"
+            "(fn [x] x)"
+            (ELambda () "x0" (ESymbol () "x0"))
+        , test
+            "let-bound symbol"
+            "(let [[a nil]] a)"
+            (ELet () "a0" (EAtom () AUnit) (ESymbol () "a0"))
+        , test
+            "let-bound colliding symbols"
+            "(let [[a nil] [a 1]] a)"
+            (ELet
+               ()
+               "a0"
+               (EAtom () AUnit)
+               (ELet () "a1" (EAtom () (AInteger 1)) (ESymbol () "a1")))
+        , test
+            "let id apply eval"
+            "(let [[foo (fn [x] x)]] (foo 1))"
+            (ELet
+               ()
+               "foo0"
+               (ELambda () "x0" (ESymbol () "x0"))
+               (EApplication () (ESymbol () "foo0") (EAtom () (AInteger 1))))
+        ]
+
 interpreter =
   let test name inp out =
         testCase name $
-        (runInterpreter mempty . interpretValue =<< parse expr "<test>" inp) @?=
-        Right out
+        (interpret =<< rename =<< parse expr "<test>" inp) @?= Right out
    in testGroup
         "Interpreter"
         [ test "id eval" "((fn [x] x) 1)" (AInteger 1)
@@ -34,6 +69,7 @@ interpreter =
             "let id apply eval"
             "(let [[foo (fn [x] x)]] (foo 1))"
             (AInteger 1)
+        , test "complicated" "(let [[a nil] [a ((fn [x y] x) a 1)]] a)" AUnit
         ]
 
 parser =
@@ -73,7 +109,7 @@ parser =
                   "Vectors"
                   [ test "empty" "[]" (EVector () mempty)
                   , test "empty w/ space" "[ ]" (EVector () mempty)
-                  , test "unit element" "[()]" (EVector () [EAtom () AUnit])
+                  , test "unit element" "[nil]" (EVector () [EAtom () AUnit])
                   , test
                       "numbers"
                       "[1 2 3]"
@@ -87,19 +123,19 @@ parser =
                 [ let test = tester patternExpr
                    in testGroup
                         "Patterns"
-                        [ test "trivial" "nil" (PSymbol "nil")
-                        , test "unit" "()" (PAtom AUnit)
-                        , test "unit vector" "[()]" (PVector [PAtom AUnit])
+                        [ test "trivial" "a" (PSymbol "a")
+                        , test "unit" "nil" (PAtom AUnit)
+                        , test "unit vector" "[nil]" (PVector [PAtom AUnit])
                         ]
                 ]
             ]
         ]
 
 typeInference =
-  let test name inp out =
-        testCase name $ runInfer (inferValue inp) @?= Right out
-      testError name inp err =
-        testCase name $ runInfer (inferValue inp) @?= Left (Inference err)
+  let tester outC name inp out =
+        testCase name $ runInfer (inferValue inp) @?= outC out
+      test = tester Right
+      testError = tester (Left . Inference)
    in testGroup
         "Type Inference"
         [ test "integer literal" (EAtom () (AInteger 42)) integer

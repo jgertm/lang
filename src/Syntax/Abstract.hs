@@ -7,17 +7,18 @@ module Syntax.Abstract
   , Meta(..)
   , Pattern(..)
   , Atom(..)
-  , Env
   , descendM
   , descend
   ) where
 
 import           Data.Bifunctor
-import           Data.Functor.Classes
 import           Data.Functor.Identity
-import           Data.Map              (Map)
-import           Data.Text             (Text)
-import           Text.Parsec           (SourcePos)
+import           Data.Generics.Product.Typed
+import           Data.Set                    (Set)
+import           Data.Text                   (Text)
+import           GHC.Generics                (Generic)
+import           Lens.Micro.Platform
+import           Text.Parsec                 (SourcePos)
 
 type Name = Text
 
@@ -77,17 +78,14 @@ data ExprA ann
             Name
   | EAtom ann
           Atom
-  deriving (Show, Eq, Ord, Functor)
+  deriving (Show, Eq, Ord, Functor, Generic, Foldable, Traversable)
 
 data Meta = Meta
   { extent :: (SourcePos, SourcePos)
-  } deriving (Show, Eq, Ord)
+  } deriving (Show, Eq, Ord, Generic)
 
 type Expr = ExprA ()
 
--- deriving instance Show Expr
--- deriving instance Eq Expr
--- deriving instance Ord Expr
 data Pattern
   = PSymbol Name
   -- | PTag Name [Pattern]
@@ -106,8 +104,6 @@ data Atom
   | AClosure Expr
              Name
   deriving (Show, Eq, Ord)
-
-type Env = Map Name Atom
 
 descendM ::
      (Monad m) => (ExprA ann -> m (ExprA ann)) -> ExprA ann -> m (ExprA ann)

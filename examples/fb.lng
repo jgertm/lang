@@ -1,15 +1,16 @@
+;; -*- mode: lisp; -*-
 (defmodule foo.fb)
 
 (defn void []
   nil)
 
-(defn main 
+(defn main
   [& args]
   (->> args
        head
        (option/fallback (println "error") fizzbuzz)))
 
-(defn fizzbuzz 
+(defn fizzbuzz
   [n]
   (let [[fizz-n 3]
         [buzz-n 5]]
@@ -20,8 +21,4 @@
             ([_ 0] (println "buzz"))
             (_ (-> n show println)))
           (recur (dec n)))
-      (pure ()))))
-
-;; Local Variables:
-;; mode: lisp
-;; End:
+      (pure nil))))

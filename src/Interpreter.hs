@@ -1,9 +1,12 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Interpreter where
 
 import           Control.Monad.Except
 import           Control.Monad.Fail
 import           Control.Monad.Reader
-import qualified Data.Map             as M
+import           Data.Map.Strict      (Map)
+import qualified Data.Map.Strict      as M
 import           Data.Maybe
 
 import           Error
@@ -11,6 +14,8 @@ import           Syntax.Abstract
 
 type MonadInterpret m
    = (MonadReader Env m, MonadError InterpretationError m, MonadFail m)
+
+type Env = Map Name Atom
 
 newtype Interpreter a = Interpret
   { unInterpret :: ReaderT Env (Except InterpretationError) a
@@ -20,6 +25,8 @@ newtype Interpreter a = Interpret
              , MonadError InterpretationError
              , MonadReader Env
              )
+
+interpret = runInterpreter mempty . interpretValue
 
 instance MonadFail Interpreter where
   fail _ = throwError Semantics
