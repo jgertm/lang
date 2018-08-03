@@ -5,9 +5,9 @@ module Error
   , InferenceError(..)
   ) where
 
-import qualified Text.Parsec     as Parsec
+import qualified Text.Parsec as Parsec
 
-import           Syntax.Abstract
+import           Syntax
 import           Types
 
 data Error

@@ -1,8 +1,5 @@
 module Main where
 
-import           Data.Functor
-import           Data.Monoid
-import           Data.Text        (Text)
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
@@ -10,9 +7,8 @@ import           Error
 import           Inference
 import           Interpreter
 import           Parser
-import           Parser.Abstract  hiding (parser)
 import           Renaming
-import           Syntax.Abstract
+import           Syntax
 import           Types
 
 main = defaultMain tests
@@ -33,27 +29,34 @@ renaming =
         , test
             "lambda-bound symbol"
             "(fn [x] x)"
-            (ELambda () "x0" (ESymbol () "x0"))
+            (ELambda noMeta "x0" (ESymbol noMeta "x0"))
         , test
             "let-bound symbol"
             "(let [[a nil]] a)"
-            (ELet () "a0" (EAtom () AUnit) (ESymbol () "a0"))
+            (ELet noMeta "a0" (EAtom noMeta AUnit) (ESymbol noMeta "a0"))
         , test
             "let-bound colliding symbols"
             "(let [[a nil] [a 1]] a)"
             (ELet
-               ()
+               noMeta
                "a0"
-               (EAtom () AUnit)
-               (ELet () "a1" (EAtom () (AInteger 1)) (ESymbol () "a1")))
+               (EAtom noMeta AUnit)
+               (ELet
+                  noMeta
+                  "a1"
+                  (EAtom noMeta (AInteger 1))
+                  (ESymbol noMeta "a1")))
         , test
             "let id apply eval"
             "(let [[foo (fn [x] x)]] (foo 1))"
             (ELet
-               ()
+               noMeta
                "foo0"
-               (ELambda () "x0" (ESymbol () "x0"))
-               (EApplication () (ESymbol () "foo0") (EAtom () (AInteger 1))))
+               (ELambda noMeta "x0" (ESymbol noMeta "x0"))
+               (EApplication
+                  noMeta
+                  (ESymbol noMeta "foo0")
+                  (EAtom noMeta (AInteger 1))))
         ]
 
 interpreter =
@@ -81,8 +84,8 @@ parser =
             [ let test = tester (void <$> name)
                in testGroup
                     "Lexeme"
-                    [ test "compact name" "foobar" $ ESymbol () "foobar"
-                    , test "qualified name" "foo.bar" $ ESymbol () "foo.bar"
+                    [ test "compact name" "foobar" $ ESymbol noMeta "foobar"
+                    , test "qualified name" "foo.bar" $ ESymbol noMeta "foo.bar"
                     ]
             ]
         , testGroup "Values" $
@@ -92,28 +95,34 @@ parser =
                   [ test
                       "id lambda"
                       "(fn [x] x)"
-                      (ELambda () "x" (ESymbol () "x"))
+                      (ELambda noMeta "x" (ESymbol noMeta "x"))
                   , test
                       "const lambda"
                       "(fn [x y] x)"
-                      (ELambda () "x" (ELambda () "y" (ESymbol () "x")))
+                      (ELambda
+                         noMeta
+                         "x"
+                         (ELambda noMeta "y" (ESymbol noMeta "x")))
                   , test
                       "id application"
                       "((fn [x] x) 1)"
                       (EApplication
-                         ()
-                         (ELambda () "x" (ESymbol () "x"))
-                         (EAtom () (AInteger 1)))
+                         noMeta
+                         (ELambda noMeta "x" (ESymbol noMeta "x"))
+                         (EAtom noMeta (AInteger 1)))
                   ]
               , testGroup
                   "Vectors"
-                  [ test "empty" "[]" (EVector () mempty)
-                  , test "empty w/ space" "[ ]" (EVector () mempty)
-                  , test "unit element" "[nil]" (EVector () [EAtom () AUnit])
+                  [ test "empty" "[]" (EVector noMeta mempty)
+                  , test "empty w/ space" "[ ]" (EVector noMeta mempty)
+                  , test
+                      "unit element"
+                      "[nil]"
+                      (EVector noMeta [EAtom noMeta AUnit])
                   , test
                       "numbers"
                       "[1 2 3]"
-                      (EVector () $ fmap (EAtom () . AInteger) [1, 2, 3])
+                      (EVector noMeta $ fmap (EAtom noMeta . AInteger) [1, 2, 3])
                   ]
               ]
         , testGroup
@@ -138,19 +147,21 @@ typeInference =
       testError = tester (Left . Inference)
    in testGroup
         "Type Inference"
-        [ test "integer literal" (EAtom () (AInteger 42)) integer
-        , test "string literal" (EAtom () (AString "foobar")) string
-        , test "boolean literal" (EAtom () (ABoolean True)) boolean
+        [ test "integer literal" (EAtom noMeta (AInteger 42)) integer
+        , test "string literal" (EAtom noMeta (AString "foobar")) string
+        , test "boolean literal" (EAtom noMeta (ABoolean True)) boolean
         , test
             "integer vector"
-            (EVector () [EAtom () (AInteger 42)])
+            (EVector noMeta [EAtom noMeta (AInteger 42)])
             (vector integer)
         , testError
             "heterogenous vector"
-            (EVector () [EAtom () (AInteger 42), EAtom () AUnit])
+            (EVector noMeta [EAtom noMeta (AInteger 42), EAtom noMeta AUnit])
             (TypeMismatch integer unit)
         , test
             "let-bound unit"
-            (ELet () "foo" (EAtom () AUnit) (ESymbol () "foo"))
+            (ELet noMeta "foo" (EAtom noMeta AUnit) (ESymbol noMeta "foo"))
             unit
         ]
+
+noMeta = [()]

@@ -3,14 +3,11 @@
 module Interpreter where
 
 import           Control.Monad.Except
-import           Control.Monad.Fail
-import           Control.Monad.Reader
-import           Data.Map.Strict      (Map)
 import qualified Data.Map.Strict      as M
-import           Data.Maybe
+import qualified Universum.Unsafe     as Unsafe
 
 import           Error
-import           Syntax.Abstract
+import           Syntax
 
 type MonadInterpret m
    = (MonadReader Env m, MonadError InterpretationError m, MonadFail m)
@@ -33,7 +30,7 @@ instance MonadFail Interpreter where
 
 runInterpreter :: Env -> Interpreter a -> Either Error a
 runInterpreter env =
-  runExcept . withExcept Interpretation . flip runReaderT env . unInterpret
+  runExcept . withExcept Interpretation . usingReaderT env . unInterpret
 
 liftMaybe = maybe (throwError Unimplemented) pure
 
@@ -48,7 +45,8 @@ interpretValue (EIf _ test t f) = do
     if bool
       then t
       else f
-interpretValue (ESequence _ exprs) = last <$> traverse interpretValue exprs
+interpretValue (ESequence _ exprs) =
+  Unsafe.last <$> traverse interpretValue exprs
 interpretValue (ELet _ name body expr) = do
   res <- interpretValue body
   local (M.insert name res) $ interpretValue expr

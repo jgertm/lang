@@ -71,20 +71,13 @@ default-extensions:
   - TypeOperators
   - TypeSynonymInstances
   - ViewPatterns
-  
+
 dependencies:
-  - base >= 4.7 && < 5
+  - base-noprelude >= 4.7 && < 5
   - text
 
 library:
   source-dirs:        src
-  # exposed-modules:
-  #   - Builtins
-  #   - Handlers
-  #   - Interpreter
-  #   - Parser.Abstract
-  #   - Syntax.Abstract
-  #   - Types
   dependencies:
     - containers
     - generic-lens
@@ -93,6 +86,7 @@ library:
     - mtl
     - pretty-simple
     - parsec
+    - universum
 
 executables:
   langi:

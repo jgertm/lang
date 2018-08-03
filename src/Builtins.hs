@@ -1,8 +1,6 @@
 module Builtins where
 
-import           Data.Map.Lazy
-
-import           Syntax.Abstract
+import           Syntax
 
 getInt :: Atom -> Maybe Int
 getInt (AInteger i) = Just i

@@ -1,88 +1,92 @@
-module Syntax.Abstract
+module Syntax
   ( Name
   , Definition(..)
-  , TypeExpr(..)
+  , TypeExprA(..)
+  , TypeExpr
   , ExprA(..)
   , Expr
-  , Meta(..)
   , Pattern(..)
   , Atom(..)
   , descendM
   , descend
+  , metaM
+  , meta
   ) where
 
-import           Data.Bifunctor
-import           Data.Functor.Identity
-import           Data.Generics.Product.Typed
-import           Data.Set                    (Set)
-import           Data.Text                   (Text)
-import           GHC.Generics                (Generic)
-import           Lens.Micro.Platform
-import           Text.Parsec                 (SourcePos)
+import           Data.Text    (Text)
+import           GHC.Generics (Generic)
 
 type Name = Text
 
-data Definition
-  = DModule Name
-            [Definition]
-  | DMacro Name
+data Definition ann
+  = DModule [ann]
+            Name
+            [Definition ann]
+  | DMacro [ann]
+           Name
            [Name] -- ^ arguments
            MacroExpr
   -- | DClass -- TODO: typeclass definition
   -- | DInstance -- TODO: typeclass instance definition
-  | DType Name
-          TypeExpr
-  | DConstant Name
-              (ExprA Meta)
-  | DFunction Name
+  | DType [ann]
+          Name
+          (TypeExprA ann)
+  | DConstant [ann]
+              Name
+              (ExprA ann)
+  | DFunction [ann]
+              Name
               [Name] -- ^ arguments
-              (ExprA Meta)
+              (ExprA ann)
   deriving (Show, Eq)
 
 type MacroExpr = () -- TODO
 
-data TypeExpr
-  = TProduct [TypeExpr]
-  | TSum [TypeExpr]
-  | TRecord [(Name, TypeExpr)]
-  | TTag Name -- ^ keyword
-         TypeExpr
-  | TFunction [TypeExpr]
+data TypeExprA ann
+  = TProduct [ann]
+             [TypeExprA ann]
+  | TSum [ann]
+         [TypeExprA ann]
+  | TRecord [ann]
+            [(Name, TypeExprA ann)]
+  | TTag [ann]
+         Name -- ^ keyword
+         (TypeExprA ann)
+  | TFunction [ann]
+              [TypeExprA ann]
   deriving (Show, Eq)
 
+type TypeExpr = TypeExprA ()
+
 data ExprA ann
-  = ELambda ann
+  = ELambda [ann]
             Name
             (ExprA ann)
-  | EIf ann
+  | EIf [ann]
         (ExprA ann) -- ^ test
         (ExprA ann) -- ^ true
-        (ExprA ann) -- ^ (ExprA ann)alse
-  | EMatch ann
+        (ExprA ann) -- ^ false
+  | EMatch [ann]
            (ExprA ann) -- ^ prototype
            [(Pattern, ExprA ann)] -- ^ match clauses
-  | ESequence ann
+  | ESequence [ann]
               [ExprA ann]
-  | ELet ann
+  | ELet [ann]
          Name -- ^ bound name
          (ExprA ann) -- ^ body
          (ExprA ann) -- ^ scope
-  | EApplication ann
-                 (ExprA ann) -- ^ (ExprA ann)unction
+  | EApplication [ann]
+                 (ExprA ann) -- ^ function
                  (ExprA ann) -- ^ argument
-  | ERecord ann
+  | ERecord [ann]
             [(Name, ExprA ann)]
-  | EVector ann
+  | EVector [ann]
             [ExprA ann]
-  | ESymbol ann
+  | ESymbol [ann]
             Name
-  | EAtom ann
+  | EAtom [ann]
           Atom
-  deriving (Show, Eq, Ord, Functor, Generic, Foldable, Traversable)
-
-data Meta = Meta
-  { extent :: (SourcePos, SourcePos)
-  } deriving (Show, Eq, Ord, Generic)
+  deriving (Show, Eq, Ord, Functor, Generic)
 
 type Expr = ExprA ()
 
@@ -118,7 +122,7 @@ descendM f ex =
       traverse (sequenceA . second (descendM f)) matches
     ESequence m exs -> ESequence m <$> traverse (descendM f) exs
     ELet m name body ex -> ELet m name <$> descendM f body <*> descendM f ex
-    EApplication m n arg -> EApplication m n <$> descendM f arg
+    EApplication m fn arg -> EApplication m <$> descendM f fn <*> descendM f arg
     ERecord m rows ->
       ERecord m <$> traverse (sequenceA . second (descendM f)) rows
     EVector m els -> EVector m <$> traverse (descendM f) els
@@ -127,3 +131,25 @@ descendM f ex =
 
 descend :: (ExprA ann -> ExprA ann) -> ExprA ann -> ExprA ann
 descend f = runIdentity . descendM (pure . f)
+
+metaM :: (Monad m) => ([ann] -> m [bnn]) -> ExprA ann -> m (ExprA bnn)
+metaM f ex =
+  case ex of
+    ELambda m n ex -> ELambda <$> f m <*> pure n <*> metaM f ex
+    EIf m test thn els ->
+      EIf <$> f m <*> metaM f test <*> metaM f thn <*> metaM f els
+    EMatch m sample matches ->
+      EMatch <$> f m <*> metaM f sample <*>
+      traverse (sequenceA . second (metaM f)) matches
+    ESequence m exs -> ESequence <$> f m <*> traverse (metaM f) exs
+    ELet m name body ex ->
+      ELet <$> f m <*> pure name <*> metaM f body <*> metaM f ex
+    EApplication m fn arg -> EApplication <$> f m <*> metaM f fn <*> metaM f arg
+    ERecord m rows ->
+      ERecord <$> f m <*> traverse (sequenceA . second (metaM f)) rows
+    EVector m els -> EVector <$> f m <*> traverse (metaM f) els
+    ESymbol m n -> ESymbol <$> f m <*> pure n
+    EAtom m atom -> EAtom <$> f m <*> pure atom
+
+meta :: ([ann] -> [bnn]) -> ExprA ann -> ExprA bnn
+meta f = runIdentity . metaM (pure . f)

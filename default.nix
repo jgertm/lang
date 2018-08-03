@@ -1,6 +1,7 @@
-{ mkDerivation, base, containers, generic-lens, generic-lens-labels
-, haskeline, hpack, microlens-platform, mtl, parsec, pretty-simple
-, stdenv, tasty, tasty-hunit, text
+{ mkDerivation, base-noprelude, containers, generic-lens
+, generic-lens-labels, haskeline, hpack, microlens-platform, mtl
+, parsec, pretty-simple, stdenv, tasty, tasty-hunit, text
+, universum
 }:
 mkDerivation {
   pname = "lang";
@@ -9,12 +10,12 @@ mkDerivation {
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
-    base containers generic-lens generic-lens-labels microlens-platform
-    mtl parsec pretty-simple text
+    base-noprelude containers generic-lens generic-lens-labels
+    microlens-platform mtl parsec pretty-simple text universum
   ];
   libraryToolDepends = [ hpack ];
-  executableHaskellDepends = [ base haskeline text ];
-  testHaskellDepends = [ base tasty tasty-hunit text ];
+  executableHaskellDepends = [ base-noprelude haskeline text ];
+  testHaskellDepends = [ base-noprelude tasty tasty-hunit text ];
   preConfigure = "hpack";
   homepage = "https://github.com/jgertm/lang#readme";
   license = stdenv.lib.licenses.bsd3;

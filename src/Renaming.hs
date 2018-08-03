@@ -5,15 +5,11 @@ module Renaming
   ) where
 
 import           Control.Monad.Except
-import           Control.Monad.Reader
-import           Data.Functor
 import           Data.Map.Strict      (Map)
 import qualified Data.Map.Strict      as M
-import           Data.Monoid
-import           Data.Text            as T
 
 import           Error
-import           Syntax.Abstract
+import           Syntax
 
 type MonadRename m = (MonadError RenamingError m, MonadReader Env m)
 
@@ -34,7 +30,7 @@ rename = runRenaming . renameExpr
 
 runRenaming :: Renamer a -> Either Error a
 runRenaming =
-  runExcept . withExcept Renaming . flip runReaderT (Env M.empty) . unRename
+  runExcept . withExcept Renaming . usingReaderT (Env M.empty) . unRename
 
 alias :: (MonadRename m) => Name -> m Name
 alias name = do
@@ -42,7 +38,7 @@ alias name = do
   pure $
     case M.lookup name map of
       Nothing -> name
-      Just i  -> name <> T.pack (show i)
+      Just i  -> name <> show i
 
 add :: (MonadRename m) => Name -> m a -> m a
 add name =
@@ -52,9 +48,7 @@ add name =
 check :: (MonadRename m) => Name -> m ()
 check name = do
   Env map <- ask
-  case M.lookup name map of
-    Nothing -> throwError $ UnknownSymbol name
-    Just _  -> pure ()
+  whenNothing_ (M.lookup name map) $ throwError $ UnknownSymbol name
 
 -- TODO: include original name in metadata
 renameExpr :: (MonadRename m) => ExprA ann -> m (ExprA ann)
