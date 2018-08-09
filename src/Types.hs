@@ -3,45 +3,46 @@ module Types where
 import           Data.Map  (Map)
 import           Data.Text (Text)
 
-type TVar = Text
+newtype Metavar =
+  MV Int
+  deriving (Show, Eq, Ord, Enum)
+
+type Name = Text
 
 data Type
-  = Variable TVar
-  | Simple Text
+  = Primitive PrimitiveType
+  | Application Type
+                Type
+  | Constructor Name
   | Higher Type
            Type
   | Function Type
              Type
+  | Product [Type]
+  | Record (Map Name Type)
+  | Variant (Map Name Type)
+  | Metavariable Metavar
+  | Bottom
   deriving (Show, Eq, Ord)
 
-data Kind
-  = KStar
-  | KList [Type]
-  | KMap (Map Text Type)
-  | KSet [Type]
-  deriving (Show, Eq, Ord) -- TODO: higher kinds
+data PrimitiveType
+  = Unit
+  | Integer
+  | String
+  | Boolean
+  deriving (Show, Eq, Ord)
 
 unit, integer, string, boolean :: Type
-unit = Simple "unit"
+unit = Primitive Unit
 
-integer = Simple "integer"
+integer = Primitive Integer
 
-string = Simple "string"
+string = Primitive String
 
-boolean = Simple "boolean"
+boolean = Primitive Boolean
 
 vector :: Type -> Type
-vector = Higher (Simple "vector")
---
--- data Type
---   = Atomic AtomicType
---   | Product [Type]
---   | Sum [(Identifier, Maybe Type)]
---   | Record [(Identifier, Type)]
---   deriving (Show, Eq)
--- data AtomicType
---   = UnitT
---   | IntegerT
---   | StringT
---   | KeywordT
---   deriving (Show, Eq)
+vector = Higher (Constructor "vector")
+
+fn :: [Type] -> Type
+fn = foldr1 Function

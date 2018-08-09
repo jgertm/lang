@@ -2,12 +2,22 @@ module Dev where
 
 import           Text.Pretty.Simple
 
-import           Parser
+import qualified Inference
+import qualified Interpreter
+import qualified Parser
+import qualified Renaming
+import qualified Syntax
 
 main :: IO ()
 main = do
-  let path = "examples/fb.lng"
+  let path = "examples/if.lang"
   contents <- readFile path
-  case parse file path contents of
-    Left e    -> pPrint e
-    Right ast -> pPrint ast
+  pPrint . infer $ parse contents
+
+parse = fromRight undefined . Parser.parse Parser.term "<input>"
+
+rename = fromRight undefined . Renaming.rename
+
+interpret = fromRight undefined . Interpreter.interpretWith mempty
+
+infer = Inference.infer

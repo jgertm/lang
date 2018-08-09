@@ -1,30 +1,44 @@
 module Parser
   ( parse
   , Parser
-  , name
+  , Parser.name
   , file
   , definition
   , typeExpr
-  , expr
+  , term
   , patternExpr
   , atom
   , cases
   ) where
 
-import           Text.Parsec       hiding (many, parse)
+import           Text.Parsec       hiding (State, many, parse)
 import qualified Text.Parsec       as P
 import           Text.Parsec.Token hiding (identifier, reserved)
 import qualified Text.Parsec.Token as P
 
-import           Annotation
 import           Error
 import           Syntax
+
+data Parsing
+
+type instance Context Parsing = (SourcePos, SourcePos)
+
+type Term = Term' Parsing
+
+type Definition = Definition' Parsing
+
+type Type = Type' Parsing
+
+type Pattern = Pattern' Parsing
 
 parse :: Parser a -> String -> Text -> Either Error a
 parse parser source input = first Parsing $ P.parse parser source input
 
-type Parser a = ParsecT Text () Identity a
+type State = ()
 
+type Parser a = ParsecT Text State Identity a
+
+lang :: (Monad m) => GenLanguageDef Text State m
 lang =
   LanguageDef
     { commentStart = mempty -- ^ Describes the start of a block comment. Use the empty string if the language doesn't support block comments. For example "/*".
@@ -40,123 +54,125 @@ lang =
     , caseSensitive = True -- ^ Set to True if the language is case sensitive.
     }
 
+lexer :: (Monad m) => GenTokenParser Text State m
 lexer = makeTokenParser lang
 
+ws :: Parser ()
 ws = whiteSpace lexer
 
+trimr :: Parser a -> Parser a
 trimr p = p <* ws
 
-cases = trimr . choice . fmap P.try
+cases :: [Parser a] -> Parser a
+cases = trimr . choice . map P.try
 
+sexp, vector, record :: Parser a -> Parser a
 sexp = parens lexer
 
 vector = brackets lexer
 
 record = braces lexer
 
+identifier :: Parser Text
 identifier = toText <$> P.identifier lexer
 
+reserved :: String -> Parser ()
 reserved = P.reserved lexer
 
-injectMetadata :: Parser ([Meta] -> ast Meta) -> Parser (ast Meta)
-injectMetadata p = do
+injectContext :: Parser (Context Parsing -> ast) -> Parser ast
+injectContext p = do
   start <- getPosition
   result <- p
   end <- getPosition
-  let extent = Extent start end
-  pure $ result [extent]
+  let extent = (start, end)
+  pure $ result extent
 
+name :: Parser Term
 name =
-  injectMetadata $ do
-    n <- identifier
-    pure $ \meta -> ESymbol meta n
+  injectContext $ do
+    n <- binding
+    pure $ \ctx -> ESymbol ctx n
 
-file :: Parser (Definition Meta)
+file :: Parser Definition
 file = do
   ws
-  (DModule meta moduleName []) <- definition
+  (DModule ctx moduleName []) <- definition
   definitions <- many definition
-  pure $ DModule meta moduleName definitions
+  pure $ DModule ctx moduleName definitions
 
-definition :: Parser (Definition Meta)
+definition :: Parser Definition
 definition =
-  injectMetadata $
+  injectContext $
   cases
-    [ moduleDefinition -- typeDefinition,
-    , constantDefinition
-    , functionDefinition
-    ]
+    [moduleDefinition, typeDefinition, constantDefinition, functionDefinition]
   where
     moduleDefinition =
       sexp $ do
         reserved "defmodule"
-        name <- identifier
+        modulename <- identifier
         forms <- many definition
-        pure $ \meta -> DModule meta name forms
+        pure $ \ctx -> DModule ctx modulename forms
     typeDefinition =
       sexp $ do
         reserved "deftype"
-        name <- identifier
+        typename <- identifier
         structure <- typeExpr
-        pure $ \meta -> DType meta name structure
+        pure $ \ctx -> DType ctx typename structure
     constantDefinition =
       sexp $ do
         reserved "def"
-        name <- identifier
-        value <- expr
-        pure $ \meta -> DConstant meta name value
+        constname <- identifier
+        value <- term
+        pure $ \ctx -> DConstant ctx constname value
     functionDefinition =
       sexp $ do
         reserved "defn"
-        name <- identifier
-        args <- vector $ many identifier
-        start <- getPosition
-        body <- many expr
-        end <- getPosition
-        let meta = Extent start end
-        pure $ \meta ->
-          DFunction meta name args $
+        funcname <- identifier
+        args <- vector $ many binding
+        body <- many term
+        pure $ \ctx ->
+          DFunction ctx funcname args $
           case body of
             [form] -> form
-            forms  -> ESequence meta forms
+            forms  -> ESequence ctx forms
 
-typeExpr :: Parser (TypeExprA Meta)
+typeExpr :: Parser Type
 typeExpr =
-  injectMetadata $
+  injectContext $
   cases [productType, sumType, recordType, tagType, functionType]
   where
     productType =
       sexp $ do
         reserved "product"
         factors <- many1 typeExpr
-        pure $ \meta -> TProduct meta factors
+        pure $ \ctx -> TProduct ctx factors
     sumType =
       sexp $ do
         reserved "sum"
         summands <- many1 typeExpr
-        pure $ \meta -> TSum meta summands
+        pure $ \ctx -> TSum ctx summands
     recordType =
       sexp $ do
         reserved "record"
         rows <- record (many1 row)
-        pure $ \meta -> TRecord meta rows
+        pure $ \ctx -> TRecord ctx rows
       where
         row = (,) <$> identifier <*> typeExpr
     tagType =
       sexp $ do
         reserved "tag"
-        name <- identifier
+        tagname <- identifier
         inner <- typeExpr
-        pure $ \meta -> TTag meta name inner
+        pure $ \ctx -> TTag ctx tagname inner
     functionType =
       sexp $ do
         reserved "fn"
         domains <- many1 typeExpr
-        pure $ \meta -> TFunction meta domains
+        pure $ \ctx -> TFunction ctx domains
 
-expr :: Parser (ExprA Meta)
-expr =
-  injectMetadata $
+term :: Parser Term
+term =
+  injectContext $
   cases
     [ lambdaValue
     , ifValue
@@ -166,6 +182,7 @@ expr =
     , applicationValue
     , recordValue
     , vectorValue
+    , keywordValue
     , atomValue
     , symbolValue
     ]
@@ -173,81 +190,94 @@ expr =
     lambdaValue =
       sexp $ do
         reserved "fn"
-        args <- vector $ many identifier
-        body <- expr
-        pure $ \meta -> foldr (ELambda meta) body args
+        args <- vector $ many binding
+        body <- term
+        pure $ \ctx -> ELambda ctx args body
     ifValue =
       sexp $ do
         reserved "if"
-        test <- expr
-        thn <- expr
-        els <- expr
-        pure $ \meta -> EIf meta test thn els
+        test <- term
+        thn <- term
+        els <- term
+        pure $ \ctx -> EIf ctx test thn els
     matchValue =
       sexp $ do
         reserved "match"
-        body <- expr
+        body <- term
         patterns <- many1 pattrn
-        pure $ \meta -> EMatch meta body patterns
+        pure $ \ctx -> EMatch ctx body patterns
       where
-        pattrn = sexp $ (,) <$> patternExpr <*> expr
+        pattrn = sexp $ (,) <$> patternExpr <*> term
     sequenceValue =
       sexp $ do
         reserved "do"
-        steps <- many1 expr
-        pure $ \meta -> ESequence meta steps
+        steps <- many1 term
+        pure $ \ctx -> ESequence ctx steps
     letValue =
       sexp $ do
         reserved "let"
-        bindings <- vector $ many binding
-        body <- expr
-        pure $ \meta ->
-          foldr (\(name, body) inner -> ELet meta name body inner) body bindings
+        bindings <- vector $ many association
+        body <- term
+        pure $ \ctx -> ELet ctx bindings body
       where
-        binding = vector $ (,) <$> identifier <*> expr
+        association = vector $ (,) <$> binding <*> term -- TODO: individual vector for bindings might be unneccesary
     applicationValue =
       sexp $ do
-        function <- expr
-        args <- many expr
-        pure $ \meta -> foldl (EApplication meta) function args
+        function <- term
+        args <- many term
+        pure $ \ctx -> EApplication ctx function args
     recordValue =
       record $ do
         rows <- many1 row
-        pure $ \meta -> ERecord meta rows
+        pure $ \ctx -> ERecord ctx rows
       where
-        row = (,) <$> identifier <*> expr
+        row = (,) <$> identifier <*> term
     vectorValue =
       vector $ do
-        elements <- many expr
-        pure $ \meta -> EVector meta elements
+        elements <- many term
+        pure $ \ctx -> EVector ctx elements
     symbolValue = do
-      sym <- identifier
-      pure $ \meta -> ESymbol meta sym
+      sym <- binding
+      pure $ \ctx -> ESymbol ctx sym
+    keywordValue = do
+      reserved ":"
+      keyword <- identifier
+      pure $ \ctx -> EKeyword ctx keyword
     atomValue = do
       a <- atom
-      pure $ \meta -> EAtom meta a
+      pure $ \ctx -> EAtom ctx a
+
+binding :: Parser Binding
+binding = Single <$> identifier
 
 patternExpr :: Parser Pattern
-patternExpr = cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
+patternExpr =
+  injectContext $
+  cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
   where
-    symbolPattern = PSymbol <$> identifier
-    vectorPattern = PVector <$> vector (many patternExpr)
-    atomPattern = PAtom <$> atom
-    wildcardPattern = PWildcard <$ reserved "_"
+    wildcardPattern = reserved "_" $> \ctx -> PWildcard ctx
+    symbolPattern = do
+      sym <- binding
+      pure $ \ctx -> PSymbol ctx sym
+    vectorPattern = do
+      subpatterns <- vector $ many patternExpr
+      pure $ \ctx -> PVector ctx subpatterns
+    atomPattern = do
+      atm <- atom
+      pure $ \ctx -> PAtom ctx atm
 
 atom :: Parser Atom
-atom = cases [unitAtom, integerAtom, stringAtom, keywordAtom, booleanAtom]
+atom = cases [unitAtom, integerAtom, stringAtom, booleanAtom]
   where
     unitAtom = do
       reserved "nil"
       pure AUnit
     integerAtom = do
-      number <- readMaybe <$> many1 digit
-      case number of
-        Nothing     -> parserFail "couldn't decipher integer"
-        Just number -> pure $ AInteger number
+      mnum <- readMaybe <$> many1 digit
+      case mnum of
+        Nothing  -> parserFail "couldn't decipher integer"
+        Just num -> pure $ AInteger num
     stringAtom =
       AString . toText <$> between (char '"') (char '"') (many $ noneOf "\"")
-    keywordAtom = AKeyword <$> (char ':' *> identifier)
     booleanAtom =
       ABoolean <$> choice [reserved "true" $> True, reserved "false" $> False]

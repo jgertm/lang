@@ -4,70 +4,105 @@ module Interpreter where
 
 import           Control.Monad.Except
 import qualified Data.Map.Strict      as M
-import qualified Universum.Unsafe     as Unsafe
 
+import           Builtins
 import           Error
 import           Syntax
 
-type MonadInterpret m
-   = (MonadReader Env m, MonadError InterpretationError m, MonadFail m)
+data Evaluation
 
-type Env = Map Name Atom
+type instance Context Evaluation = ()
 
-newtype Interpreter a = Interpret
-  { unInterpret :: ReaderT Env (Except InterpretationError) a
-  } deriving ( Functor
-             , Applicative
-             , Monad
-             , MonadError InterpretationError
-             , MonadReader Env
-             )
+type Term = Term' Evaluation
 
-interpret = runInterpreter mempty . interpretValue
+type Definition = Definition' Evaluation
 
-instance MonadFail Interpreter where
-  fail _ = throwError Semantics
+type Type = Type' Evaluation
 
-runInterpreter :: Env -> Interpreter a -> Either Error a
-runInterpreter env =
-  runExcept . withExcept Interpretation . usingReaderT env . unInterpret
+type Pattern = Pattern' Evaluation
 
-liftMaybe = maybe (throwError Unimplemented) pure
+type MonadInterpret m = (MonadReader Env m, MonadError InterpretationError m)
 
-interpretAtom :: (MonadInterpret m) => Atom -> m Atom
-interpretAtom = pure
+type Env = Map Binding Term
 
-interpretValue :: (MonadInterpret m) => ExprA ann -> m Atom
-interpretValue (ELambda _ arg body) = pure $ AClosure (void body) arg
-interpretValue (EIf _ test t f) = do
-  ABoolean bool <- interpretValue test
-  interpretValue $
-    if bool
-      then t
-      else f
-interpretValue (ESequence _ exprs) =
-  Unsafe.last <$> traverse interpretValue exprs
-interpretValue (ELet _ name body expr) = do
-  res <- interpretValue body
-  local (M.insert name res) $ interpretValue expr
-interpretValue (EApplication _ app argVal) = do
-  argVal' <- interpretValue argVal
-  AClosure body argName <- interpretValue app
-  interpretValue $ replaceSymbol argName argVal' body -- FIXME: this is ugly
-  -- local (M.insert argName argVal') $ interpretValue body -- FIXME: this should work
-interpretValue (EVector _ exprs) = undefined -- AVector <$> traverse interpretValue exprs
-interpretValue (ESymbol _ sym) = liftMaybe . M.lookup sym =<< ask
-interpretValue (EAtom _ atom) = interpretAtom atom
+interpret :: Term' phase -> Either Error Term
+interpret = interpretWith $ map (\bi -> ENative () bi []) builtins
 
-replaceWith :: (ExprA ann -> Maybe (ExprA ann)) -> ExprA ann -> ExprA ann
+interpretWith :: Env -> Term' phase -> Either Error Term
+interpretWith env = runInterpreter env . eval . meta (const ())
+
+runInterpreter :: Env -> _ a -> Either Error a
+runInterpreter env = runExcept . withExcept Interpretation . usingReaderT env
+
+replaceWith :: (Term -> Maybe Term) -> Term -> Term
 replaceWith fn = descend (\vex -> fromMaybe vex $ fn vex)
 
-replaceSymbol :: Name -> Atom -> ExprA ann -> ExprA ann
-replaceSymbol name atom =
+replaceSymbol :: Binding -> Term -> Term -> Term
+replaceSymbol binding substitution =
   replaceWith
     (\case
-       ESymbol ann name' ->
-         if name == name'
-           then Just (EAtom ann atom)
+       ESymbol _ binding' ->
+         if binding == binding'
+           then Just substitution
            else Nothing
        _ -> Nothing)
+
+replaceSymbols :: Map Binding Term -> Term -> Term
+replaceSymbols dict =
+  replaceWith
+    (\case
+       ESymbol _ binding -> M.lookup binding dict
+       _ -> Nothing)
+
+eval :: (MonadInterpret m) => Term -> m Term
+eval (EApplication _ fn args) = do
+  args' <- traverse eval args
+  fn' <- eval fn
+  case fn' of
+    ELambda _ argv lambdabody ->
+      let dict = M.fromList $ zip argv args'
+          lambdabody' = replaceSymbols dict lambdabody
+          argv' = drop (length args) argv
+       in if null argv'
+            then pure lambdabody'
+            else pure $ ELambda def argv' lambdabody'
+    ENative ctx builtin oldargs ->
+      let atoms = map (\(EAtom _ atom) -> atom) args'
+       in eval $ ENative ctx builtin (oldargs <> atoms) -- FIXME: don't use `undefined` here
+eval (ENative _ builtin args) = pure $ EAtom def $ function builtin args
+eval (ELet _ bindings body) =
+  let go ((name, value):moreBindings) = do
+        value' <- eval value
+        local (M.insert name value') $ go moreBindings
+      go [] = eval body
+   in go bindings
+eval (EIf _ test true false) = do
+  EAtom _ (ABoolean result) <- eval test
+  eval $
+    if result
+      then true
+      else false
+eval (ESymbol _ binding@(Single name)) = do
+  env <- ask
+  liftMaybe (UnboundSymbol name) $ M.lookup binding env
+eval (EMatch _ prototype clauses) = do
+  prototype' <- eval prototype
+  (bindings, body) <-
+    liftMaybe NoMatchingPattern .
+    getFirst .
+    foldMap (\(pat, body) -> First . map (, body) $ match pat prototype') $
+    clauses
+  local (`M.union` bindings) $ eval body
+eval e = metaM (const pass) e
+
+match :: Pattern' phase -> Term -> Maybe (Map Binding Term)
+match (PWildcard _) _ = Just M.empty
+match (PSymbol _ binding) expr = Just $ M.singleton binding expr
+match (PVector _ pv) (EVector _ ev) = do
+  guard $ length pv == length ev
+  map M.unions . sequenceA $ zipWith match pv ev
+match (PAtom _ pat) (EAtom _ atm) =
+  if pat == atm
+    then Just M.empty
+    else Nothing
+match _ _ = Nothing

@@ -19,6 +19,7 @@ ghc-options:
   - -O2
   - -Wall
   - -Wcompat
+  - -fllvm
   # - -Werror
 
 default-extensions:
@@ -52,7 +53,6 @@ default-extensions:
   - NamedWildCards
   - NoMonomorphismRestriction
   - OverloadedLabels
-  - OverloadedLists
   - OverloadedStrings
   - PartialTypeSignatures
   - PatternSynonyms
@@ -67,7 +67,6 @@ default-extensions:
   - TupleSections
   - TypeApplications
   - TypeFamilies
-  - TypeInType
   - TypeOperators
   - TypeSynonymInstances
   - ViewPatterns
@@ -75,17 +74,19 @@ default-extensions:
 dependencies:
   - base-noprelude >= 4.7 && < 5
   - text
+  - parsec
+  - containers
 
 library:
   source-dirs:        src
   dependencies:
-    - containers
+    - data-default
+    - data-partition
     - generic-lens
-    - generic-lens-labels
     - microlens-platform
     - mtl
     - pretty-simple
-    - parsec
+    - prettyprinter
     - universum
 
 executables:
@@ -100,6 +101,8 @@ tests:
   lang-tests:
     source-dirs:      test
     main:             Spec.hs
+    ghc-options:
+      - -O0
     dependencies:
       - lang
       - tasty

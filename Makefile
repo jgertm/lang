@@ -21,7 +21,7 @@ ghcid: generate-nix-files
 		--reload=./exe \
 		--reload=./test \
 		--reload=./examples \
-		--command='cabal new-repl lib:$(PROJECT)' \
+		--command='cabal new-repl lib:$(PROJECT) --ghc-options=-ignore-dot-ghci' \
 		--warnings \
 		--test=Dev.main"
 

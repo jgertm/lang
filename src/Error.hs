@@ -8,7 +8,7 @@ module Error
 import qualified Text.Parsec as Parsec
 
 import           Syntax
-import           Types
+import           Types       (Metavar, Type)
 
 data Error
   = Parsing Parsec.ParseError
@@ -24,9 +24,13 @@ data RenamingError =
 data InterpretationError
   = Unimplemented
   | Semantics
+  | UnboundSymbol Name
+  | NoMatchingPattern
   deriving (Show, Eq)
 
-data InferenceError =
-  TypeMismatch Type
-               Type
+data InferenceError
+  = UnificationFailure Type
+                       Type
+  | UnknownBinding Syntax.Binding
+  | UnknownVariable Metavar
   deriving (Show, Eq)

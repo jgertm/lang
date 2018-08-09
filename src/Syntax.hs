@@ -1,155 +1,328 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module Syntax
   ( Name
-  , Definition(..)
-  , TypeExprA(..)
-  , TypeExpr
-  , ExprA(..)
-  , Expr
-  , Pattern(..)
-  , Atom(..)
+  , Context
+  , Tree(..)
+  , ascendM
+  , ascend
   , descendM
   , descend
-  , metaM
+  , metaM_
   , meta
+  , context
+  , Definition'(..)
+  , Type'(..)
+  , Term'(..)
+  , Binding(..)
+  , Pattern'(..)
+  , Atom(..)
+  , Builtin(..)
+  , showAtom
   ) where
 
-import           Data.Text    (Text)
-import           GHC.Generics (Generic)
+import           Data.Bitraversable
+import           Data.Text          (Text)
+import           GHC.Generics       (Generic)
+import           GHC.Show           (Show (showsPrec))
+import qualified Universum.Unsafe   as Unsafe
+
+import           Types              (Type)
 
 type Name = Text
 
-data Definition ann
-  = DModule [ann]
+type family Context phase
+
+data Direction
+  = Up
+  | Down
+
+class Tree (t :: * -> *) p where
+  walkM :: (Monad f) => Direction -> (t p -> f (t p)) -> t p -> f (t p)
+  metaM ::
+       (Applicative f, Tree t p, Tree t q)
+    => (Context p -> f (Context q))
+    -> t p
+    -> f (t q)
+
+ascendM, descendM :: (Tree t p, Monad m) => (t p -> m (t p)) -> t p -> m (t p)
+[ascendM, descendM] = map walkM [Up, Down]
+
+ascend, descend :: (Tree t p) => (t p -> t p) -> t p -> t p
+[ascend, descend] = map (\t f -> runIdentity . t (pure . f)) [ascendM, descendM]
+
+metaM_ :: (Monad m, Tree t p) => (Context p -> m a) -> t p -> m (t p)
+metaM_ f = metaM (\e -> f e $> e)
+
+meta :: (Tree t p, Tree t q) => (Context p -> Context q) -> t p -> t q
+meta f = runIdentity . metaM (pure . f)
+
+context :: (Tree t p) => t p -> Context p
+context tree =
+  let action :: (Tree t p, MonadWriter (First (Context p)) m) => t p -> m (t p)
+      action =
+        metaM
+          (\ctx -> do
+             tell $ First (Just ctx)
+             pure ctx)
+   in Unsafe.fromJust . getFirst . evalWriter $ action tree
+
+data Definition' phase
+  = DModule (Context phase)
             Name
-            [Definition ann]
-  | DMacro [ann]
+            [Definition' phase]
+  | DMacro (Context phase)
            Name
            [Name] -- ^ arguments
-           MacroExpr
+           Macro
   -- | DClass -- TODO: typeclass definition
   -- | DInstance -- TODO: typeclass instance definition
-  | DType [ann]
+  | DType (Context phase)
           Name
-          (TypeExprA ann)
-  | DConstant [ann]
+          (Type' phase)
+  | DConstant (Context phase)
               Name
-              (ExprA ann)
-  | DFunction [ann]
+              (Term' phase)
+  | DFunction (Context phase)
               Name
-              [Name] -- ^ arguments
-              (ExprA ann)
-  deriving (Show, Eq)
+              [Binding] -- ^ arguments
+              (Term' phase) -- ^ body
+  deriving (Generic)
 
-type MacroExpr = () -- TODO
+deriving instance
+         (Show (Context phase)) => Show (Definition' phase)
 
-data TypeExprA ann
-  = TProduct [ann]
-             [TypeExprA ann]
-  | TSum [ann]
-         [TypeExprA ann]
-  | TRecord [ann]
-            [(Name, TypeExprA ann)]
-  | TTag [ann]
+deriving instance (Eq (Context phase)) => Eq (Definition' phase)
+
+deriving instance (Ord (Context phase)) => Ord (Definition' phase)
+
+instance Tree Definition' phase where
+  walkM dir f =
+    let step =
+          \case
+            DModule ctx name defs ->
+              DModule ctx name <$> traverse (walkM dir f) defs
+     in case dir of
+          Up   -> f <=< step
+          Down -> step <=< f
+  metaM f def =
+    case def of
+      DModule ctx name defs -> do
+        ctx' <- f ctx
+        defs' <- traverse (metaM f) defs
+        pure $ DModule ctx' name defs'
+      DConstant ctx name term -> do
+        ctx' <- f ctx
+        term' <- metaM f term
+        pure $ DConstant ctx' name term'
+      DFunction ctx name args body -> do
+        ctx' <- f ctx
+        body' <- metaM f body
+        pure $ DFunction ctx' name args body'
+
+type Macro = () -- TODO
+
+data Type' phase
+  = TProduct (Context phase)
+             [Type' phase]
+  | TSum (Context phase)
+         [Type' phase]
+  | TRecord (Context phase)
+            [(Name, Type' phase)]
+  | TTag (Context phase)
          Name -- ^ keyword
-         (TypeExprA ann)
-  | TFunction [ann]
-              [TypeExprA ann]
-  deriving (Show, Eq)
+         (Type' phase)
+  | TFunction (Context phase)
+              [Type' phase]
+  deriving (Generic)
 
-type TypeExpr = TypeExprA ()
+deriving instance (Show (Context phase)) => Show (Type' phase)
 
-data ExprA ann
-  = ELambda [ann]
-            Name
-            (ExprA ann)
-  | EIf [ann]
-        (ExprA ann) -- ^ test
-        (ExprA ann) -- ^ true
-        (ExprA ann) -- ^ false
-  | EMatch [ann]
-           (ExprA ann) -- ^ prototype
-           [(Pattern, ExprA ann)] -- ^ match clauses
-  | ESequence [ann]
-              [ExprA ann]
-  | ELet [ann]
-         Name -- ^ bound name
-         (ExprA ann) -- ^ body
-         (ExprA ann) -- ^ scope
-  | EApplication [ann]
-                 (ExprA ann) -- ^ function
-                 (ExprA ann) -- ^ argument
-  | ERecord [ann]
-            [(Name, ExprA ann)]
-  | EVector [ann]
-            [ExprA ann]
-  | ESymbol [ann]
-            Name
-  | EAtom [ann]
+deriving instance (Eq (Context phase)) => Eq (Type' phase)
+
+deriving instance (Ord (Context phase)) => Ord (Type' phase)
+
+data Term' phase
+  = ELambda (Context phase)
+            [Binding] -- ^ arguments
+            (Term' phase) -- ^ body
+  | EIf (Context phase)
+        (Term' phase) -- ^ test
+        (Term' phase) -- ^ true
+        (Term' phase) -- ^ false
+  | EMatch (Context phase)
+           (Term' phase) -- ^ prototype
+           [(Pattern' phase, Term' phase)] -- ^ match clauses
+  | ESequence (Context phase)
+              [Term' phase]
+  | ELet (Context phase)
+         [( Binding -- ^ bound name
+          , Term' phase -- ^ body
+           )]
+         (Term' phase) -- ^ scope
+  | EApplication (Context phase)
+                 (Term' phase) -- ^ function
+                 [Term' phase] -- ^ arguments
+  | ERecord (Context phase)
+            [(Name, Term' phase)]
+  | EVector (Context phase)
+            [Term' phase]
+  | ESymbol (Context phase)
+            Binding
+  | EKeyword (Context phase)
+             Name
+  | EAtom (Context phase)
           Atom
-  deriving (Show, Eq, Ord, Functor, Generic)
+  | ENative (Context phase)
+            Builtin
+            [Atom]
+  -- | EFix (Context phase) (Term' phase) -- TODO: need this for typing recursive functions
+  deriving (Generic)
 
-type Expr = ExprA ()
+deriving instance (Show (Context phase)) => Show (Term' phase)
 
-data Pattern
-  = PSymbol Name
-  -- | PTag Name [Pattern]
-  | PVector [Pattern]
-  | PAtom Atom
-  | PWildcard
+deriving instance (Eq (Context phase)) => Eq (Term' phase)
+
+deriving instance (Ord (Context phase)) => Ord (Term' phase)
+
+instance Tree Term' phase where
+  walkM dir f =
+    let step =
+          \case
+            ELambda ctx args ex -> ELambda ctx <$> pure args <*> down ex
+            EIf ctx test thn els ->
+              EIf ctx <$> down test <*> down thn <*> down els
+            EMatch ctx sample matches ->
+              EMatch ctx <$> down sample <*>
+              traverse (sequenceA . second down) matches
+            ESequence ctx exs -> ESequence ctx <$> traverse down exs
+            ELet ctx bindings ex ->
+              ELet ctx <$>
+              traverse
+                (\(name, value) -> (,) <$> pure name <*> down value)
+                bindings <*>
+              down ex
+            EApplication ctx fn args ->
+              EApplication ctx <$> down fn <*> traverse down args
+            ERecord ctx rows ->
+              ERecord ctx <$> traverse (sequenceA . second down) rows
+            EVector ctx els -> EVector ctx <$> traverse down els
+            ESymbol ctx n -> pure $ ESymbol ctx n
+            EAtom ctx atom -> pure $ EAtom ctx atom
+          where
+            down = walkM dir f
+     in case dir of
+          Up   -> f <=< step
+          Down -> step <=< f
+  metaM f =
+    \case
+      ELambda ctx args body -> do
+        ctx' <- f ctx
+        body' <- metaM f body
+        pure $ ELambda ctx' args body'
+      EIf ctx test thn els -> do
+        ctx' <- f ctx
+        test' <- metaM f test
+        thn' <- metaM f thn
+        els' <- metaM f els
+        pure $ EIf ctx' test' thn' els'
+      EMatch ctx sample matches -> do
+        ctx' <- f ctx
+        sample' <- metaM f sample
+        matches' <- traverse (bitraverse (metaM f) (metaM f)) matches
+        pure $ EMatch ctx' sample' matches'
+      ESequence ctx terms -> do
+        ctx' <- f ctx
+        terms' <- traverse (metaM f) terms
+        pure $ ESequence ctx' terms'
+      ELet ctx bindings body -> do
+        ctx' <- f ctx
+        bindings' <- traverse (sequenceA . second (metaM f)) bindings
+        body' <- metaM f body
+        pure $ ELet ctx' bindings' body'
+      EApplication ctx fn args -> do
+        ctx' <- f ctx
+        fn' <- metaM f fn
+        args' <- traverse (metaM f) args
+        pure $ EApplication ctx' fn' args'
+      ERecord ctx rows -> do
+        ctx' <- f ctx
+        rows' <- traverse (sequenceA . second (metaM f)) rows
+        pure $ ERecord ctx' rows'
+      EVector ctx els -> do
+        ctx' <- f ctx
+        els' <- traverse (metaM f) els
+        pure $ EVector ctx' els'
+      ESymbol ctx name -> do
+        ctx' <- f ctx
+        pure $ ESymbol ctx' name
+      EAtom ctx atom -> do
+        ctx' <- f ctx
+        pure $ EAtom ctx' atom
+
+newtype Binding =
+  Single Name
   deriving (Show, Eq, Ord)
+
+data Pattern' phase
+  = PWildcard (Context phase)
+  | PSymbol (Context phase)
+            Binding
+  | PVector (Context phase)
+            [Pattern' phase]
+  | PAtom (Context phase)
+          Atom
+  deriving (Generic)
+
+deriving instance (Show (Context phase)) => Show (Pattern' phase)
+
+deriving instance (Eq (Context phase)) => Eq (Pattern' phase)
+
+deriving instance (Ord (Context phase)) => Ord (Pattern' phase)
+
+instance Tree Pattern' phase where
+  walkM dir f =
+    let step =
+          \case
+            (PVector ctx ps) -> PVector ctx <$> traverse (walkM dir f) ps
+            p -> pure p
+     in case dir of
+          Up   -> f <=< step
+          Down -> step <=< f
+  metaM f pat =
+    case pat of
+      PWildcard ctx    -> PWildcard <$> f ctx
+      PSymbol ctx bind -> PSymbol <$> f ctx <*> pure bind
+      PVector ctx ps   -> PVector <$> f ctx <*> traverse (metaM f) ps
+      PAtom ctx atom   -> PAtom <$> f ctx <*> pure atom
 
 data Atom
   = AUnit
   | AInteger Int
   | AString Text
-  | AKeyword Name
   | ABoolean Bool
-  -- | AVector [Atom] -- FIXME: this isn't atomic
-  | AClosure Expr
-             Name
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
 
-descendM ::
-     (Monad m) => (ExprA ann -> m (ExprA ann)) -> ExprA ann -> m (ExprA ann)
-descendM f ex =
-  f =<<
-  case ex of
-    ELambda m n ex -> ELambda m n <$> descendM f ex
-    EIf m test thn els ->
-      EIf m <$> descendM f test <*> descendM f thn <*> descendM f els
-    EMatch m sample matches ->
-      EMatch m <$> descendM f sample <*>
-      traverse (sequenceA . second (descendM f)) matches
-    ESequence m exs -> ESequence m <$> traverse (descendM f) exs
-    ELet m name body ex -> ELet m name <$> descendM f body <*> descendM f ex
-    EApplication m fn arg -> EApplication m <$> descendM f fn <*> descendM f arg
-    ERecord m rows ->
-      ERecord m <$> traverse (sequenceA . second (descendM f)) rows
-    EVector m els -> EVector m <$> traverse (descendM f) els
-    ESymbol m n -> pure $ ESymbol m n
-    EAtom m atom -> pure $ EAtom m atom
+showAtom :: (IsString s, Semigroup s) => Atom -> s
+showAtom AUnit = "nil"
+showAtom (AInteger i) = show i
+showAtom (AString s) = show s
+showAtom (ABoolean b) =
+  if b
+    then "true"
+    else "false"
 
-descend :: (ExprA ann -> ExprA ann) -> ExprA ann -> ExprA ann
-descend f = runIdentity . descendM (pure . f)
+data Builtin = Builtin
+  { name     :: Name
+  , function :: [Atom] -> Atom
+  , typ      :: Type
+  }
 
-metaM :: (Monad m) => ([ann] -> m [bnn]) -> ExprA ann -> m (ExprA bnn)
-metaM f ex =
-  case ex of
-    ELambda m n ex -> ELambda <$> f m <*> pure n <*> metaM f ex
-    EIf m test thn els ->
-      EIf <$> f m <*> metaM f test <*> metaM f thn <*> metaM f els
-    EMatch m sample matches ->
-      EMatch <$> f m <*> metaM f sample <*>
-      traverse (sequenceA . second (metaM f)) matches
-    ESequence m exs -> ESequence <$> f m <*> traverse (metaM f) exs
-    ELet m name body ex ->
-      ELet <$> f m <*> pure name <*> metaM f body <*> metaM f ex
-    EApplication m fn arg -> EApplication <$> f m <*> metaM f fn <*> metaM f arg
-    ERecord m rows ->
-      ERecord <$> f m <*> traverse (sequenceA . second (metaM f)) rows
-    EVector m els -> EVector <$> f m <*> traverse (metaM f) els
-    ESymbol m n -> ESymbol <$> f m <*> pure n
-    EAtom m atom -> EAtom <$> f m <*> pure atom
+instance Show Builtin where
+  showsPrec i = showsPrec i . name
 
-meta :: ([ann] -> [bnn]) -> ExprA ann -> ExprA bnn
-meta f = runIdentity . metaM (pure . f)
+instance Eq Builtin where
+  x == y = name x == name y
+
+instance Ord Builtin where
+  x `compare` y = name x `compare` name y
