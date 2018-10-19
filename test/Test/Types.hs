@@ -34,6 +34,10 @@ inference =
     , test "let binding" "(let [[foo nil]] foo)" (Primitive Unit)
     , test "if stmt" "(if true nil nil)" (Primitive Unit)
     , test "match stmt" "(match 1 (2 nil) (1 nil))" (Primitive Unit)
+    , test
+        "complicated match stmt"
+        "(match 1 (2 0) (n (+ n 1)))"
+        (Primitive Integer)
     , testError
         "addition error"
         "(+ 2 nil)"
@@ -49,7 +53,7 @@ inference =
     , testError
         "match stmt prototype error"
         "(match 1 (nil nil))"
-        (UnificationFailure (Primitive Integer) (Primitive Unit))
+        (UnificationFailure (Primitive Unit) (Primitive Integer))
     , testError
         "match stmt pattern error"
         "(match 1 (1 nil) (nil nil))"

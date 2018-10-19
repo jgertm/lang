@@ -35,11 +35,12 @@ type MonadInferenceState m = MonadState State m
 
 type MonadInferenceError m = MonadError InferenceError m
 
+type MonadScope m = MonadReader Scope m
+
 type MonadInfer m = (MonadInferenceState m, MonadInferenceError m)
 
 data State = State
   { nextMetavariable :: Metavar
-  , bindings         :: Bindings
   , solution         :: Solution
   , equivalences     :: Partition Metavar
   } deriving (Show, Eq, Generic)
@@ -47,29 +48,31 @@ data State = State
 instance Default State where
   def =
     State
-      { nextMetavariable = MV 0
-      , bindings = map Syntax.typ Builtins.builtins
-      , solution = Map.empty
-      , equivalences = Disj.empty
-      }
+      {nextMetavariable = MV 0, solution = Map.empty, equivalences = Disj.empty}
+
+data Scope = Scope
+  { current  :: Term' Inferring
+  , bindings :: Bindings
+  } deriving (Show, Eq, Generic)
 
 type Bindings = Map Binding Type
 
-lookupBinding :: (MonadInfer m) => Binding -> m Type
+lookupBinding :: (MonadScope m, MonadInferenceError m) => Binding -> m Type
 lookupBinding binding = do
-  env <- use (typed @Bindings)
+  env <- view (typed @Bindings)
   maybe (throwError $ UnknownBinding binding) pure $ Map.lookup binding env
 
 type Solution = Map Metavar Type
 
-lookupSolution :: (MonadState State m) => Metavar -> m (Maybe Type)
+lookupSolution :: (MonadInfer m) => Metavar -> m (Maybe Type)
 lookupSolution mv = do
   env <- use (typed @Solution)
-  pure $ Map.lookup mv env
+  mvs <- siblings mv
+  let result = asum $ map (flip Map.lookup env) (mv : mvs)
+  pure result
 
 insertSolution :: (MonadState State m) => Metavar -> Type -> m ()
-insertSolution mv typ = 
-  modifying (typed @Solution) $ Map.insert mv typ
+insertSolution mv typ = modifying (typed @Solution) $ Map.insert mv typ
 
 combineMetavars :: (MonadState State m) => Metavar -> Metavar -> m ()
 combineMetavars mv1 mv2 =
@@ -84,22 +87,22 @@ freshMetavar = do
 assignMetavars :: (MonadInferenceState m) => Term' phase -> m (Term' Inferring)
 assignMetavars = Syntax.metaM $ const freshMetavar
 
-metavarHere :: (MonadReader (Term' Inferring) m) => m Metavar
-metavarHere = context <$> ask
+metavarHere :: (MonadScope m) => m Metavar
+metavarHere = context <$> asks current
 
-typeHere :: (MonadReader (Term' Inferring) m) => m Type
+typeHere :: (MonadScope m) => m Type
 typeHere = Metavariable <$> metavarHere
 
 solveAST :: (MonadInfer m) => Term' Inferring -> m (Term' Inferring)
-solveAST = Syntax.descendM act
-  where
-    act e = do
-      usingReaderT e $ solveNode e
-      pure e
+solveAST term = do
+  usingReaderT
+    (Scope {current = term, bindings = map Syntax.typ Builtins.builtins}) $
+    solveNode term
+  pure term
 
-solveNode ::
-     (MonadInfer m, MonadReader (Term' Inferring) m) => Term' Inferring -> m ()
-solveNode (ESymbol _ binding) = updateHere =<< lookupBinding binding
+solveNode :: (MonadInfer m, MonadScope m) => Term' Inferring -> m ()
+solveNode (ESymbol _ binding) = do
+  updateHere =<< lookupBinding binding
 solveNode (EApplication _ function arguments) = do
   returnType <- typeHere
   updateHere returnType
@@ -107,21 +110,34 @@ solveNode (EApplication _ function arguments) = do
       functionType = Types.fn $ argumentTypes <> [returnType]
       functionMV = metavar function
   update functionMV functionType
+  local (set #current function) $ solveNode function
+  traverse_ (\arg -> local (set #current arg) $ solveNode arg) arguments
 solveNode (EIf _ test thn els) = do
   let testMV = metavar test
   update testMV (Primitive Boolean)
   traverse_ (updateHere . metatype) [thn, els]
+  traverse_
+    (\term -> local (set #current term) $ solveNode term)
+    [test, thn, els]
 solveNode (EMatch _ proto clauses) = do
   let protoMV = metavar proto
-      (patterns, bodies) = unzip clauses
+  local (set #current proto) $ solveNode proto
   forM_
-    patterns
-    (\pat -> do
-       typ <- patternType pat
+    clauses
+    (\(pat, body) -> do
+       (typ, newBindings) <- patternType pat
+       update (metavar pat) typ
        update protoMV typ
-       update (metavar pat) typ)
-  forM_ bodies (updateHere . metatype)
+       updateHere (metatype body)
+       local (set #current body . over #bindings (`mappend` newBindings)) $
+         solveNode body)
 solveNode (EAtom _ atom) = updateHere (Primitive $ primitiveType atom)
+solveNode (ELet _ bindings body) = do
+  updateHere $ metatype body
+  let newBindings = Map.fromList $ map (fst &&& (metatype . snd)) bindings
+  traverse_ (\(_, term) -> local (set #current term) $ solveNode term) bindings
+  local (set #current body . over #bindings (`mappend` newBindings)) $
+    solveNode body
 
 unify' :: (MonadInfer m) => Bool -> Type -> Type -> m Type
 unify' _ t@(Primitive pt1) (Primitive pt2)
@@ -130,9 +146,9 @@ unify' _ (Function arg1 ret1) (Function arg2 ret2) = do
   arg <- unify' True arg1 arg2
   ret <- unify' True ret1 ret2
   pure $ Function arg ret
-unify' _ (Metavariable mv1) t2@(Metavariable mv2) = do
+unify' _ (Metavariable mv1) (Metavariable mv2) = do
   combineMetavars mv1 mv2
-  pure t2
+  fromMaybe (Metavariable (min mv1 mv2)) <$> lookupSolution mv2
 unify' prop (Metavariable mv) t2 = do
   current <- lookupSolution mv
   new <-
@@ -151,12 +167,12 @@ unify = unify' True
 update :: (MonadInfer m) => Metavar -> Type -> m ()
 update mv typ = void $ unify (Metavariable mv) typ
 
-updateHere :: (MonadInfer m, MonadReader (Term' Inferring) m) => Type -> m ()
+updateHere :: (MonadInfer m, MonadScope m) => Type -> m ()
 updateHere typ = do
   mv <- metavarHere
   update mv typ
 
-siblings :: (MonadState State m) => Metavar -> m [Metavar]
+siblings :: (MonadInferenceState m) => Metavar -> m [Metavar]
 siblings mv = do
   State {equivalences} <- get
   pure $ Set.toList $ Set.delete mv $ Disj.find equivalences mv
@@ -167,9 +183,7 @@ siblings mv = do
 --   pure $ Disj.rep equivalences mv
 applySolution :: (MonadInfer m) => Term' Inferring -> m (Term' Inferred)
 applySolution =
-  Syntax.metaM $ \mv -> do
-    solution <- use $ typed @Solution
-    liftMaybe (UnknownVariable mv) $ Map.lookup mv solution
+  Syntax.metaM $ \mv -> liftMaybe (UnknownVariable mv) =<< lookupSolution mv
 
 primitiveType :: Syntax.Atom -> PrimitiveType
 primitiveType =
@@ -179,6 +193,17 @@ primitiveType =
     AString _ -> String
     ABoolean _ -> Boolean
 
-patternType :: (MonadInferenceError m) => Pattern' Inferring -> m Type
-patternType (PAtom _ atom) = pure . Primitive $ primitiveType atom
-patternType pat            = pure . metatype $ pat -- TODO
+patternType ::
+     (MonadInfer m) => Pattern' Inferring -> m (Type, Map Binding Type)
+patternType (PAtom _ atom) = pure (Primitive $ primitiveType atom, mempty)
+patternType pat@(PWildcard _) = pure (metatype pat, mempty)
+patternType pat@(PSymbol _ binding) =
+  let typ = metatype pat
+   in pure (typ, Map.singleton binding typ)
+patternType pat@(PVector _ ps) =
+  foldM
+    (\(t, env) p -> do
+       (t', env') <- patternType p
+       (,) <$> unify t t' <*> (pure $ env <> env'))
+    (metatype pat, mempty)
+    ps
