@@ -1,9 +1,12 @@
-{-# LANGUAGE LambdaCase #-}
-
-module Interpreter where
+module Interpreter
+  ( interpret
+  , interpretWith
+  , Env
+  )
+where
 
 import           Control.Monad.Except
-import qualified Data.Map.Strict      as M
+import qualified Data.Map.Strict               as M
 
 import           Builtins
 import           Error
@@ -38,71 +41,64 @@ replaceWith :: (Term -> Maybe Term) -> Term -> Term
 replaceWith fn = descend (\vex -> fromMaybe vex $ fn vex)
 
 replaceSymbol :: Binding -> Term -> Term -> Term
-replaceSymbol binding substitution =
-  replaceWith
-    (\case
-       ESymbol _ binding' ->
-         if binding == binding'
-           then Just substitution
-           else Nothing
-       _ -> Nothing)
+replaceSymbol binding substitution = replaceWith
+  (\case
+    ESymbol _ binding' ->
+      if binding == binding' then Just substitution else Nothing
+    _ -> Nothing
+  )
 
 replaceSymbols :: Map Binding Term -> Term -> Term
-replaceSymbols dict =
-  replaceWith
-    (\case
-       ESymbol _ binding -> M.lookup binding dict
-       _ -> Nothing)
+replaceSymbols dict = replaceWith
+  (\case
+    ESymbol _ binding -> M.lookup binding dict
+    _                 -> Nothing
+  )
 
 eval :: (MonadInterpret m) => Term -> m Term
 eval (EApplication _ fn args) = do
   args' <- traverse eval args
-  fn' <- eval fn
-  case fn' of
+  fn'   <- eval fn
+  eval =<< case fn' of
     ELambda _ argv lambdabody ->
-      let dict = M.fromList $ zip argv args'
+      let dict        = M.fromList $ zip argv args'
           lambdabody' = replaceSymbols dict lambdabody
-          argv' = drop (length args) argv
-       in if null argv'
+          argv'       = drop (length args) argv
+      in  if null argv'
             then pure lambdabody'
             else pure $ ELambda def argv' lambdabody'
     ENative ctx builtin oldargs ->
       let atoms = map (\(EAtom _ atom) -> atom) args'
-       in eval $ ENative ctx builtin (oldargs <> atoms) -- FIXME: don't use `undefined` here
+      in  eval $ ENative ctx builtin (oldargs <> atoms) -- FIXME: don't use `undefined` here
 eval (ENative _ builtin args) = pure $ EAtom def $ function builtin args
 eval (ELet _ bindings body) =
-  let go ((name, value):moreBindings) = do
+  let go ((name, value) : moreBindings) = do
         value' <- eval value
         local (M.insert name value') $ go moreBindings
       go [] = eval body
-   in go bindings
+  in  go bindings
 eval (EIf _ test true false) = do
   EAtom _ (ABoolean result) <- eval test
-  eval $
-    if result
-      then true
-      else false
+  eval $ if result then true else false
 eval (ESymbol _ binding@(Single name)) = do
   env <- ask
   liftMaybe (UnboundSymbol name) $ M.lookup binding env
 eval (EMatch _ prototype clauses) = do
-  prototype' <- eval prototype
+  prototype'       <- eval prototype
   (bindings, body) <-
-    liftMaybe NoMatchingPattern .
-    getFirst .
-    foldMap (\(pat, body) -> First . map (, body) $ match pat prototype') $
-    clauses
+    liftMaybe NoMatchingPattern
+    . getFirst
+    . foldMap (\(pat, body) -> First . map (, body) $ match pat prototype')
+    $ clauses
   local (`M.union` bindings) $ eval body
 eval e = metaM (const pass) e
 
 match :: Pattern' phase -> Term -> Maybe (Map Binding Term)
-match (PWildcard _) _ = Just M.empty
-match (PSymbol _ binding) expr = Just $ M.singleton binding expr
-match (PVector _ pv) (EVector _ ev) = do
+match (PWildcard _      ) _              = Just M.empty
+match (PSymbol _ binding) expr           = Just $ M.singleton binding expr
+match (PVector _ pv     ) (EVector _ ev) = do
   guard $ length pv == length ev
   map M.unions . sequenceA $ zipWith match pv ev
 match (PAtom _ pat) (EAtom _ atm) =
-  if pat == atm
-    then Just M.empty
-    else Nothing
+  if pat == atm then Just M.empty else Nothing
 match _ _ = Nothing

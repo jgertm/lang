@@ -4,14 +4,12 @@ module Syntax
   ( Name
   , Context
   , Tree(..)
-  , ascendM
   , ascend
-  , descendM
   , descend
-  , metaM_
   , meta
   , context
   , Definition'(..)
+  , nameOf
   , Type'(..)
   , Term'(..)
   , Binding(..)
@@ -19,37 +17,38 @@ module Syntax
   , Atom(..)
   , Builtin(..)
   , showAtom
-  ) where
+  )
+where
 
 import           Data.Bitraversable
-import           Data.Text          (Text)
-import           GHC.Generics       (Generic)
-import           GHC.Show           (Show (showsPrec))
-import qualified Universum.Unsafe   as Unsafe
+import           Data.Text                      ( Text )
+import           GHC.Generics                   ( Generic )
+import           GHC.Show                       ( Show(showsPrec) )
+import qualified Universum.Unsafe              as Unsafe
 
 import           Classes
-import           Types              (Type)
+import           Types                          ( Type )
 
 type Name = Text
 
 data Definition' phase
   = DModule (Context phase)
-            Name
+            Binding
             [Definition' phase]
   | DMacro (Context phase)
-           Name
-           [Name] -- ^ arguments
+           Binding
+           [Binding] -- ^ arguments
            Macro
   -- | DClass -- TODO: typeclass definition
   -- | DInstance -- TODO: typeclass instance definition
   | DType (Context phase)
-          Name
+          Binding
           (Type' phase)
   | DConstant (Context phase)
-              Name
+              Binding
               (Term' phase)
   | DFunction (Context phase)
-              Name
+              Binding
               [Binding] -- ^ arguments
               (Term' phase) -- ^ body
   deriving (Generic)
@@ -84,6 +83,11 @@ instance Tree Definition' phase where
         ctx' <- f ctx
         body' <- metaM f body
         pure $ DFunction ctx' name args body'
+
+nameOf :: Definition' phase -> Binding
+nameOf (DModule   _ n _  ) = n
+nameOf (DConstant _ n _  ) = n
+nameOf (DFunction _ n _ _) = n
 
 type Macro = () -- TODO
 
@@ -138,6 +142,8 @@ data Term' phase
              Name
   | EAtom (Context phase)
           Atom
+  -- | TODO: replace this with a generic, phase-specific constructor,
+  -- only include native constructor in evaluation stage
   | ENative (Context phase)
             Builtin
             [Atom]
@@ -231,6 +237,8 @@ data Pattern' phase
             Binding
   | PVector (Context phase)
             [Pattern' phase]
+  -- | PRecord (Context phase) -- TODO
+  -- | PVariant (Context phase) -- TODO
   | PAtom (Context phase)
           Atom
   deriving (Generic)
@@ -264,14 +272,11 @@ data Atom
   | ABoolean Bool
   deriving (Show, Eq, Ord, Generic)
 
-showAtom :: (IsString s, Semigroup s) => Atom -> s
-showAtom AUnit = "nil"
+showAtom :: (IsString s) => Atom -> s
+showAtom AUnit        = "nil"
 showAtom (AInteger i) = show i
-showAtom (AString s) = show s
-showAtom (ABoolean b) =
-  if b
-    then "true"
-    else "false"
+showAtom (AString  s) = show s
+showAtom (ABoolean b) = if b then "true" else "false"
 
 data Builtin = Builtin
   { name     :: Name

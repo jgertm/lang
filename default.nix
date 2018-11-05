@@ -1,7 +1,8 @@
-{ mkDerivation, base-noprelude, containers, data-default
-, data-partition, generic-lens, haskeline, hpack
-, microlens-platform, mtl, parsec, pretty-simple, prettyprinter
-, stdenv, tasty, tasty-hunit, text, universum
+{ mkDerivation, ansi-terminal, base-noprelude, containers
+, data-default, data-partition, generic-lens, haskeline, hpack
+, microlens-platform, mtl, optparse-applicative, parsec
+, pretty-simple, prettyprinter, stdenv, tasty, tasty-hunit, text
+, unification-fd, universum
 }:
 mkDerivation {
   pname = "lang";
@@ -10,16 +11,18 @@ mkDerivation {
   isLibrary = true;
   isExecutable = true;
   libraryHaskellDepends = [
-    base-noprelude containers data-default data-partition generic-lens
-    microlens-platform mtl parsec pretty-simple prettyprinter text
-    universum
+    ansi-terminal base-noprelude containers data-default data-partition
+    generic-lens microlens-platform mtl parsec pretty-simple
+    prettyprinter text unification-fd universum
   ];
   libraryToolDepends = [ hpack ];
   executableHaskellDepends = [
-    base-noprelude containers haskeline parsec text
+    ansi-terminal base-noprelude containers haskeline
+    optparse-applicative parsec text
   ];
   testHaskellDepends = [
-    base-noprelude containers parsec tasty tasty-hunit text
+    ansi-terminal base-noprelude containers parsec tasty tasty-hunit
+    text
   ];
   preConfigure = "hpack";
   homepage = "https://github.com/jgertm/lang#readme";

@@ -1,6 +1,6 @@
 module Classes where
 
-import qualified Universum.Unsafe as Unsafe
+import qualified Universum.Unsafe              as Unsafe
 
 type family Context phase
 
@@ -20,7 +20,8 @@ ascendM, descendM :: (Tree t p, Monad m) => (t p -> m (t p)) -> t p -> m (t p)
 [ascendM, descendM] = map walkM [Up, Down]
 
 ascend, descend :: (Tree t p) => (t p -> t p) -> t p -> t p
-[ascend, descend] = map (\t f -> runIdentity . t (pure . f)) [ascendM, descendM]
+[ascend, descend] =
+  map (\t f -> runIdentity . t (pure . f)) [ascendM, descendM]
 
 metaM_ :: (Monad m, Tree t p) => (Context p -> m a) -> t p -> m (t p)
 metaM_ f = metaM (\e -> f e $> e)
@@ -31,9 +32,9 @@ meta f = runIdentity . metaM (pure . f)
 context :: (Tree t p) => t p -> Context p
 context tree =
   let action :: (Tree t p, MonadWriter (First (Context p)) m) => t p -> m (t p)
-      action =
-        metaM
-          (\ctx -> do
-             tell $ First (Just ctx)
-             pure ctx)
-   in Unsafe.fromJust . getFirst . evalWriter $ action tree
+      action = metaM
+        (\ctx -> do
+          tell $ First (Just ctx)
+          pure ctx
+        )
+  in  Unsafe.fromJust . getFirst . evalWriter $ action tree

@@ -2,22 +2,19 @@ module Dev where
 
 import           Text.Pretty.Simple
 
-import qualified Inference
-import qualified Interpreter
-import qualified Parser
-import qualified Renaming
-import qualified Syntax
+import qualified Data.Map.Strict               as Map
+
+import qualified Module
 
 main :: IO ()
 main = do
-  let path = "examples/if.lang"
-  contents <- readFile path
-  pPrint . infer $ parse contents
+  initial <- Module.initialize filepath
+  let result = pipeline initial
+  print result
+  putTextLn "done"
 
-parse = fromRight undefined . Parser.parse Parser.term "<input>"
+pipeline = Module.process >=> Module.run
 
-rename = fromRight undefined . Renaming.rename
 
-interpret = fromRight undefined . Interpreter.interpretWith mempty
+filepath = "examples/medium.lang"
 
-infer = Inference.infer

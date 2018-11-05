@@ -1,0 +1,6 @@
+(defmodule examples.match)
+
+(defn main []
+  (match 1
+    (2 nil)
+    (1 nil)))

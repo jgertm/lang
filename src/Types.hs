@@ -1,7 +1,7 @@
 module Types where
 
-import           Data.Map  (Map)
-import           Data.Text (Text)
+import           Data.Map                       ( Map )
+import           Data.Text                      ( Text )
 
 newtype Metavar =
   MV Int
@@ -11,18 +11,15 @@ type Name = Text
 
 data Type
   = Primitive PrimitiveType
-  | Application Type
-                Type
-  | Constructor Name
-  | Higher Type
-           Type
-  | Function Type
-             Type
+  | Application Name
+                [Type]
   | Product [Type]
   | Record (Map Name Type)
   | Variant (Map Name Type)
+  | Variable Name
+  | Forall [Name]
+           Type
   | Metavariable Metavar
-  | Bottom
   deriving (Show, Eq, Ord)
 
 data PrimitiveType
@@ -42,7 +39,7 @@ string = Primitive String
 boolean = Primitive Boolean
 
 vector :: Type -> Type
-vector = Higher (Constructor "vector")
+vector = Application "vector" . one
 
 fn :: [Type] -> Type
-fn = foldr1 Function
+fn = Application "fn"

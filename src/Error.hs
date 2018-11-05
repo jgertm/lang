@@ -3,18 +3,23 @@ module Error
   , RenamingError(..)
   , InterpretationError(..)
   , InferenceError(..)
-  ) where
+  , ModuleError(..)
+  )
+where
 
-import qualified Text.Parsec as Parsec
+import qualified Text.Parsec                   as Parsec
 
 import           Syntax
-import           Types       (Metavar, Type)
+import           Types                          ( Metavar
+                                                , Type
+                                                )
 
 data Error
   = Parsing Parsec.ParseError
   | Renaming RenamingError
   | Interpretation InterpretationError
   | Inference InferenceError
+  | Module ModuleError
   deriving (Show, Eq)
 
 data RenamingError =
@@ -31,6 +36,11 @@ data InterpretationError
 data InferenceError
   = UnificationFailure Type
                        Type
+  | OccursViolation
   | UnknownBinding Syntax.Binding
   | UnknownVariable Metavar
+  deriving (Show, Eq)
+
+data ModuleError =
+  NoMainFunction
   deriving (Show, Eq)

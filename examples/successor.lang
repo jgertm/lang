@@ -1,0 +1,4 @@
+(defmodule examples.successor)
+
+(defn succ [n]
+  (+ 1 n))

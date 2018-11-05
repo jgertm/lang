@@ -16,6 +16,7 @@ ghc-options:
   - -fwarn-incomplete-patterns
   - -fwarn-incomplete-uni-patterns
   - -fwarn-incomplete-record-updates
+  - -fwarn-redundant-constraints
   - -O2
   - -Wall
   - -Wcompat
@@ -73,6 +74,7 @@ default-extensions:
 
 dependencies:
   - base-noprelude >= 4.7 && < 5
+  - ansi-terminal
   - text
   - parsec
   - containers
@@ -90,8 +92,15 @@ library:
     - universum
 
 executables:
-  langi:
-    source-dirs:        exe/repl
+  # langi:
+  #   source-dirs:        exe/repl
+  #   main:               Main.hs
+  #   dependencies:
+  #     - lang
+  #     - haskeline
+
+  lang:
+    source-dirs:        exe/tool
     main:               Main.hs
     dependencies:
       - lang

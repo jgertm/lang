@@ -10,6 +10,7 @@ shell: generate-nix-files
 
 build: generate-nix-files
 	$(NIX_SHELL) --run "cabal new-build"
+	cp dist-newstyle/build/x86_64-linux/ghc-8.4.3/lang-0.1.0.0/x/lang/build/lang/lang .
 
 repl: generate-nix-files
 	$(NIX_SHELL) --run "cabal new-repl"
@@ -32,8 +33,7 @@ run: generate-nix-files
 	$(NIX_SHELL) --run "cabal run"
 
 format:
-	fd -e hs -x hindent
-	fd -e hs -x stylish-haskell -i
+	fd -e hs -x brittany --write-mode=inplace
 
 lint:
 	fd -e hs | xargs hlint
