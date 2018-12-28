@@ -40,6 +40,7 @@ default-extensions:
   - DuplicateRecordFields
   - ExistentialQuantification
   - ExplicitForAll
+  - ExtendedDefaultRules
   - FlexibleContexts
   - FlexibleInstances
   - FunctionalDependencies
@@ -54,6 +55,7 @@ default-extensions:
   - NamedWildCards
   - NoMonomorphismRestriction
   - OverloadedLabels
+  - OverloadedLists
   - OverloadedStrings
   - PartialTypeSignatures
   - PatternSynonyms
@@ -82,7 +84,6 @@ dependencies:
 library:
   source-dirs:        src
   dependencies:
-    - data-default
     - data-partition
     - generic-lens
     - microlens-platform

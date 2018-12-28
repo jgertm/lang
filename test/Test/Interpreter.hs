@@ -9,16 +9,13 @@ import           Test.Tasty.HUnit
 import           Interpreter
 import qualified Parser
 import qualified Renaming
-import           Syntax
+import qualified Syntax.Term                   as Term
 import           Test.Utils
 
-test :: TestName -> Text -> Term' Test -> TestTree
+test :: TestName -> Text -> Term.Term Test -> TestTree
 test name inp out =
   testCase name
-    $   second
-          removeContext
-          (interpret =<< Renaming.rename =<< Parser.parse Parser.term "<test>" inp
-          )
+    $ second removeContext (interpret =<< Renaming.rename =<< Parser.parse Parser.term "<test>" inp)
     @?= Right out
 
 tree :: TestTree

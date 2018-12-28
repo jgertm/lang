@@ -28,7 +28,9 @@ run: build
 	./lang
 
 format:
-	fd -e hs -x brittany --write-mode=inplace
+	fd -e hs -x hlint {} --refactor --refactor-options='--inplace'
+	fd -e hs -x stylish-haskell -i {}
+	fd -e hs -x brittany --write-mode=inplace {} --columns 100
 
 lint:
 	fd -e hs | xargs hlint

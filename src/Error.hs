@@ -2,24 +2,22 @@ module Error
   ( Error(..)
   , RenamingError(..)
   , InterpretationError(..)
-  , InferenceError(..)
   , ModuleError(..)
+  , TypeError(..)
   )
 where
 
 import qualified Text.Parsec                   as Parsec
 
-import           Syntax
-import           Types                          ( Metavar
-                                                , Type
-                                                )
+import           Syntax.Common
+import           Type.Types
 
 data Error
   = Parsing Parsec.ParseError
   | Renaming RenamingError
   | Interpretation InterpretationError
-  | Inference InferenceError
   | Module ModuleError
+  | Type TypeError
   deriving (Show, Eq)
 
 data RenamingError =
@@ -33,14 +31,18 @@ data InterpretationError
   | NoMatchingPattern
   deriving (Show, Eq)
 
-data InferenceError
-  = UnificationFailure Type
-                       Type
-  | OccursViolation
-  | UnknownBinding Syntax.Binding
-  | UnknownVariable Metavar
-  deriving (Show, Eq)
-
 data ModuleError =
   NoMainFunction
+  deriving (Show, Eq)
+
+data TypeError
+  = AnalysisError
+  | ContextError
+  | UnknownError String
+  | InstantiationError
+  | SubtypingError
+  | SynthesisError
+  | UnificationError
+  | MatchError
+  | TypeMismatch Type Type
   deriving (Show, Eq)

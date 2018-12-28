@@ -8,21 +8,23 @@ where
 import qualified Data.Map.Strict               as Map
 
 import           Builtins
+import           Classes
 import           Error
+import qualified Syntax.Common                 as Common
+import qualified Syntax.Definition             as Definition
+import qualified Syntax.Term                   as Term
+import qualified Syntax.Type                   as Type
 
-import           Syntax
 
 data Renaming
 
 type instance Context Renaming = Maybe Binding
 
-type Term = Term' Renaming
-
-type Definition = Definition' Renaming
+type Term = Term.Term Renaming
+type Definition = Definition.Definition Renaming
+type Binding = Common.Binding
 
 type MonadRename m = (MonadError RenamingError m, MonadState Env m)
-
-type Scope = Set Binding
 
 type Env = Map Binding Int
 
@@ -32,13 +34,13 @@ rename = renameWith $ map (const 0) builtins
 renameWith :: (Renameable t) => Env -> t phase -> Either Error (t Renaming)
 renameWith env = runRenaming env . renameNode
 
-runRenaming :: Env -> _ a -> Either Error a
+runRenaming :: Env -> StateT Env (Except RenamingError) a -> Either Error a
 runRenaming env = runExcept . withExcept Renaming . evaluatingStateT env
 
 alias :: (MonadRename m) => Binding -> m Binding
-alias binding@(Single name) = do
+alias binding@(Common.Single name) = do
   env <- get
-  pure . Single $ case Map.lookup binding env of
+  pure . Common.Single $ case Map.lookup binding env of
     Nothing -> name
     Just 0  -> name
     Just i  -> name <> show i
@@ -57,7 +59,7 @@ adds names action = do
   action
 
 check :: (MonadRename m) => Binding -> m ()
-check binding@(Single name) = do
+check binding@(Common.Single name) = do
   env <- get
   case Map.lookup binding env of
     Just _  -> pass
@@ -66,19 +68,19 @@ check binding@(Single name) = do
 class Renameable t where
   renameNode :: (MonadRename m) => t phase -> m (t Renaming)
 
-instance Renameable Term' where
+instance Renameable Term.Term where
   renameNode = renameTerm
 
-renameTerm :: (MonadRename m) => Term' phase -> m Term
-renameTerm (ESymbol _ name) = do
+renameTerm :: (MonadRename m) => Term.Term phase -> m Term
+renameTerm (Term.Symbol _ name) = do
   check name
   name' <- alias name
-  pure $ ESymbol (Just name) name'
-renameTerm (ELambda _ args body) = adds args $ do
-  args' <- traverse alias args
+  pure $ Term.Symbol (Just name) name'
+renameTerm (Term.Lambda _ arg body) = add arg $ do
+  arg'  <- alias arg
   body' <- renameTerm body
-  pure $ ELambda Nothing args' body'
-renameTerm (ELet _ bindings body) = do
+  pure $ Term.Lambda Nothing arg' body'
+renameTerm (Term.Let _ bindings body) = do
   let go ((name, value) : moreBindings) = do
         value' :: Term <- renameTerm value
         add name $ do
@@ -87,27 +89,34 @@ renameTerm (ELet _ bindings body) = do
           pure ((name', value') : moreBindings', result)
       go [] = sequenceA ([], renameTerm body)
   (bindings', body') <- go bindings
-  pure $ ELet Nothing bindings' body'
-renameTerm (EApplication _ fn args) = do
+  pure $ Term.Let Nothing bindings' body'
+renameTerm (Term.Application _ fn args) = do
   fn'   <- renameTerm fn
   args' <- traverse renameTerm args
-  pure $ EApplication Nothing fn' args'
+  pure $ Term.Application Nothing fn' args'
 renameTerm term = metaM (const $ pure Nothing) term
 
-instance Renameable Definition' where
+instance Renameable Definition.Definition  where
   renameNode = renameDefinition
 
-renameDefinition :: (MonadRename m) => Definition' phase -> m Definition
-renameDefinition (DModule _ name definitions) = do
+renameDefinition :: (MonadRename m) => Definition.Definition phase -> m Definition
+renameDefinition (Definition.Module _ name definitions) = do
   name'        <- alias name
   definitions' <- traverse renameDefinition definitions
-  pure $ DModule (Just name) name' definitions'
-renameDefinition (DFunction _ name arguments body) = do
+  pure $ Definition.Module (Just name) name' definitions'
+renameDefinition (Definition.Type _ name typ) = do
+  name' <- alias name
+  typ'  <- renameNode typ
+  pure $ Definition.Type (Just name) name' typ'
+renameDefinition (Definition.Function _ name arguments body) = do
   name'      <- alias name
   arguments' <- traverse alias arguments
   body'      <- adds arguments $ renameNode body
-  pure $ DFunction (Just name) name' arguments' body'
-renameDefinition (DConstant _ name body) = do
+  pure $ Definition.Function (Just name) name' arguments' body'
+renameDefinition (Definition.Constant _ name body) = do
   name' <- alias name
   body' <- renameNode body
-  pure $ DConstant (Just name) name' body'
+  pure $ Definition.Constant (Just name) name' body'
+
+instance Renameable Type.Type where
+  renameNode = undefined

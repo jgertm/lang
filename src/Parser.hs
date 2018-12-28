@@ -12,6 +12,7 @@ module Parser
   )
 where
 
+import qualified Data.Map.Strict               as Map
 import           Text.Parsec             hiding ( State
                                                 , many
                                                 , parse
@@ -22,21 +23,24 @@ import           Text.Parsec.Token       hiding ( identifier
                                                 )
 import qualified Text.Parsec.Token             as P
 
+import           Classes
 import           Error
-
-import           Syntax
+import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Common                 as Common
+import qualified Syntax.Definition             as Definition
+import qualified Syntax.Pattern                as Pattern
+import qualified Syntax.Term                   as Term
+import qualified Syntax.Type                   as Type
 
 data Parsing
 
 type instance Context Parsing = (SourcePos, SourcePos)
 
-type Term = Term' Parsing
-
-type Definition = Definition' Parsing
-
-type Type = Type' Parsing
-
-type Pattern = Pattern' Parsing
+type Term = Term.Term Parsing
+type Definition = Definition.Definition Parsing
+type Type = Type.Type Parsing
+type Pattern = Pattern.Pattern Parsing
+type Atom = Atom.Atom
 
 parse :: Parser a -> String -> Text -> Either Error a
 parse parser sourcePath input = first Parsing $ P.parse parser sourcePath input
@@ -96,166 +100,165 @@ injectContext p = do
 name :: Parser Term
 name = injectContext $ do
   n <- binding
-  pure $ \ctx -> ESymbol ctx n
+  pure $ \ctx -> Term.Symbol ctx n
 
 file :: Parser Definition
 file = do
   ws
-  (DModule ctx moduleName []) <- definition
-  definitions                 <- many definition
-  pure $ DModule ctx moduleName definitions
+  (Definition.Module ctx moduleName []) <- definition
+  definitions                           <- many definition
+  pure $ Definition.Module ctx moduleName definitions
 
 definition :: Parser Definition
-definition = injectContext $ cases
-  [moduleDefinition, typeDefinition, constantDefinition, functionDefinition]
+definition = injectContext
+  $ cases [moduleDefinition, typeDefinition, constantDefinition, functionDefinition]
  where
   moduleDefinition = sexp $ do
     reserved "defmodule"
     modulename <- binding
     forms      <- many definition
-    pure $ \ctx -> DModule ctx modulename forms
+    pure $ \ctx -> Definition.Module ctx modulename forms
   typeDefinition = sexp $ do
     reserved "deftype"
     typename  <- binding
     structure <- typeExpr
-    pure $ \ctx -> DType ctx typename structure
+    pure $ \ctx -> Definition.Type ctx typename structure
   constantDefinition = sexp $ do
     reserved "def"
     constname <- binding
     value     <- term
-    pure $ \ctx -> DConstant ctx constname value
+    pure $ \ctx -> Definition.Constant ctx constname value
   functionDefinition = sexp $ do
     reserved "defn"
     funcname <- binding
     args     <- vector $ many binding
-    body     <- many term
-    pure $ \ctx -> DConstant ctx funcname $ ELambda ctx args $ case body of
-      [form] -> form
-      forms  -> ESequence ctx forms
-
+    body     <- many1 term
+    pure $ \ctx ->
+      let body' = case body of
+            [form] -> form
+            forms  -> Term.Sequence ctx forms
+      in  Definition.Constant ctx funcname $ foldr' (Term.Lambda ctx) body' args
 typeExpr :: Parser Type
-typeExpr = injectContext
-  $ cases [productType, sumType, recordType, tagType, functionType]
+typeExpr = injectContext $ cases [productType, sumType, recordType, tagType, functionType]
  where
   productType = sexp $ do
     reserved "product"
     factors <- many1 typeExpr
-    pure $ \ctx -> TProduct ctx factors
+    pure $ \ctx -> Type.Product ctx factors
   sumType = sexp $ do
     reserved "sum"
     summands <- many1 typeExpr
-    pure $ \ctx -> TSum ctx summands
+    pure $ \ctx -> Type.Sum ctx summands
   recordType = sexp $ do
     reserved "record"
     rows <- record (many1 row)
-    pure $ \ctx -> TRecord ctx rows
+    pure $ \ctx -> Type.Record ctx rows
     where row = (,) <$> identifier <*> typeExpr
   tagType = sexp $ do
     reserved "tag"
     tagname <- identifier
     inner   <- typeExpr
-    pure $ \ctx -> TTag ctx tagname inner
+    pure $ \ctx -> Type.Tag ctx tagname inner
   functionType = sexp $ do
     reserved "fn"
     domains <- many1 typeExpr
-    pure $ \ctx -> TFunction ctx domains
+    pure $ \ctx -> Type.Function ctx domains
 
 term :: Parser Term
 term = injectContext $ cases
-  [ lambdaValue
-  , ifValue
-  , matchValue
-  , sequenceValue
-  , letValue
-  , applicationValue
-  , recordValue
-  , vectorValue
-  , keywordValue
-  , atomValue
-  , symbolValue
+  [ lambdaTerm
+  , ifTerm
+  , matchTerm
+  , sequenceTerm
+  , letTerm
+  , applicationTerm
+  , recordTerm
+  , vectorTerm
+  , keywordTerm
+  , atomTerm
+  , symbolTerm
   ]
  where
-  lambdaValue = sexp $ do
+  lambdaTerm = sexp $ do
     reserved "fn"
     args <- vector $ many binding
     body <- many term
-    pure $ \ctx -> ELambda ctx args $ case body of
-      [form] -> form
-      forms  -> ESequence ctx forms
-  ifValue = sexp $ do
+    pure $ \ctx ->
+      let body' = case body of
+            [form] -> form
+            forms  -> Term.Sequence ctx forms
+      in  foldr' (Term.Lambda ctx) body' args
+  ifTerm = sexp $ do
     reserved "if"
     test <- term
     thn  <- term
     els  <- term
-    pure $ \ctx -> EIf ctx test thn els
-  matchValue = sexp $ do
+    pure $ \ctx -> Term.If ctx test thn els
+  matchTerm = sexp $ do
     reserved "match"
     body     <- term
-    patterns <- many1 pattrn
-    pure $ \ctx -> EMatch ctx body patterns
-    where pattrn = sexp $ (,) <$> patternExpr <*> term
-  sequenceValue = sexp $ do
+    branches <- many1 branch
+    pure $ \ctx -> Term.Match ctx body branches
+    where branch = sexp $ (,) <$> fmap (: []) patternExpr <*> term
+  sequenceTerm = sexp $ do
     reserved "do"
     steps <- many1 term
-    pure $ \ctx -> ESequence ctx steps
-  letValue = sexp $ do
+    pure $ \ctx -> Term.Sequence ctx steps
+  letTerm = sexp $ do
     reserved "let"
     bindings <- vector $ many association
     body     <- term
-    pure $ \ctx -> ELet ctx bindings body
-    where association = vector $ (,) <$> binding <*> term -- TODO: individual vector for bindings might be unneccesary
-  applicationValue = sexp $ do
+    pure $ \ctx -> Term.Let ctx bindings body
+    where association = vector $ (,) <$> binding <*> term -- Type.ODO: individual vector for bindings might be unneccesary
+  applicationTerm = sexp $ do
     function <- term
     args     <- many term
-    pure $ \ctx -> EApplication ctx function args
-  recordValue = record $ do
-    rows <- many1 row
-    pure $ \ctx -> ERecord ctx rows
+    pure $ \ctx -> Term.Application ctx function args
+  recordTerm = record $ do
+    rows <- Map.fromList <$> many1 row
+    pure $ \ctx -> Term.Record ctx rows
     where row = (,) <$> identifier <*> term
-  vectorValue = vector $ do
+  vectorTerm = vector $ do
     elements <- many term
-    pure $ \ctx -> EVector ctx elements
-  symbolValue = do
+    pure $ \ctx -> Term.Vector ctx elements
+  symbolTerm = do
     sym <- binding
-    pure $ \ctx -> ESymbol ctx sym
-  keywordValue = do
+    pure $ \ctx -> Term.Symbol ctx sym
+  keywordTerm = do
     reserved ":"
     keyword <- identifier
-    pure $ \ctx -> EKeyword ctx keyword
-  atomValue = do
+    pure $ \ctx -> Term.Keyword ctx keyword
+  atomTerm = do
     a <- atom
-    pure $ \ctx -> EAtom ctx a
+    pure $ \ctx -> Term.Atom ctx a
 
-binding :: Parser Binding
-binding = Single <$> identifier
+binding :: Parser Common.Binding
+binding = Common.Single <$> identifier
 
 patternExpr :: Parser Pattern
-patternExpr = injectContext
-  $ cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
+patternExpr = injectContext $ cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
  where
-  wildcardPattern = reserved "_" $> \ctx -> PWildcard ctx
+  wildcardPattern = reserved "_" $> \ctx -> Pattern.Wildcard ctx
   symbolPattern   = do
     sym <- binding
-    pure $ \ctx -> PSymbol ctx sym
+    pure $ \ctx -> Pattern.Symbol ctx sym
   vectorPattern = do
     subpatterns <- vector $ many patternExpr
-    pure $ \ctx -> PVector ctx subpatterns
+    pure $ \ctx -> Pattern.Vector ctx subpatterns
   atomPattern = do
     atm <- atom
-    pure $ \ctx -> PAtom ctx atm
+    pure $ \ctx -> Pattern.Atom ctx atm
 
 atom :: Parser Atom
 atom = cases [unitAtom, integerAtom, stringAtom, booleanAtom]
  where
   unitAtom = do
     reserved "nil"
-    pure AUnit
+    pure Atom.Unit
   integerAtom = do
     mnum <- readMaybe <$> many1 digit
     case mnum of
       Nothing  -> parserFail "couldn't decipher integer"
-      Just num -> pure $ AInteger num
-  stringAtom =
-    AString . toText <$> between (char '"') (char '"') (many $ noneOf "\"")
-  booleanAtom =
-    ABoolean <$> choice [reserved "true" $> True, reserved "false" $> False]
+      Just num -> pure $ Atom.Integer num
+  stringAtom  = Atom.String . toText <$> between (char '"') (char '"') (many $ noneOf "\"")
+  booleanAtom = Atom.Boolean <$> choice [reserved "true" $> True, reserved "false" $> False]

@@ -7,6 +7,8 @@ module Prelude
   , Category.Category(..)
   , Foldable(..)
   , Foldable.find
+  , Foldable.and
+  , Foldable.or
   , (Category.<<<)
   , (Category.>>>)
   )
@@ -29,25 +31,31 @@ import           Control.Monad.Writer          as X
                                                 , runWriterT
                                                 , tell
                                                 )
-import           Data.Default                  as X
 import qualified Data.Foldable                 as Foldable
 import           Data.Generics.Product
 import           Data.Generics.Product.Fields  as X
+import           Data.Generics.Product.Typed   as X
 import qualified Data.Map.Strict               as Map
 import           GHC.OverloadedLabels
 
 -- import           GHC.Show                     (Show (showsPrec))
 import           Lens.Micro.Platform           as X
+                                         hiding ( to )
 import           Universum                     as X
                                          hiding ( Constraint
                                                 , Container(..)
                                                 , Down
+                                                , Natural
                                                 , Product
                                                 , State
+                                                , Sum
                                                 , TVar
                                                 , Type
+                                                , ap
+                                                , empty
                                                 , id
-                                                , identity
+                                                , join
+                                                , pi
                                                 , product
                                                 , some
                                                 , sum
@@ -80,6 +88,7 @@ all = Foldable.all
 
 identical :: (Eq a) => [a] -> Bool
 identical (x : xs) = all (== x) xs
+identical _        = True
 
 errorToMaybe :: Except e a -> Maybe a
 errorToMaybe = rightToMaybe . runExcept
@@ -88,6 +97,11 @@ infixr 0 |>>
 
 infixr 0 <<|
 
+(|>>) :: a -> (a -> b) -> b
 x |>> f = f x
 
+(<<|) :: (a -> b) -> a -> b
 f <<| x = f x
+
+matches :: Getting (First a) s a -> s -> Bool
+matches prism value = isJust $ preview prism value

@@ -7,16 +7,13 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 
 import           Parser
-import           Syntax                         ( Atom(..)
-                                                , Binding(..)
-                                                , Context(..)
-                                                , Pattern'(..)
-                                                , Term'(..)
-                                                )
+import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Common                 as Common
+import qualified Syntax.Pattern                as Pattern
+import qualified Syntax.Term                   as Term
 import           Test.Utils              hiding ( parse )
 
-tester p name inp out =
-  testCase name $ (removeContext <$> parse p "<test>" inp) @?= Right out
+tester p name inp out = testCase name $ (removeContext <$> parse p "<test>" inp) @?= Right out
 
 tree :: TestTree
 tree = testGroup
@@ -26,9 +23,8 @@ tree = testGroup
     [ let test = tester (removeContext <$> name)
       in  testGroup
             "Lexeme"
-            [ test "compact name" "foobar" $ ESymbol noContext (Single "foobar")
-            , test "qualified name" "foo.bar"
-              $ ESymbol noContext (Single "foo.bar")
+            [ test "compact name" "foobar" $ sym "foobar"
+            , test "qualified name" "foo.bar" $ sym "foo.bar"
             ]
     ]
   , testGroup "Values"
@@ -36,32 +32,18 @@ tree = testGroup
       in
         [ testGroup
           "Lambdas"
-          [ test
-            "id lambda"
-            "(fn [x] x)"
-            (ELambda noContext [Single "x"] (ESymbol noContext (Single "x")))
-          , test
-            "const lambda"
-            "(fn [x y] x)"
-            (ELambda noContext
-                     [Single "x", Single "y"]
-                     (ESymbol noContext (Single "x"))
-            )
-          , test
-            "id application"
-            "((fn [x] x) 1)"
-            (EApplication
-              noContext
-              (ELambda noContext [Single "x"] (ESymbol noContext (Single "x")))
-              [int 1]
-            )
+          [ test "id lambda" "(fn [x] x)" $ lambda "x" (sym "x")
+          , test "const lambda" "(fn [x y] x)" $ lambda "x" (lambda "y" (sym "x"))
+          , test "id application"
+                 "((fn [x] x) 1)"
+                 (Term.Application noContext (lambda "x" (sym "x")) [int 1])
           ]
         , testGroup
           "Vectors"
-          [ test "empty"          "[]"      (EVector noContext mempty)
-          , test "empty w/ space" "[ ]"     (EVector noContext mempty)
-          , test "unit element"   "[nil]"   (EVector noContext [unit])
-          , test "numbers" "[1 2 3]" (EVector noContext $ map int [1, 2, 3])
+          [ test "empty"          "[]"      (Term.Vector noContext mempty)
+          , test "empty w/ space" "[ ]"     (Term.Vector noContext mempty)
+          , test "unit element"   "[nil]"   (Term.Vector noContext [unit])
+          , test "numbers"        "[1 2 3]" (Term.Vector noContext $ map int [1, 2, 3])
           ]
         ]
   , testGroup
@@ -72,11 +54,11 @@ tree = testGroup
           in
             testGroup
               "Patterns"
-              [ test "trivial" "a"   (PSymbol noContext (Single "a"))
-              , test "unit"    "nil" (PAtom noContext AUnit)
+              [ test "trivial" "a"   (Pattern.Symbol noContext (Common.Single "a"))
+              , test "unit"    "nil" (Pattern.Atom noContext Atom.Unit)
               , test "unit vector"
                      "[nil]"
-                     (PVector noContext [PAtom noContext AUnit])
+                     (Pattern.Vector noContext [Pattern.Atom noContext Atom.Unit])
               ]
         ]
     ]

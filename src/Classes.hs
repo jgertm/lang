@@ -4,6 +4,10 @@ import qualified Universum.Unsafe              as Unsafe
 
 type family Context phase
 
+data Empty
+type instance Classes.Context Empty = ()
+type instance Classes.Extra Empty = ()
+
 data Direction
   = Up
   | Down
@@ -11,17 +15,20 @@ data Direction
 class Tree (t :: * -> *) p where
   walkM :: (Monad f) => Direction -> (t p -> f (t p)) -> t p -> f (t p)
   metaM ::
-       (Applicative f, Tree t p, Tree t q)
+       (Applicative f, Tree t q)
     => (Context p -> f (Context q))
     -> t p
     -> f (t q)
 
 ascendM, descendM :: (Tree t p, Monad m) => (t p -> m (t p)) -> t p -> m (t p)
-[ascendM, descendM] = map walkM [Up, Down]
+ascendM = walkM Up
+
+descendM = walkM Down
 
 ascend, descend :: (Tree t p) => (t p -> t p) -> t p -> t p
-[ascend, descend] =
-  map (\t f -> runIdentity . t (pure . f)) [ascendM, descendM]
+ascend f = runIdentity . ascendM (pure . f)
+
+descend f = runIdentity . descendM (pure . f)
 
 metaM_ :: (Monad m, Tree t p) => (Context p -> m a) -> t p -> m (t p)
 metaM_ f = metaM (\e -> f e $> e)
