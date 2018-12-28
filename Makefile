@@ -8,29 +8,24 @@ generate-nix-files:
 shell: generate-nix-files
 	$(NIX_SHELL)
 
-build: generate-nix-files
-	$(NIX_SHELL) --run "cabal new-build"
-	cp dist-newstyle/build/x86_64-linux/ghc-8.4.3/lang-0.1.0.0/x/lang/build/lang/lang .
+build:
+	stack install --local-bin-path=. -j 8 --fast
 
-repl: generate-nix-files
-	$(NIX_SHELL) --run "cabal new-repl"
+repl:
+	stack repl
 
-ghcid: generate-nix-files
-	$(NIX_SHELL) --run \
-		"ghcid \
-		--reload=./src \
-		--reload=./exe \
-		--reload=./test \
-		--reload=./examples \
-		--command='cabal new-repl lib:$(PROJECT) --ghc-options=-ignore-dot-ghci' \
-		--warnings \
-		--test=Dev.main"
+ghcid:
+	ghcid \
+	--reload=./lib \
+	--command='stack repl --ghci-options=-ignore-dot-ghci' \
+	--warnings \
+	--test=Dev.main
 
-test: generate-nix-files
-	$(NIX_SHELL) --run "fd -e hs | entr cabal new-test"
+test:
+	stack test
 
-run: generate-nix-files
-	$(NIX_SHELL) --run "cabal run"
+run: build
+	./lang
 
 format:
 	fd -e hs -x brittany --write-mode=inplace
