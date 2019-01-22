@@ -12,6 +12,7 @@ import           Classes
 import           Error
 import qualified Syntax.Common                 as Common
 import qualified Syntax.Definition             as Definition
+import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Term                   as Term
 import qualified Syntax.Type                   as Type
 
@@ -21,6 +22,7 @@ data Renaming
 type instance Context Renaming = Maybe Binding
 
 type Term = Term.Term Renaming
+type Pattern = Pattern.Pattern Renaming
 type Definition = Definition.Definition Renaming
 type Binding = Common.Binding
 
@@ -94,9 +96,16 @@ renameTerm (Term.Application _ fn args) = do
   fn'   <- renameTerm fn
   args' <- traverse renameTerm args
   pure $ Term.Application Nothing fn' args'
-renameTerm term = metaM (const $ pure Nothing) term
+renameTerm (Term.Match _ prototype branches) = do
+  prototype' <- renameTerm prototype
+  branches'  <- forM branches $ \(patterns, body) -> do
+    patterns' <- forM patterns renamePattern
+    body'     <- renameTerm body
+    pure (patterns', body')
+  pure $ Term.Match Nothing prototype' branches'
+renameTerm term = walkM renameTerm $ meta (const Nothing) term
 
-instance Renameable Definition.Definition  where
+instance Renameable Definition.Definition where
   renameNode = renameDefinition
 
 renameDefinition :: (MonadRename m) => Definition.Definition phase -> m Definition
@@ -108,11 +117,6 @@ renameDefinition (Definition.Type _ name typ) = do
   name' <- alias name
   typ'  <- renameNode typ
   pure $ Definition.Type (Just name) name' typ'
-renameDefinition (Definition.Function _ name arguments body) = do
-  name'      <- alias name
-  arguments' <- traverse alias arguments
-  body'      <- adds arguments $ renameNode body
-  pure $ Definition.Function (Just name) name' arguments' body'
 renameDefinition (Definition.Constant _ name body) = do
   name' <- alias name
   body' <- renameNode body
@@ -120,3 +124,12 @@ renameDefinition (Definition.Constant _ name body) = do
 
 instance Renameable Type.Type where
   renameNode = undefined
+
+renamePattern :: (MonadRename m) => Pattern.Pattern phase -> m Pattern
+renamePattern (Pattern.Symbol _ name) = add name $ do
+  name' <- alias name
+  pure $ Pattern.Symbol (Just name) name'
+renamePattern pattrn = walkM renamePattern $ meta (const Nothing) pattrn
+
+instance Renameable Pattern.Pattern where
+  renameNode = renamePattern

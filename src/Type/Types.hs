@@ -1,5 +1,7 @@
 module Type.Types where
 
+import           Data.Text.Prettyprint.Doc
+
 import qualified Classes
 import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Syntax
@@ -71,6 +73,15 @@ data Type
   | Vector Type
            Type
   deriving (Show, Eq, Ord, Generic)
+
+instance Pretty Type where
+  pretty (Primitive prim) = pretty prim
+  pretty (Function a b) =
+    let args (Function a b) = a : args b
+        args t              = [t]
+        body = hsep $ "->" : map pretty (a : args b)
+    in parens body
+  pretty t = show t
 
 data Proposition =
   Equals Type

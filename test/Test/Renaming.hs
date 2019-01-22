@@ -8,6 +8,8 @@ import           Test.Tasty.HUnit
 
 import           Error
 import qualified Renaming
+import qualified Syntax.Common                 as Common
+import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Term                   as Term
 import           Test.Utils
 
@@ -43,5 +45,12 @@ tree = testGroup
     (Term.Let noContext
               [(var "foo", Term.Lambda noContext (var "x") (sym "x"))]
               (Term.Application noContext (sym "foo") [int 1])
+    )
+  , test
+    "match stmt"
+    "(let [[foo nil]] (match nil (foo foo)))"
+    (Term.Let noContext
+              [(var "foo", unit)]
+              (Term.Match noContext unit [([Pattern.Symbol noContext (var "foo1")], sym "foo1")])
     )
   ]

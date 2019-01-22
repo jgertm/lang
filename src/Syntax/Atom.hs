@@ -1,5 +1,7 @@
 module Syntax.Atom where
 
+import           Data.Text.Prettyprint.Doc
+
 
 data Atom
   = Unit
@@ -8,8 +10,8 @@ data Atom
   | Boolean Bool
   deriving (Show, Eq, Ord, Generic)
 
-render :: (IsString s) => Atom -> s
-render Unit        = "nil"
-render (Integer i) = show i
-render (String  s) = show s
-render (Boolean b) = if b then "true" else "false"
+instance Pretty Atom where
+  pretty Unit        = "nil"
+  pretty (Integer i) = pretty $ show i
+  pretty (String  s) = pretty $ show s
+  pretty (Boolean b) = if b then "true" else "false"

@@ -35,6 +35,7 @@ import qualified Syntax.Type                   as Type
 data Parsing
 
 type instance Context Parsing = (SourcePos, SourcePos)
+type instance Extra Parsing = ()
 
 type Term = Term.Term Parsing
 type Definition = Definition.Definition Parsing

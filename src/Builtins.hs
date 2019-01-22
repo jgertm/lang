@@ -1,8 +1,7 @@
 module Builtins where
 
-import qualified Data.Map.Strict               as M
+import qualified Data.Map.Strict               as Map
 import qualified Text.Show
-import qualified Universum.Unsafe              as Unsafe
 
 import qualified Syntax.Atom                   as Syntax
 import qualified Syntax.Common                 as Syntax
@@ -19,20 +18,23 @@ instance Show Builtin where
   show = show . name
 
 instance Eq Builtin where
-  x == y = name x == name y
+  (==) = (==) `on` name
 
 instance Ord Builtin where
-  x `compare` y = name x `compare` name y
+  compare = compare `on` name
 
 getInt :: Syntax.Atom -> Maybe Int
 getInt (Syntax.Integer i) = Just i
 getInt _                  = Nothing
 
 integerBinOp :: (Traversable t) => (t Int -> Int) -> t Syntax.Atom -> Syntax.Atom
-integerBinOp op = Unsafe.fromJust . map (Syntax.Integer . op) . traverse getInt
+integerBinOp op =
+  fromMaybe (error "[builtins] couldn't evaluate builtin primitive")
+    . map (Syntax.Integer . op)
+    . traverse getInt
 
 builtins :: Map Syntax.Binding Builtin
-builtins = M.fromList $ map ((Syntax.Single . name) &&& identity) [plus, minus, times]
+builtins = Map.fromList $ map ((Syntax.Single . name) &&& identity) [plus, minus, times]
  where
   plus = Builtin
     { name     = "+"

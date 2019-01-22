@@ -55,20 +55,20 @@ data Term phase
   | Annotation (Context phase)
                (Term phase)
                (Type phase)
+  | Extra (Context phase) (Extra phase)
   deriving (Generic)
 
 type Branch phase = ([Pattern phase], Term phase)
 
 
-deriving instance (Show (Context phase)) => Show (Term phase)
+deriving instance (Show (Context phase), Show (Extra phase)) => Show (Term phase)
 
-deriving instance (Eq (Context phase)) => Eq (Term phase)
+deriving instance (Eq (Context phase), Eq (Extra phase)) => Eq (Term phase)
 
-deriving instance (Ord (Context phase)) => Ord (Term phase)
+deriving instance (Ord (Context phase), Ord (Extra phase)) => Ord (Term phase)
 
 instance Tree Term phase where
-  walkM dir f =
-    let step =
+  walkM f =
           \case
             Lambda ctx args ex -> Lambda ctx <$> pure args <*> down ex
             If ctx test thn els ->
@@ -91,10 +91,7 @@ instance Tree Term phase where
             Fix ctx name body -> Fix ctx name <$> down body
             Annotation ctx term typ -> Annotation ctx <$> down term <*> pure typ
           where
-            down = walkM dir f
-     in case dir of
-          Up   -> f <=< step
-          Down -> step <=< f
+            down = walkM f
   metaM f =
     \case
       Lambda ctx args body -> do

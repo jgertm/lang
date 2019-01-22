@@ -2,3 +2,12 @@
 
 (defn succ [n]
   (+ 1 n))
+
+(defn succsucc [n]
+  (succ (succ n)))
+
+(defn foo [n a]
+  (+ a (succsucc n)))
+
+(defn main []
+  (foo 2 3))

@@ -1,8 +1,8 @@
 module Classes where
 
-import qualified Universum.Unsafe              as Unsafe
 
 type family Context phase
+type family Extra phase
 
 data Empty
 type instance Classes.Context Empty = ()
@@ -13,7 +13,7 @@ data Direction
   | Down
 
 class Tree (t :: * -> *) p where
-  walkM :: (Monad f) => Direction -> (t p -> f (t p)) -> t p -> f (t p)
+  walkM :: (Monad f) => (t p -> f (t p)) -> t p -> f (t p)
   metaM ::
        (Applicative f, Tree t q)
     => (Context p -> f (Context q))
@@ -21,9 +21,9 @@ class Tree (t :: * -> *) p where
     -> f (t q)
 
 ascendM, descendM :: (Tree t p, Monad m) => (t p -> m (t p)) -> t p -> m (t p)
-ascendM = walkM Up
+ascendM f = f <=< walkM (ascendM f)
 
-descendM = walkM Down
+descendM f = walkM (descendM f) <=< f
 
 ascend, descend :: (Tree t p) => (t p -> t p) -> t p -> t p
 ascend f = runIdentity . ascendM (pure . f)
@@ -44,4 +44,4 @@ context tree =
           tell $ First (Just ctx)
           pure ctx
         )
-  in  Unsafe.fromJust . getFirst . evalWriter $ action tree
+  in  fromMaybe (error "[ast] no context found") . getFirst . evalWriter $ action tree

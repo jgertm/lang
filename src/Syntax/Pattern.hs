@@ -32,17 +32,12 @@ deriving instance (Eq (Context phase)) => Eq (Pattern phase)
 deriving instance (Ord (Context phase)) => Ord (Pattern phase)
 
 instance Tree Pattern phase where
-  walkM dir f =
-    let step =
-          \case
-            Vector ctx ps -> Vector ctx <$> traverse (walkM dir f) ps
-            Tuple ctx pMap -> Tuple ctx <$> traverse (walkM dir f) pMap
-            Record ctx pMap -> Record ctx <$> traverse (walkM dir f) pMap
-            Variant ctx tag pat -> Variant ctx tag <$> walkM dir f pat
-            p -> pure p
-     in case dir of
-          Up   -> f <=< step
-          Down -> step <=< f
+  walkM f = \case
+    Vector ctx ps -> Vector ctx <$> traverse (walkM f) ps
+    Tuple ctx pMap -> Tuple ctx <$> traverse (walkM f) pMap
+    Record ctx pMap -> Record ctx <$> traverse (walkM f) pMap
+    Variant ctx tag pat -> Variant ctx tag <$> walkM f pat
+    p -> pure p
   metaM f =
     \case
       Wildcard ctx        -> Wildcard <$> f ctx

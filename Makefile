@@ -1,27 +1,29 @@
 PROJECT = lang
 NIX_SHELL = nix-shell --attr env $(PROJECT).nix
 
-generate-nix-files:
-	hpack
+delete-cabal:
+	rm -f *.cabal
+
+generate-nix-files: delete-cabal
 	cabal2nix --hpack . > default.nix
 
 shell: generate-nix-files
 	$(NIX_SHELL)
 
-build:
+build: delete-cabal
 	stack install --local-bin-path=. -j 8 --fast
 
-repl:
+repl: delete-cabal
 	stack repl
 
-ghcid:
+ghcid: delete-cabal
 	ghcid \
 	--reload=./lib \
 	--command='stack repl --ghci-options=-ignore-dot-ghci' \
 	--warnings \
 	--test=Dev.main
 
-test:
+test: delete-cabal
 	stack test
 
 run: build
@@ -31,6 +33,3 @@ format:
 	fd -e hs -x hlint {} --refactor --refactor-options='--inplace'
 	fd -e hs -x stylish-haskell -i {}
 	fd -e hs -x brittany --write-mode=inplace {} --columns 100
-
-lint:
-	fd -e hs | xargs hlint

@@ -9,6 +9,7 @@ import qualified Syntax.Term                   as Term
 
 data Test
 type instance Context Test = ()
+type instance Extra Test = ()
 type Term = Term.Term Test
 
 noContext :: Context Test

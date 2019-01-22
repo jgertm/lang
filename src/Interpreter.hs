@@ -1,106 +1,87 @@
-module Interpreter
-  ( interpret
-  , interpretWith
-  , Env
-  )
-where
+module Interpreter where
 
-import qualified Data.Map.Strict               as M
+import qualified Data.Map.Strict               as Map
+import           Data.Text.Prettyprint.Doc
 
-import           Builtins
+import qualified Builtins
 import           Classes
 import           Error
+import           Interpreter.Match
+import           Interpreter.Types
 import qualified Syntax.Atom                   as Atom
 import qualified Syntax.Common                 as Common
-import qualified Syntax.Definition             as Definition
-import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Term                   as Term
-import qualified Syntax.Type                   as Type
 
 
-data Evaluation
+lookup :: Common.Binding -> E -> Closure
+lookup sym env =
+  fromMaybe (error $ "[interpreter] failed to lookup " <> show (squotes $ pretty sym))
+    $ Map.lookup sym env
 
-type instance Context Evaluation = ()
+insert :: Common.Binding -> Closure -> E -> E
+insert name closure env = Map.insert name closure env
 
-type Term = Term.Term Evaluation
-type Definition = Definition.Definition Evaluation
-type Type = Type.Type Evaluation
-type Pattern = Pattern.Pattern Evaluation
 
-type MonadInterpret m = (MonadReader Env m, MonadError InterpretationError m)
+step :: C -> E -> K -> CEK
 
-type Env = Map Common.Binding Term
+step (Term.Symbol _ symbol     ) env k = let Closure t env' = lookup symbol env in (t, env', k)
 
-interpret :: Term.Term phase -> Either Error Term
--- interpret = interpretWith $ map (\bi -> Term.Native () bi []) builtins
-interpret = interpretWith mempty
+step (Term.If _ test true false) env k = (test, env, Conditional true false k)
+step (Term.Atom _ (Atom.Boolean bool)) env (Conditional true false k) =
+  let next = if bool then true else false in (next, env, k)
 
-interpretWith :: Env -> Term.Term phase -> Either Error Term
-interpretWith env = runInterpreter env . eval . meta (const ())
+step (Term.Let _ ((name, value) : bindings) body) env k =
+  let k' = case bindings of
+        []   -> Bind name body k
+        more -> Bind name (Term.Let () more body) k
+  in  (value, env, k')
+step result env (Bind name c k) = (c, insert name (Closure result env) env, k)
 
-runInterpreter :: Env -> _ a -> Either Error a
-runInterpreter env = runExcept . withExcept Interpretation . usingReaderT env
+step (Term.Application _ fn args) env k = (fn, env, Arguments args env k)
+step fn env (Arguments args env' k) = case args of
+  [arg       ] -> (arg, env', Call fn env k)
+  (arg : rest) -> (arg, env', Call fn env (Arguments rest env' k))
+step result env (Call (Term.Lambda _ arg body) env' k) =
+  let env'' = insert arg (Closure result env) env' in (body, env'', k)
+step (Term.Atom () result) env (Call (Term.Extra () (Native bi args)) _ k) = case k of
+  Arguments{} -> (Term.Extra () $ Native bi (args <> [result]), env, k)
+  _           -> (Term.Atom () (Builtins.function bi $ args <> [result]), env, k)
 
-replaceWith :: (Term -> Maybe Term) -> Term -> Term
-replaceWith fn = descend (\vex -> fromMaybe vex $ fn vex)
+step (Term.Match _ prototype branches) env k = (prototype, env, Select branches k)
+step prototype env (Select ((patterns, body) : branches) k) =
+  case concatMapM (`match` prototype) patterns of
+    Nothing       -> (prototype, env, Select branches k)
+    Just bindings -> (body, env <> map (`Closure` env) bindings, k)
 
-replaceSymbol :: Common.Binding -> Term -> Term -> Term
-replaceSymbol binding substitution = replaceWith
-  (\case
-    Term.Symbol _ binding' -> if binding == binding' then Just substitution else Nothing
-    _                      -> Nothing
-  )
+step c e Done = (c, e, Done)
 
-replaceSymbols :: Map Common.Binding Term -> Term -> Term
-replaceSymbols dict = replaceWith
-  (\case
-    Term.Symbol _ binding -> M.lookup binding dict
-    _                     -> Nothing
-  )
 
-eval :: (MonadInterpret m) => Term -> m Term
--- eval (Term.Application _ fn args) = do
---   args' <- traverse eval args
---   fn'   <- eval fn
---   eval =<< case fn' of
---     Term.Lambda _ argv lambdabody ->
---       let dict        = M.fromList $ zip argv args'
---           lambdabody' = replaceSymbols dict lambdabody
---           argv'       = drop (length args) argv
---       in  if null argv' then pure lambdabody' else pure $ Term.Lambda () argv' lambdabody'
---     Term.Native ctx builtin oldargs ->
---       let atoms = map (\(Term.Atom _ atom) -> atom) args'
---       in  eval $ Term.Native ctx builtin (oldargs <> atoms)
--- eval (Term.Native _ builtin args) = pure $ Term.Atom () $ function builtin args
-eval (Term.Let _ bindings body) =
-  let go ((name, value) : moreBindings) = do
-        value' <- eval value
-        local (M.insert name value') $ go moreBindings
-      go [] = eval body
-  in  go bindings
-eval (Term.If _ test true false) = do
-  result <- eval test
-  case result of
-    Term.Atom _ (Atom.Boolean result) -> eval $ if result then true else false
-    other                             -> error "Condition invoked with something other than boolean"
-eval (Term.Symbol _ binding@(Common.Single name)) = do
-  env <- ask
-  liftMaybe (UnboundSymbol name) $ M.lookup binding env
--- eval (Term.Match _ prototype branches) = do
---   prototype'       <- eval prototype
---   (bindings, body) <-
---     liftMaybe NoMatchingPattern
---     . getFirst
---     . foldMap (\(pat, body) -> First . map (, body) $ match pat prototype')
---     $ branches
---   local (`M.union` bindings) $ eval body
-eval e = metaM (const pass) e
+isFinal :: CEK -> Bool
+isFinal (term, _, Done) = case term of
+  Term.Application{} -> False
+  Term.Symbol{}      -> False
+  Term.If{}          -> False
+  Term.Let{}         -> False
+  Term.Match{}       -> False
+  _                  -> True
+isFinal _ = False
 
-match :: Pattern.Pattern phase -> Term -> Maybe (Map Common.Binding Term)
-match (Pattern.Wildcard _      ) _                  = Just M.empty
-match (Pattern.Symbol _ binding) expr               = Just $ M.singleton binding expr
-match (Pattern.Vector _ pv     ) (Term.Vector _ ev) = do
-  guard $ length pv == length ev
-  map M.unions . sequenceA $ zipWith match pv ev
-match (Pattern.Atom _ pat) (Term.Atom _ atm) = if pat == atm then Just M.empty else Nothing
-match _                    _                 = Nothing
+run :: C -> [CEK]
+run = runWith mempty
+
+runWith :: E -> C -> [CEK]
+runWith env term = iterate (\(c, e, k) -> step c e k) (term, Map.union env builtins, Done)
+
+eval :: Term.Term phase -> Either Error Term
+eval = evalWith mempty
+
+evalWith :: E -> Term.Term phase -> Either Error Term
+evalWith env term = case find isFinal $ runWith env $ meta (const ()) term of
+  Just (result, _, _) -> Right result
+  Nothing             -> Left $ Interpretation Unimplemented
+
+evalTrace :: C -> [CEK]
+evalTrace term = let (steps, final : _) = break isFinal $ run term in steps <> [final]
+
+builtins :: Map Common.Binding Closure
+builtins = map (\bi -> Closure (Term.Extra () $ Native bi []) mempty) Builtins.builtins

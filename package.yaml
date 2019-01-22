@@ -80,6 +80,7 @@ dependencies:
   - text
   - parsec
   - containers
+  - prettyprinter
 
 library:
   source-dirs:        src

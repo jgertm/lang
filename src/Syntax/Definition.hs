@@ -17,30 +17,21 @@ data Definition phase
   | Constant (Context phase)
              Binding
              (Term phase)
-  | Function (Context phase)
-             Binding
-             [Binding] -- ^ arguments
-             (Term phase) -- ^ body
   deriving (Generic)
 
-deriving instance (Show (Context phase)) => Show (Definition phase)
+deriving instance (Show (Context phase), Show (Extra phase)) => Show (Definition phase)
 
-deriving instance (Eq (Context phase)) => Eq (Definition phase)
+deriving instance (Eq (Context phase), Eq (Extra phase)) => Eq (Definition phase)
 
-deriving instance (Ord (Context phase)) => Ord (Definition phase)
+deriving instance (Ord (Context phase), Ord (Extra phase)) => Ord (Definition phase)
 
 instance Tree Definition phase where
-  walkM dir f =
-    let step =
+  walkM f =
           \case
             Module ctx name defs ->
-              Module ctx name <$> traverse (walkM dir f) defs
+              Module ctx name <$> traverse (walkM f) defs
             Type ctx name typ -> pure $ Type ctx name typ
             Constant ctx name body -> pure $ Constant ctx name body
-            Function ctx name args body -> pure $ Function ctx name args body
-     in case dir of
-          Up   -> f <=< step
-          Down -> step <=< f
   metaM f def =
     case def of
       Module ctx name defs -> do
@@ -55,7 +46,3 @@ instance Tree Definition phase where
         ctx' <- f ctx
         term' <- metaM f term
         pure $ Constant ctx' name term'
-      Function ctx name args body -> do
-        ctx' <- f ctx
-        body' <- metaM f body
-        pure $ Function ctx' name args body'
