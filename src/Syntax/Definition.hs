@@ -3,19 +3,19 @@
 module Syntax.Definition where
 
 import           Classes
-import           Syntax.Common                  ( Binding )
+import qualified Syntax.Reference              as Ref
 import           Syntax.Term                    ( Term )
 import           Syntax.Type                    ( Type )
 
 data Definition phase
   = Module (Context phase)
-           Binding
+           Ref.Module
            [Definition phase]
   | Type (Context phase)
-         Binding
+         Ref.Type
          (Type phase)
   | Constant (Context phase)
-             Binding
+             Ref.Value
              (Term phase)
   deriving (Generic)
 

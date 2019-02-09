@@ -142,14 +142,20 @@ covers gamma pis (With a0 prop : as, Principal) =
 -- RULE: Covers∧!/ (Nonprincipal)
 covers gamma pis (With a0 _ : as, Nonprincipal) = covers gamma pis (a0 : as, Nonprincipal) -- FIXME: I think there's a typo regarding this rule in the paper
 -- TODO: CoversVec
+-- covers gamma pis (Vector t a : as, Principal) =
+--   let (pisNil, pisCons) = expandVector pis
+--   in  guarded pi && coversAssuming gamma (Equals t Zero) pisNil (as, Principal)
 -- TODO: CoversVec!/ (Nonprincipal)
 -- RULE: CoversVar
 covers gamma pis (_ : as, q) = let pis' = expandVariable pis in covers gamma pis' (as, q)
 covers _ _ _ = False
--- TODO: CoversEq
--- TODO: CoversEqBot
 
-coversAssuming :: Context -> [Branch] -> Proposition -> ([Type], Principality) -> Infer ()
+-- TODO
+coversAssuming :: Context -> Proposition -> [Branch] -> ([Type], Principality) -> Bool
+-- TODO: CoversEq
+-- coversAssuming gamma (Equals t1 t2) pis (as, Principal) =
+--   Equation.unify gamma (Ctx.apply gamma t1) (Ctx.apply gamma t2) -- FIXME: where to get kind k?
+-- TODO: CoversEqBot
 coversAssuming = undefined
 
 guarded :: [Branch] -> Bool
@@ -188,7 +194,7 @@ expandRecord ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho =
   let pis' = expandRecord pis in ((Pattern.Wildcard () : Pattern.Wildcard () : rhos, e) : pis')
 expandRecord _ = error "Can only expand record pattern"
 
-expandVariant :: [Branch] -> Map Syntax.Name [Branch]
+expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty
 expandVariant ((Pattern.Variant _ k rho : rhos, e) : pis) =
   let pisKs = expandVariant pis in Map.adjust ((rho : rhos, e) :) k pisKs

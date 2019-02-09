@@ -6,16 +6,16 @@ import           Data.Bitraversable
 
 import           Classes
 import           Syntax.Atom                    ( Atom )
-import           Syntax.Common                  ( Binding
-                                                , Name
-                                                )
 import           Syntax.Pattern                 ( Pattern )
+import           Syntax.Reference               ( Keyword
+                                                , Value
+                                                )
 import           Syntax.Type                    ( Type )
 
 
 data Term phase
   = Lambda (Context phase)
-           Binding -- ^ argument name
+           Value -- ^ argument name
            (Term phase) -- ^ body
   | If (Context phase)
        (Term phase) -- ^ test
@@ -27,7 +27,7 @@ data Term phase
   | Sequence (Context phase)
              [Term phase]
   | Let (Context phase)
-        [( Binding -- ^ bound name
+        [( Value -- ^ bound name
          , Term phase -- ^ body
           )]
         (Term phase) -- ^ scope
@@ -37,20 +37,18 @@ data Term phase
   | Tuple (Context phase)
           (Map Int (Term phase))
   | Record (Context phase)
-           (Map Name (Term phase))
+           (Map Keyword (Term phase))
   | Variant (Context phase)
-            Name
+            Keyword
             (Term phase)
   | Vector (Context phase)
            [Term phase]
   | Symbol (Context phase)
-           Binding
-  | Keyword (Context phase)
-            Name
+           Value
   | Atom (Context phase)
          Atom
   | Fix (Context phase)
-        Binding
+        Value
         (Term phase)
   | Annotation (Context phase)
                (Term phase)
@@ -86,7 +84,6 @@ instance Tree Term phase where
             Variant ctx tag value -> Variant ctx tag <$> down value
             Vector ctx els -> Vector ctx <$> traverse down els
             Symbol ctx name -> pure $ Symbol ctx name
-            Keyword ctx name -> pure $ Keyword ctx name
             Atom ctx atom -> pure $ Atom ctx atom
             Fix ctx name body -> Fix ctx name <$> down body
             Annotation ctx term typ -> Annotation ctx <$> down term <*> pure typ
@@ -148,9 +145,6 @@ instance Tree Term phase where
       Symbol ctx name -> do
         ctx' <- f ctx
         pure $ Symbol ctx' name
-      Keyword ctx name -> do
-        ctx' <- f ctx
-        pure $ Keyword ctx' name
       Atom ctx atom -> do
         ctx' <- f ctx
         pure $ Atom ctx' atom

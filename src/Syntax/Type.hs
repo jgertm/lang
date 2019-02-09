@@ -3,17 +3,18 @@
 module Syntax.Type where
 
 import           Classes
-import           Syntax.Common                  ( Name )
+import qualified Syntax.Reference              as Syntax
 
 data Type phase
-  = Product (Context phase)
+  = Named (Context phase) Syntax.Type
+  | Product (Context phase)
             [Type phase]
   | Sum (Context phase)
         [Type phase]
   | Record (Context phase)
-           [(Name, Type phase)]
-  | Tag (Context phase)
-        Name -- ^ keyword
+           [(Syntax.Keyword, Type phase)]
+  | Variant (Context phase)
+        Syntax.Keyword
         (Type phase)
   | Function (Context phase)
              [Type phase]

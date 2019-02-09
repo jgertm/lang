@@ -4,22 +4,22 @@ module Syntax.Pattern where
 
 import           Classes
 import           Syntax.Atom                    ( Atom )
-import           Syntax.Common                  ( Binding
-                                                , Name
+import           Syntax.Reference               ( Keyword
+                                                , Value
                                                 )
 
 data Pattern phase
   = Wildcard (Context phase)
   | Symbol (Context phase)
-           Binding
+           Value
   | Vector (Context phase)
            [Pattern phase]
   | Tuple (Context phase)
           (Map Int (Pattern phase))
   | Record (Context phase)
-           (Map Name (Pattern phase))
+           (Map Keyword (Pattern phase))
   | Variant (Context phase)
-            Name
+            Keyword
             (Pattern phase)
   | Atom (Context phase)
          Atom

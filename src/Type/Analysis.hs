@@ -105,7 +105,7 @@ check' gamma e (With a prop, p) = do
   theta <- Equation.true gamma prop
   check theta e (Ctx.apply theta a, p)
 -- RULE: →I (Function introduction)
-check' gamma lam@(Syntax.Lambda _ x e) (Function a b, p) = do
+check' gamma (Syntax.Lambda _ x e) (Function a b, p) = do
   let binding = Binding x a p
       gamma'  = Ctx.add gamma binding
   ctx <- check gamma' e (b, p)

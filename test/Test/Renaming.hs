@@ -8,8 +8,8 @@ import           Test.Tasty.HUnit
 
 import           Error
 import qualified Renaming
-import qualified Syntax.Common                 as Common
 import qualified Syntax.Pattern                as Pattern
+import qualified Syntax.Reference              as Reference
 import qualified Syntax.Term                   as Term
 import           Test.Utils
 
@@ -26,7 +26,7 @@ testError = tester (Left . Renaming)
 tree :: TestTree
 tree = testGroup
   "Renaming"
-  [ testError "bare symbol" "a" (UnknownSymbol "a")
+  [ testError "bare symbol" "a" (UnknownSymbol $ var "a")
   , test "lambda-bound symbol" "(fn [x] x)"        (Term.Lambda noContext (var "x") (sym "x"))
   , test "let-bound symbol"    "(let [[a nil]] a)" (Term.Let noContext [(var "a", unit)] (sym "a"))
   , test "let-bound colliding symbols"

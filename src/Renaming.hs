@@ -10,25 +10,25 @@ import qualified Data.Map.Strict               as Map
 import           Builtins
 import           Classes
 import           Error
-import qualified Syntax.Common                 as Common
 import qualified Syntax.Definition             as Definition
 import qualified Syntax.Pattern                as Pattern
+import qualified Syntax.Reference              as Reference
 import qualified Syntax.Term                   as Term
 import qualified Syntax.Type                   as Type
 
 
 data Renaming
 
-type instance Context Renaming = Maybe Binding
+type instance Context Renaming = Maybe Value
 
 type Term = Term.Term Renaming
 type Pattern = Pattern.Pattern Renaming
 type Definition = Definition.Definition Renaming
-type Binding = Common.Binding
+type Value = Reference.Value
 
 type MonadRename m = (MonadError RenamingError m, MonadState Env m)
 
-type Env = Map Binding Int
+type Env = Map Value Int
 
 rename :: (Renameable t) => t phase -> Either Error (t Renaming)
 rename = renameWith $ map (const 0) builtins
@@ -39,31 +39,31 @@ renameWith env = runRenaming env . renameNode
 runRenaming :: Env -> StateT Env (Except RenamingError) a -> Either Error a
 runRenaming env = runExcept . withExcept Renaming . evaluatingStateT env
 
-alias :: (MonadRename m) => Binding -> m Binding
-alias binding@(Common.Single name) = do
+alias :: (MonadRename m) => Value -> m Value
+alias name = do
   env <- get
-  pure . Common.Single $ case Map.lookup binding env of
+  pure $ case Map.lookup name env of
     Nothing -> name
     Just 0  -> name
-    Just i  -> name <> show i
+    Just i  -> name `Reference.append` show i
 
-insertName :: Binding -> Map Binding Int -> Map Binding Int
+insertName :: Value -> Map Value Int -> Map Value Int
 insertName name = Map.insertWith (\old new -> old + new + 1) name 0
 
-add :: (MonadRename m) => Binding -> m a -> m a
-add binding action = do
-  modify $ insertName binding
+add :: (MonadRename m) => Value -> m a -> m a
+add name action = do
+  modify $ insertName name
   action
 
-adds :: (MonadRename m) => [Binding] -> m a -> m a
+adds :: (MonadRename m) => [Value] -> m a -> m a
 adds names action = do
   traverse_ (modify . insertName) names
   action
 
-check :: (MonadRename m) => Binding -> m ()
-check binding@(Common.Single name) = do
+check :: (MonadRename m) => Value -> m ()
+check name = do
   env <- get
-  case Map.lookup binding env of
+  case Map.lookup name env of
     Just _  -> pass
     Nothing -> throwError (UnknownSymbol name)
 
@@ -105,31 +105,27 @@ renameTerm (Term.Match _ prototype branches) = do
   pure $ Term.Match Nothing prototype' branches'
 renameTerm term = walkM renameTerm $ meta (const Nothing) term
 
+
 instance Renameable Definition.Definition where
   renameNode = renameDefinition
 
 renameDefinition :: (MonadRename m) => Definition.Definition phase -> m Definition
 renameDefinition (Definition.Module _ name definitions) = do
-  name'        <- alias name
   definitions' <- traverse renameDefinition definitions
-  pure $ Definition.Module (Just name) name' definitions'
-renameDefinition (Definition.Type _ name typ) = do
-  name' <- alias name
-  typ'  <- renameNode typ
-  pure $ Definition.Type (Just name) name' typ'
+  pure $ Definition.Module Nothing name definitions'
+renameDefinition (Definition.Type _ name typ) =
+  pure $ Definition.Type Nothing name (meta (const Nothing) typ)
 renameDefinition (Definition.Constant _ name body) = do
   name' <- alias name
   body' <- renameNode body
   pure $ Definition.Constant (Just name) name' body'
 
-instance Renameable Type.Type where
-  renameNode = undefined
+
+instance Renameable Pattern.Pattern where
+  renameNode = renamePattern
 
 renamePattern :: (MonadRename m) => Pattern.Pattern phase -> m Pattern
 renamePattern (Pattern.Symbol _ name) = add name $ do
   name' <- alias name
   pure $ Pattern.Symbol (Just name) name'
 renamePattern pattrn = walkM renamePattern $ meta (const Nothing) pattrn
-
-instance Renameable Pattern.Pattern where
-  renameNode = renamePattern

@@ -8,7 +8,7 @@ where
 import qualified Builtins
 import           Classes
 import           Error
-import qualified Syntax.Common                 as Syntax
+import qualified Syntax.Reference              as Syntax
 import qualified Syntax.Term                   as Term
 import qualified Type.Context                  as Ctx
 import           Type.Monad
@@ -25,10 +25,10 @@ builtins = map Builtins.typ Builtins.builtins
 inferTrace :: Term.Term phase -> (Either Error Type, [Judgement])
 inferTrace = inferWithTrace mempty
 
-inferWith :: Map Syntax.Binding Type -> Term.Term phase -> Either Error Type
+inferWith :: Map Syntax.Value Type -> Term.Term phase -> Either Error Type
 inferWith = fst ... inferWithTrace
 
-inferWithTrace :: Map Syntax.Binding Type -> Term.Term phase -> (Either Error Type, [Judgement])
+inferWithTrace :: Map Syntax.Value Type -> Term.Term phase -> (Either Error Type, [Judgement])
 inferWithTrace bindings e =
   let gamma              = Ctx.initialize bindings
       (result, _, rules) = run $ synthesize gamma $ meta (const ()) e

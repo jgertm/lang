@@ -10,12 +10,13 @@ import qualified Data.Sequence                 as Seq
 import qualified Data.Set                      as Set
 
 import           Error                          ( TypeError(..) )
-import qualified Syntax.Common                 as Syntax
+import qualified Syntax.Reference              as Syntax
 import qualified Type.Expression               as Type
 import           Type.Monad
 import           Type.Types
 
-initialize :: Map Syntax.Binding Type -> Context
+
+initialize :: Map Syntax.Value Type -> Context
 initialize bindings =
   Context $ Seq.fromList $ map (\(n, t) -> Binding n t Principal) $ Map.toList bindings
 
@@ -52,11 +53,15 @@ before (Context ctx) pred succ =
 
 existentials :: Context -> Set (Variable 'Existential, Kind)
 existentials gamma =
-  Set.fromList [ (tv, kind) | DeclareExistential tv kind <- toList $ unContext gamma ]
+  let declarations = [ (tv, kind) | DeclareExistential tv kind <- toList $ unContext gamma ]
+      solutions    = [ (tv, kind) | SolvedExistential tv kind _ <- toList $ unContext gamma ]
+  in  (Set.union `on` Set.fromList) declarations solutions
 
 universals :: Context -> Set (Variable 'Universal, Kind)
 universals gamma =
-  Set.fromList [ (tv, kind) | DeclareUniversal tv kind <- toList $ unContext gamma ]
+  let declarations = [ (tv, kind) | DeclareUniversal tv kind <- toList $ unContext gamma ]
+      solutions    = [ (tv, undefined) | SolvedUniversal tv _ <- toList $ unContext gamma ] -- FIXME
+  in  (Set.union `on` Set.fromList) declarations solutions
 
 existentialSolutions :: Context -> Map (Variable 'Existential) (Type, Kind)
 existentialSolutions gamma =
@@ -69,11 +74,11 @@ universalSolutions :: Context -> Map (Variable 'Universal) Type
 universalSolutions gamma =
   Map.fromList [ (tv, typ) | SolvedUniversal tv typ <- toList $ unContext gamma ]
 
-bindings :: Context -> Map Syntax.Binding (Type, Principality)
+bindings :: Context -> Map Syntax.Value (Type, Principality)
 bindings gamma = Map.fromList
   [ (binding, (typ, principality)) | Binding binding typ principality <- toList $ unContext gamma ]
 
-lookup :: Syntax.Binding -> Context -> Infer (Type, Principality)
+lookup :: Syntax.Value -> Context -> Infer (Type, Principality)
 lookup binding gamma = do
   case Map.lookup binding $ bindings gamma of
     Nothing     -> throwError $ UnknownBinding binding

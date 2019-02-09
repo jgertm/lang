@@ -3,8 +3,8 @@ module Interpreter.Types where
 import qualified Builtins
 import           Classes
 import qualified Syntax.Atom                   as Atom
-import qualified Syntax.Common                 as Common
 import qualified Syntax.Pattern                as Pattern
+import qualified Syntax.Reference              as Reference
 import qualified Syntax.Term                   as Term
 
 
@@ -26,11 +26,12 @@ data Continuation
   | Arguments [C] E K
   | Call C E K
   | Conditional C C K
-  | Bind Common.Binding C K
-  | Select [Branch] K
+  | Bind Reference.Value C K
+  | Select [Branch] E K
+  | Error K
   deriving (Show)
 
 type C = Term
-type E = Map Common.Binding Closure
+type E = Map Reference.Value Closure
 type K = Continuation
 type CEK = (C,E,K)

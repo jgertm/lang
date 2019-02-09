@@ -59,7 +59,12 @@ tree = testGroup
     , test "dependent"               "(let [[a 1] [b ((fn [x] x) a)]] b)"       (int 1)
     , test "rebinding"               "(let [[a nil] [a ((fn [x y] x) a 1)]] a)" unit
     ]
-  , testGroup "Recursion" []
+  , testGroup
+    "Recursion"
+    [ test "simple recursive function "
+           "((recur f (fn [x] (match x (3 nil) (n (f (+ 1 n)))))) 1)"
+           unit
+    , test "factorial" "((recur fac (fn [x] (match x (0 1) (n (* n (fac (- n 1))))))) 4)" (int 24)
+    ]
   ]
 
-    -- test "factorial" "(let [[fac (fn [x] (match x (0 1) (n (* n (fac (- n 1))))))]] (fac 4))" (int 24)

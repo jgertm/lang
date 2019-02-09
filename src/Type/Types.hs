@@ -3,8 +3,8 @@ module Type.Types where
 import           Data.Text.Prettyprint.Doc
 
 import qualified Classes
-import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Syntax
+import qualified Syntax.Reference              as Syntax
 import qualified Syntax.Term                   as Syntax
 
 
@@ -21,7 +21,7 @@ data Fact
                      Kind
   | DeclareExistential (Variable 'Existential)
                        Kind
-  | Binding Syntax.Binding
+  | Binding Syntax.Value
             Type
             Principality
   | SolvedUniversal (Variable 'Universal)
@@ -53,9 +53,9 @@ data Kind
 data Type
   = Primitive Text
   | Function Type Type
-  | Variant (Map Syntax.Name Type)
+  | Variant (Map Syntax.Keyword Type)
   | Tuple (Map Int Type)
-  | Record (Map Syntax.Name Type)
+  | Record (Map Syntax.Keyword Type)
   | UniversalVariable (Variable 'Universal)
   | ExistentialVariable (Variable 'Existential)
   | Forall (Variable 'Universal)
@@ -76,6 +76,10 @@ data Type
 
 instance Pretty Type where
   pretty (Primitive prim) = pretty prim
+  pretty (UniversalVariable (Var var)) = pretty var
+  pretty (Forall (Var var) _ typ) =
+    let body = hsep ["forall", pretty var <> ".", pretty typ]
+    in parens body
   pretty (Function a b) =
     let args (Function a b) = a : args b
         args t              = [t]

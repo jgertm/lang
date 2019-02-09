@@ -104,11 +104,12 @@ recoverSpine' gamma s ap@(_, Principal) = do
 -- RULE: SpinePass
 recoverSpine' gamma s ap@(_, p) = do
   ((c, q), delta) <- spine gamma s ap
-  guard
-    $  p
-    == Nonprincipal
-    || q
-    == Principal
-    || Context.freeExistentialVariables delta c
-    /= Set.empty
+  unless
+      (  p
+      == Nonprincipal
+      || q
+      == Principal
+      || (not . Set.null $ Ctx.freeExistentialVariables delta c)
+      )
+    $ throwError (RuleError "SpinePass")
   pure ((c, q), delta)

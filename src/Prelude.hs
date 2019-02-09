@@ -41,6 +41,7 @@ import           GHC.OverloadedLabels
 -- import           GHC.Show                     (Show (showsPrec))
 import           Lens.Micro.Platform           as X
                                          hiding ( to )
+import           Text.Pretty.Simple
 import           Universum                     as X
                                          hiding ( Constraint
                                                 , Container(..)
@@ -105,3 +106,5 @@ f <<| x = f x
 
 matches :: Getting (First a) s a -> s -> Bool
 matches prism value = isJust $ preview prism value
+
+inspect = traceM . toText . pShow

@@ -9,7 +9,7 @@ where
 
 import qualified Text.Parsec                   as Parsec
 
-import           Syntax.Common
+import qualified Syntax.Reference              as Syntax
 import           Type.Types
 
 data Error
@@ -21,13 +21,13 @@ data Error
   deriving (Show, Eq)
 
 data RenamingError =
-  UnknownSymbol Name
+  UnknownSymbol Syntax.Value
   deriving (Show, Eq)
 
 data InterpretationError
   = Unimplemented
   | Semantics
-  | UnboundSymbol Name
+  | UnboundSymbol Syntax.Value
   | NoMatchingPattern
   deriving (Show, Eq)
 
@@ -39,10 +39,16 @@ data TypeError
   = AnalysisError
   | ContextError
   | UnknownError String
-  | InstantiationError
+  | InstantiationError String
   | SubtypingError
-  | SynthesisError
   | UnificationError
   | MatchError
   | TypeMismatch Type Type
+  | UnknownBinding Syntax.Value
+  | KindMismatch Kind Kind
+  | UnsolvedExistential (Variable 'Existential)
+  | UnsolvedUniversal (Variable 'Universal)
+  | InsufficientCoverage
+  | PrincipalityRecoveryFailure (Set (Variable 'Existential))
+  | RuleError String
   deriving (Show, Eq)

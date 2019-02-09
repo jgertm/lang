@@ -4,12 +4,15 @@ import qualified Data.Map.Strict               as Map
 import qualified Text.Show
 
 import qualified Syntax.Atom                   as Syntax
-import qualified Syntax.Common                 as Syntax
+import qualified Syntax.Reference              as Syntax
 import qualified Type.Expression               as Type
-import           Type.Types                     ( Type )
+import           Type.Types                     ( Kind(..)
+                                                , Type(..)
+                                                , Variable(..)
+                                                )
 
 data Builtin = Builtin
-  { name     :: Syntax.Name
+  { name     :: Text
   , function :: [Syntax.Atom] -> Syntax.Atom
   , typ      :: Type
   }
@@ -33,8 +36,8 @@ integerBinOp op =
     . map (Syntax.Integer . op)
     . traverse getInt
 
-builtins :: Map Syntax.Binding Builtin
-builtins = Map.fromList $ map ((Syntax.Single . name) &&& identity) [plus, minus, times]
+builtins :: Map Syntax.Value Builtin
+builtins = Map.fromList $ map ((Syntax.Local . name) &&& identity) [plus, minus, times]
  where
   plus = Builtin
     { name     = "+"
@@ -56,3 +59,9 @@ builtins = Map.fromList $ map ((Syntax.Single . name) &&& identity) [plus, minus
     , function = integerBinOp product
     , typ      = Type.fn [Type.integer, Type.integer, Type.integer]
     }
+
+  -- println = Builtin
+  --   { name = "println"
+  --   , function = putTextLn . unwords . map show
+  --   , typ = let alpha = Var "alpha" in Forall alpha Type (Type.fn [UniversalVariable alpha, Type.unit]) -- TODO: skolemization
+  --   }

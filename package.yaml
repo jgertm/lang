@@ -80,16 +80,15 @@ dependencies:
   - text
   - parsec
   - containers
+  - pretty-simple
   - prettyprinter
 
 library:
   source-dirs:        src
   dependencies:
-    - data-partition
     - generic-lens
     - microlens-platform
     - mtl
-    - pretty-simple
     - prettyprinter
     - universum
 
