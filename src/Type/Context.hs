@@ -2,16 +2,14 @@
 
 module Type.Context where
 
-import qualified Data.Map.Strict               as Map
-import           Data.Sequence                  ( Seq(..)
-                                                , (|>)
-                                                )
-import qualified Data.Sequence                 as Seq
-import qualified Data.Set                      as Set
+import qualified Data.Map.Strict  as Map
+import           Data.Sequence    (Seq (..), (|>))
+import qualified Data.Sequence    as Seq
+import qualified Data.Set         as Set
 
-import           Error                          ( TypeError(..) )
-import qualified Syntax.Reference              as Syntax
-import qualified Type.Expression               as Type
+import           Error            (TypeError (..))
+import qualified Syntax.Reference as Syntax
+import qualified Type.Expression  as Type
 import           Type.Monad
 import           Type.Types
 
@@ -27,9 +25,10 @@ adds :: Context -> [Fact] -> Context
 adds (Context ctx) els = Context $ ctx <> Seq.fromList els
 
 split :: Context -> Fact -> (Context, Context)
-split (Context ctx) elt = do
-  case Seq.breakr (== elt) ctx of
-    (post, pre :|> elt') | elt == elt' -> (Context pre, Context post)
+split (Context ctx) fact =
+  case Seq.breakr (fact ==) ctx of
+    (post, pre :|> elt') -- | elt == elt'
+                           -> (Context pre, Context post)
     _ -> error "Failed to split context"
 
 drop :: Context -> Fact -> Context

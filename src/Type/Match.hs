@@ -7,25 +7,31 @@ import qualified Data.Set                      as Set
 import           Error                          ( TypeError(..) )
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Reference              as Syntax
+import qualified Syntax.Term                   as Term
 import qualified Type.Analysis                 as Analysis
 import qualified Type.Context                  as Ctx
 import qualified Type.Equation                 as Equation
 import           Type.Expression
+import qualified Type.Instantiation            as Instantiate
 import           Type.Monad
 import           Type.Types
 
 
 check :: Context -> [Branch] -> ([Type], Principality) -> (Type, Principality) -> Infer Context
 -- RULE: MatchEmpty
-check gamma []        _       _      = pure gamma
+check gamma [] _ _ = pure gamma
 -- RULE: MatchBase
-check gamma [([], e)] ([], _) (c, p) = Analysis.check gamma e (c, p)
+check gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
+  Analysis.check gamma e (c, p)
 -- RULE: MatchUnit
-check gamma [(Pattern.Atom _ atom : rhos, e)] (primitive : as, q) cp =
-  let typ = Analysis.atomType atom
-  in  if primitive == typ
-        then check gamma [(rhos, e)] (as, q) cp
-        else throwError $ TypeMismatch primitive typ
+check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] ap@(primitive : as, q) cp
+  = do
+    let typ = Analysis.atomType atom
+    gamma' <- if primitive == typ
+      then pure gamma
+      else catchError (Instantiate.to gamma primitive (typ, Type))
+                      (const $ throwError $ TypeMismatch primitive typ)
+    check gamma' [Term.Branch {patterns = rhos, body = e}] (map (Ctx.apply gamma') as, q) cp
 -- RULE: Match∃
 check gamma branches (Exists alpha k a : as, q) cp =
   check (Ctx.add gamma (DeclareUniversal alpha k)) branches (a : as, q) cp
@@ -36,63 +42,78 @@ check gamma branches (With a p : as, Principal) cp =
 check gamma branches (With a _ : as, Nonprincipal) cp =
   check gamma branches (a : as, Nonprincipal) cp
 -- RULE: Match×
-check gamma [(Pattern.Tuple _ rhoMap : rhos, e)] (Tuple aMap : as, q) cp
-  | Map.keysSet rhoMap == Map.keysSet aMap = do
+check gamma [Term.Branch { patterns = Pattern.Tuple _ rhoMap : rhos, body = e }] (Tuple aMap : as, q) cp
+  | Map.keysSet rhoMap == Map.keysSet aMap
+  = do
     let tuplePatterns = elems rhoMap
         tupleTypes    = elems aMap
-    check gamma [(tuplePatterns <> rhos, e)] (tupleTypes <> as, q) cp
-check gamma [(Pattern.Record _ rhoMap : rhos, e)] (Record aMap : as, q) cp
-  | Map.keysSet rhoMap `Set.isSubsetOf` Map.keysSet aMap = do
+    check gamma [Term.Branch {patterns = tuplePatterns <> rhos, body = e}] (tupleTypes <> as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] (Record aMap : as, q) cp
+  | Map.keysSet rhoMap `Set.isSubsetOf` Map.keysSet aMap
+  = do
     let rowAs          = Map.restrictKeys aMap (Map.keysSet rhoMap)
         recordPatterns = elems rhoMap
         recordTypes    = elems rowAs
-    check gamma [(recordPatterns <> rhos, e)] (recordTypes <> as, q) cp
+    check gamma
+          [Term.Branch {patterns = recordPatterns <> rhos, body = e}]
+          (recordTypes <> as, q)
+          cp
 -- RULE: Match+ₖ
-check gamma [(Pattern.Variant _ tag rho : rhos, e)] (Variant aMap : as, q) cp = do
-  a <- liftMaybe MatchError $ Map.lookup tag aMap
-  check gamma [(rho : rhos, e)] (a : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Variant _ tag rho : rhos, body = e }] (Variant aMap : as, q) cp
+  = do
+    a <- liftMaybe MatchError $ Map.lookup tag aMap
+    check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
 -- RULE: MatchNeg
-check gamma [(Pattern.Symbol _ z : rhos, e)] (a : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
   | not $ isWith a || isExistentiallyQuantified a = do
     let binding = Binding z a Principal
-    ctx <- check (Ctx.add gamma binding) [(rhos, e)] (as, q) cp
+    ctx <- check (Ctx.add gamma binding) [Term.Branch {patterns = rhos, body = e}] (as, q) cp
     pure $ Ctx.drop ctx binding
 -- RULE: MatchWild
-check gamma [(Pattern.Wildcard _ : rhos, e)] (a : as, q) cp
-  | not $ isWith a || isExistentiallyQuantified a = check gamma [(rhos, e)] (as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Wildcard _ : rhos, body = e }] (a : as, q) cp
+  | not $ isWith a || isExistentiallyQuantified a = check
+    gamma
+    [Term.Branch {patterns = rhos, body = e}]
+    (as, q)
+    cp
 -- RULE: MatchNil
-check gamma [(Pattern.Vector _ [] : rhos, e)] (Vector t _ : as, Principal) cp =
-  incorporate gamma (Equals t Zero) [(rhos, e)] (as, Principal) cp
+check gamma [Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e }] (Vector t _ : as, Principal) cp
+  = incorporate gamma (Equals t Zero) [Term.Branch {patterns = rhos, body = e}] (as, Principal) cp
 -- RULE: MatchCons
-check gamma [(Pattern.Vector _ (rho1 : rho2) : rhos, e)] (Vector t a : as, Principal) cp = do
-  alpha <- freshUniversal
-  let alphaType   = UniversalVariable alpha
-      declaration = DeclareUniversal alpha Natural
-      gamma'      = Ctx.add gamma declaration
-  ctx <- incorporate gamma'
-                     (Equals t (Succ alphaType))
-                     [(rho1 : Pattern.Vector () rho2 : rhos, e)]
-                     (a : Vector alphaType a : as, Principal)
-                     cp
-  pure $ Ctx.drop ctx declaration
+check gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, body = e }] (Vector t a : as, Principal) cp
+  = do
+    alpha <- freshUniversal
+    let alphaType   = UniversalVariable alpha
+        declaration = DeclareUniversal alpha Natural
+        gamma'      = Ctx.add gamma declaration
+    ctx <- incorporate gamma'
+                       (Equals t (Succ alphaType))
+                       [Term.Branch {patterns = rho1 : Pattern.Vector () rho2 : rhos, body = e}]
+                       (a : Vector alphaType a : as, Principal)
+                       cp
+    pure $ Ctx.drop ctx declaration
 -- RULE: MatchNil!/ (Nonprincipal)
-check gamma [(Pattern.Vector _ [] : rhos, e)] (Vector _ _ : as, Nonprincipal) cp =
-  check gamma [(rhos, e)] (as, Nonprincipal) cp
+check gamma [Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e }] (Vector _ _ : as, Nonprincipal) cp
+  = check gamma [Term.Branch {patterns = rhos, body = e}] (as, Nonprincipal) cp
 -- RULE: MatchCons!/ (Nonprincipal)
-check gamma [(Pattern.Vector _ (rho1 : rho2) : rhos, e)] (Vector _ a : as, Nonprincipal) cp = do
-  alpha <- freshUniversal
-  let alphaType   = UniversalVariable alpha
-      declaration = DeclareUniversal alpha Natural
-      gamma'      = Ctx.add gamma declaration
-  ctx <- check gamma'
-               [(rho1 : Pattern.Vector () rho2 : rhos, e)]
-               (a : Vector alphaType a : as, Nonprincipal)
-               cp
-  pure $ Ctx.drop ctx declaration
+check gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, body = e }] (Vector _ a : as, Nonprincipal) cp
+  = do
+    alpha <- freshUniversal
+    let alphaType   = UniversalVariable alpha
+        declaration = DeclareUniversal alpha Natural
+        gamma'      = Ctx.add gamma declaration
+    ctx <- check gamma'
+                 [Term.Branch {patterns = rho1 : Pattern.Vector () rho2 : rhos, body = e}]
+                 (a : Vector alphaType a : as, Nonprincipal)
+                 cp
+    pure $ Ctx.drop ctx declaration
 -- RULE: MatchSeq
-check gamma (pi : pi') (as, q) cp = do
-  theta <- check gamma [pi] (as, q) cp
-  check theta pi' (map (Ctx.apply theta) as, q) cp
+check gamma (pi@Term.Branch { patterns } : pi') ([a], p) cp = do
+  let as = replicate (length patterns) a
+  theta <- check gamma [pi] (as, p) cp
+  check theta pi' (map (Ctx.apply theta) [a], p) cp
+check gamma pis@(pi : pi') (as, q) cp =
+  foldM (\ctx pi -> check ctx [pi] (map (Ctx.apply ctx) as, q) cp) gamma pis
 
 incorporate
   :: Context
@@ -103,13 +124,13 @@ incorporate
   -> Infer Context
 -- RULE: Match⊥
 -- RULE: MatchUnify
-incorporate gamma (Equals sigma tau) [(rhos, e)] (as, Principal) cp = do
+incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
   p <- freshExistential
   let marker = Marker p
   catchError
     (do
       theta <- Equation.unify (Ctx.add gamma marker) sigma (tau, Type) -- FIXME: kind is unspecified
-      ctx   <- check theta [(rhos, e)] (as, Principal) cp
+      ctx   <- check theta branches (as, Principal) cp
       pure $ Ctx.drop ctx marker
     )
     (const $ pure gamma)
@@ -117,7 +138,7 @@ incorporate _ _ _ _ _ = throwError MatchError
 
 covers :: Context -> [Branch] -> ([Type], Principality) -> Bool
 -- RULE: CoversEmpty
-covers _ (([], _) : _) ([], _) = True
+covers _ (Term.Branch { patterns = [] } : _) ([], _) = True
 -- RULE: Covers1 (Atom)
 covers gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers gamma pis' (as, q)
 -- RULE: Covers× (Tuple/Record)
@@ -159,61 +180,77 @@ coversAssuming :: Context -> Proposition -> [Branch] -> ([Type], Principality) -
 coversAssuming = undefined
 
 guarded :: [Branch] -> Bool
-guarded ((Pattern.Vector _ [] : _, _) : _) = True
-guarded ((Pattern.Vector _ (_ : _) : _, _) : _) = True
-guarded ((Pattern.Wildcard _ : _, _) : pis) = guarded pis
-guarded ((Pattern.Symbol _ _ : _, _) : pis) = guarded pis
+guarded (Term.Branch { patterns } : pis) = case patterns of
+  (Pattern.Vector _ []      : _) -> True
+  (Pattern.Vector _ (_ : _) : _) -> True
+  (Pattern.Wildcard _       : _) -> guarded pis
+  (Pattern.Symbol _ _       : _) -> guarded pis
 guarded _ = False
 
 expandVector :: [Branch] -> ([Branch], [Branch])
 expandVector [] = ([], [])
-expandVector ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho =
+expandVector (Term.Branch { patterns = rho : rhos, body = e } : pis)
+  | isSymbol rho || isWildcard rho
+  = let
+      (pisNil, pisCons) = expandVector pis
+      left              = Term.Branch {patterns = rhos, body = e} : pisNil
+      right =
+        Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e}
+          : pisCons
+    in
+      (left, right)
+expandVector (Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e } : pis) =
   let (pisNil, pisCons) = expandVector pis
-      left              = (rhos, e) : pisNil
-      right             = (Pattern.Wildcard () : Pattern.Wildcard () : rhos, e) : pisCons
-  in  (left, right)
-expandVector ((Pattern.Vector _ [] : rhos, e) : pis) =
-  let (pisNil, pisCons) = expandVector pis in ((rhos, e) : pisNil, pisCons)
-expandVector ((Pattern.Vector _ (rho : rho') : rhos, e) : pis) =
-  let (pisNil, pisCons) = expandVector pis in (pisNil, ((rho : rho') <> rhos, e) : pisCons)
+  in  (Term.Branch {patterns = rhos, body = e} : pisNil, pisCons)
+expandVector (Term.Branch { patterns = Pattern.Vector _ (rho : rho') : rhos, body = e } : pis) =
+  let (pisNil, pisCons) = expandVector pis
+  in  (pisNil, Term.Branch {patterns = rho : rho' <> rhos, body = e} : pisCons)
 expandVector _ = error "Can only expand vector pattern"
 
 expandTuple :: [Branch] -> [Branch]
 expandTuple [] = []
-expandTuple ((Pattern.Tuple _ rhoMap : rhos, e) : pis) =
-  let pis' = expandTuple pis in (elems rhoMap <> rhos, e) : pis'
-expandTuple ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho =
-  let pis' = expandTuple pis in ((Pattern.Wildcard () : Pattern.Wildcard () : rhos, e) : pis')
+expandTuple (Term.Branch { patterns = Pattern.Tuple _ rhoMap : rhos, body = e } : pis) =
+  let pis' = expandTuple pis in Term.Branch {patterns = elems rhoMap <> rhos, body = e} : pis'
+expandTuple (Term.Branch { patterns = rho : rhos, body = e } : pis)
+  | isSymbol rho || isWildcard rho
+  = let pis' = expandTuple pis
+    in  (Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e} : pis')
 expandTuple _ = error "Can only expand tuple pattern"
 
 expandRecord :: [Branch] -> [Branch]
 expandRecord [] = []
-expandRecord ((Pattern.Record _ rhoMap : rhos, e) : pis) =
-  let pis' = expandRecord pis in (elems rhoMap <> rhos, e) : pis'
-expandRecord ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho =
-  let pis' = expandRecord pis in ((Pattern.Wildcard () : Pattern.Wildcard () : rhos, e) : pis')
+expandRecord (Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e } : pis) =
+  let pis' = expandRecord pis in Term.Branch {patterns = elems rhoMap <> rhos, body = e} : pis'
+expandRecord (Term.Branch { patterns = rho : rhos, body = e } : pis)
+  | isSymbol rho || isWildcard rho
+  = let pis' = expandRecord pis
+    in  (Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e} : pis')
 expandRecord _ = error "Can only expand record pattern"
 
 expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty
-expandVariant ((Pattern.Variant _ k rho : rhos, e) : pis) =
-  let pisKs = expandVariant pis in Map.adjust ((rho : rhos, e) :) k pisKs
-expandVariant ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho =
-  let pisKs      = expandVariant pis
-      commonHead = (Pattern.Wildcard () : rhos, e)
-  in  map (commonHead :) pisKs
+expandVariant (Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e } : pis) =
+  let pisKs = expandVariant pis
+  in  Map.adjust (Term.Branch {patterns = rho : rhos, body = e} :) k pisKs
+expandVariant (Term.Branch { patterns = rho : rhos, body = e } : pis)
+  | isSymbol rho || isWildcard rho
+  = let pisKs      = expandVariant pis
+        commonHead = Term.Branch {patterns = Pattern.Wildcard () : rhos, body = e}
+    in  map (commonHead :) pisKs
 expandVariant _ = error "Can only expand variant pattern"
 
 expandVariable :: [Branch] -> [Branch]
 expandVariable [] = []
-expandVariable ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho =
-  let pis' = expandVariable pis in (rhos, e) : pis'
+expandVariable (Term.Branch { patterns = rho : rhos, body = e } : pis)
+  | isSymbol rho || isWildcard rho
+  = let pis' = expandVariable pis in Term.Branch {patterns = rhos, body = e} : pis'
 expandVariable _ = error "Can only expand variable or wildcard pattern"
 
 expandAtom :: [Branch] -> [Branch]
 expandAtom [] = []
-expandAtom ((rho : rhos, e) : pis) | isSymbol rho || isWildcard rho || isAtom rho =
-  let pis' = expandAtom pis in (rhos, e) : pis'
+expandAtom (Term.Branch { patterns = rho : rhos, body = e } : pis)
+  | isSymbol rho || isWildcard rho || isAtom rho
+  = let pis' = expandAtom pis in Term.Branch {patterns = rhos, body = e} : pis'
 expandAtom _ = error "Can only expand variable, wildcard or atom pattern"
 
 

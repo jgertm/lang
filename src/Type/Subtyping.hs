@@ -16,9 +16,7 @@ import           Type.Types
 
 subtype, subtype' :: Context -> Polarity -> Type -> Type -> Infer Context
 
-subtype gamma pol a b = do
-  judgement $ Subtyping gamma pol a b
-  subtype' gamma pol a b
+subtype gamma pol a b = subtype' gamma pol a b
 
 -- RULE: <:Equiv
 subtype' gamma _ a b | not (isQuantified a) && not (isQuantified b) = equivalent gamma a b
@@ -70,9 +68,7 @@ subtype' _ _ _ _ = throwError SubtypingError
 
 equivalent, equivalent' :: Context -> Type -> Type -> Infer Context
 
-equivalent gamma a b = do
-  judgement $ TypeEquivalence gamma a b
-  equivalent' gamma a b
+equivalent gamma a b = equivalent' gamma a b
 
 -- RULE: ≡Var
 equivalent' gamma alpha1@(UniversalVariable _) alpha2@(UniversalVariable _) | alpha1 == alpha2 =

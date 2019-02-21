@@ -17,6 +17,7 @@ import qualified Data.Map.Strict               as Map
 import           Text.Parsec             hiding ( State
                                                 , many
                                                 , parse
+                                                , (<|>)
                                                 )
 import qualified Text.Parsec                   as P
 import           Text.Parsec.Token       hiding ( identifier
@@ -228,7 +229,15 @@ term = injectContext $ cases
     body     <- term
     branches <- many1 branch
     pure $ \ctx -> Term.Match ctx body branches
-    where branch = sexp $ (,) <$> fmap (: []) patternExpr <*> term
+   where
+    branch = sexp $ do
+      patterns <- alternatives <|> single
+      body     <- term
+      pure $ Term.Branch {patterns , body }
+    single       = one <$> patternExpr
+    alternatives = sexp $ do
+      reserved "|"
+      many1 patternExpr
   sequenceTerm = sexp $ do
     reserved "do"
     steps <- many1 term
@@ -270,15 +279,34 @@ term = injectContext $ cases
     pure $ \ctx -> Term.Fix ctx name body
 
 patternExpr :: Parser Pattern
-patternExpr = injectContext $ cases [wildcardPattern, vectorPattern, atomPattern, symbolPattern]
+patternExpr = injectContext $ cases
+  [ wildcardPattern
+  , vectorPattern
+  , tuplePattern
+  , recordPattern
+  , variantPattern
+  , atomPattern
+  , symbolPattern
+  ]
  where
   wildcardPattern = reserved "_" $> \ctx -> Pattern.Wildcard ctx
   symbolPattern   = do
     sym <- name
     pure $ \ctx -> Pattern.Symbol ctx sym
-  vectorPattern = do
-    subpatterns <- vector $ many patternExpr
+  vectorPattern = vector $ do
+    subpatterns <- many patternExpr
     pure $ \ctx -> Pattern.Vector ctx subpatterns
+  tuplePattern = tuple $ do
+    subpatterns <- Map.fromList . zip [1 ..] <$> many1 patternExpr
+    pure $ \ctx -> Pattern.Tuple ctx subpatterns
+  recordPattern = record $ do
+    subpatterns <- Map.fromList <$> many row
+    pure $ \ctx -> Pattern.Record ctx subpatterns
+    where row = (,) <$> keyword <*> patternExpr
+  variantPattern = variant $ do
+    tag        <- keyword
+    subpattern <- patternExpr
+    pure $ \ctx -> Pattern.Variant ctx tag subpattern
   atomPattern = do
     atm <- atom
     pure $ \ctx -> Pattern.Atom ctx atm

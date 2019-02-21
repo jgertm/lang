@@ -98,10 +98,10 @@ renameTerm (Term.Application _ fn args) = do
   pure $ Term.Application Nothing fn' args'
 renameTerm (Term.Match _ prototype branches) = do
   prototype' <- renameTerm prototype
-  branches'  <- forM branches $ \(patterns, body) -> do
-    patterns' <- forM patterns renamePattern
+  branches'  <- forM branches $ \Term.Branch { patterns, body } -> do
+    patterns' <- traverse renamePattern patterns
     body'     <- renameTerm body
-    pure (patterns', body')
+    pure $ Term.Branch {patterns = patterns', body = body'}
   pure $ Term.Match Nothing prototype' branches'
 renameTerm term = walkM renameTerm $ meta (const Nothing) term
 

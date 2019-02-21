@@ -56,9 +56,6 @@ data Term phase
   | Extra (Context phase) (Extra phase)
   deriving (Generic)
 
-type Branch phase = ([Pattern phase], Term phase)
-
-
 deriving instance (Show (Context phase), Show (Extra phase)) => Show (Term phase)
 
 deriving instance (Eq (Context phase), Eq (Extra phase)) => Eq (Term phase)
@@ -71,9 +68,12 @@ instance Tree Term phase where
             Lambda ctx args ex -> Lambda ctx <$> pure args <*> down ex
             If ctx test thn els ->
               If ctx <$> down test <*> down thn <*> down els
-            Match ctx sample branches ->
-              Match ctx <$> down sample <*>
-              traverse (sequenceA . second down) branches
+            Match ctx prototype branches -> do
+              prototype' <- down prototype
+              branches' <- forM branches $ \Branch{patterns, body} -> do
+                body' <- down body
+                pure $ Branch{patterns, body = body'}
+              pure $ Match ctx prototype' branches'
             Sequence ctx exs -> Sequence ctx <$> traverse down exs
             Let ctx bindings ex ->
               Let ctx <$> traverse (bitraverse pure down) bindings <*> down ex
@@ -101,17 +101,14 @@ instance Tree Term phase where
         thn' <- metaM f thn
         els' <- metaM f els
         pure $ If ctx' test' thn' els'
-      Match ctx sample branches -> do
+      Match ctx prototype branches -> do
         ctx' <- f ctx
-        sample' <- metaM f sample
-        branches' <-
-          traverse
-            (\(patterns, body) -> do
-               patterns' <- traverse (metaM f) patterns
-               body' <- metaM f body
-               pure (patterns', body'))
-            branches
-        pure $ Match ctx' sample' branches'
+        prototype' <- metaM f prototype
+        branches' <- for branches $ \Branch{patterns, body} -> do
+          patterns' <- traverse (metaM f) patterns
+          body' <- metaM f body
+          pure $ Branch {patterns = patterns', body = body'}
+        pure $ Match ctx' prototype' branches'
       Sequence ctx terms -> do
         ctx' <- f ctx
         terms' <- traverse (metaM f) terms
@@ -157,3 +154,13 @@ instance Tree Term phase where
         term' <- metaM f term
         typ' <- metaM f typ
         pure $ Annotation ctx' term' typ'
+
+
+data Branch phase
+  = Branch { patterns :: [Pattern phase], body :: Term phase} deriving (Generic)
+
+deriving instance (Show (Context phase), Show (Extra phase)) => Show (Branch phase)
+
+deriving instance (Eq (Context phase), Eq (Extra phase)) => Eq (Branch phase)
+
+deriving instance (Ord (Context phase), Ord (Extra phase)) => Ord (Branch phase)

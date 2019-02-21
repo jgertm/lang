@@ -1,4 +1,7 @@
-module Interpreter.Match where
+module Interpreter.Match
+  ( match
+  )
+where
 
 import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Map.Strict               as Map

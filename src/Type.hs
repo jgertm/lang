@@ -22,17 +22,17 @@ infer = inferWith builtins
 
 builtins = map Builtins.typ Builtins.builtins
 
-inferTrace :: Term.Term phase -> (Either Error Type, [Judgement])
+inferTrace :: Term.Term phase -> Either Error Type
 inferTrace = inferWithTrace mempty
 
 inferWith :: Map Syntax.Value Type -> Term.Term phase -> Either Error Type
-inferWith = fst ... inferWithTrace
+inferWith = inferWithTrace
 
-inferWithTrace :: Map Syntax.Value Type -> Term.Term phase -> (Either Error Type, [Judgement])
+inferWithTrace :: Map Syntax.Value Type -> Term.Term phase -> Either Error Type
 inferWithTrace bindings e =
-  let gamma              = Ctx.initialize bindings
-      (result, _, rules) = run $ synthesize gamma $ meta (const ()) e
-      output             = case result of
+  let gamma       = Ctx.initialize bindings
+      (result, _) = run $ synthesize gamma $ meta (const ()) e
+      output      = case result of
         Left  err             -> Left $ Type err
         Right ((typ, _), ctx) -> Right $ Ctx.apply ctx typ
-  in  (output, rules)
+  in  output

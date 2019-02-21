@@ -50,8 +50,8 @@ step (Term.Atom () result) env (Call (Term.Extra () (Native bi args)) _ k) = cas
   _           -> (Term.Atom () (Builtins.function bi $ args <> [result]), env, k)
 
 step (Term.Match _ prototype branches) env k = (prototype, env, Select branches env k)
-step prototype _ (Select ((patterns, body) : branches) env k) =
-  case concatMapM (`match` prototype) patterns of
+step prototype _ (Select (Term.Branch { patterns, body } : branches) env k) =
+  case asum $ map (`match` prototype) patterns of
     Nothing       -> (prototype, env, Select branches env k)
     Just bindings -> (body, env <> map (`Closure` mempty) bindings, k)
 

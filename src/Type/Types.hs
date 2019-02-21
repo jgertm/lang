@@ -3,12 +3,14 @@ module Type.Types where
 import           Data.Text.Prettyprint.Doc
 
 import qualified Classes
+import qualified Syntax.Atom                   as Syntax
 import qualified Syntax.Pattern                as Syntax
 import qualified Syntax.Reference              as Syntax
 import qualified Syntax.Term                   as Syntax
 
 
 type Term = Syntax.Term Classes.Empty
+type Atom = Syntax.Atom
 type Pattern = Syntax.Pattern Classes.Empty
 type Branch = Syntax.Branch Classes.Empty
 
@@ -30,7 +32,31 @@ data Fact
                       Kind
                       Type
   | Marker (Variable 'Existential)
-  deriving (Show, Eq, Ord, Generic)
+  deriving (Show, Ord, Generic)
+
+instance Eq Fact where
+  (==) (DeclareUniversal name kind) = \case
+    DeclareUniversal name' kind' -> name == name' && kind == kind'
+    SolvedUniversal name' _ -> name == name'
+    _ -> False
+  (==) (DeclareExistential name kind) = \case
+    DeclareExistential name' kind' -> name == name' && kind == kind'
+    SolvedExistential name' kind' _ -> name == name' && kind == kind'
+    _ -> False
+  (==) (SolvedUniversal name _) = \case
+    SolvedUniversal name' _ -> name == name'
+    DeclareUniversal name' _ -> name == name'
+    _ -> False
+  (==) (SolvedExistential name kind _) = \case
+    DeclareExistential name' kind' -> name == name' && kind == kind'
+    SolvedExistential name' kind' _ -> name == name' && kind == kind'
+    _ -> False
+  (==) (Binding name _ _) = \case
+    Binding name' _ _ -> name == name'
+    _ -> False
+  (==) (Marker name) = \case
+    Marker name' -> name == name'
+    _ -> False
 
 data Principality
   = Principal

@@ -49,8 +49,13 @@ tree = testGroup
   , test
     "match stmt"
     "(let [[foo nil]] (match nil (foo foo)))"
-    (Term.Let noContext
-              [(var "foo", unit)]
-              (Term.Match noContext unit [([Pattern.Symbol noContext (var "foo1")], sym "foo1")])
+    (Term.Let
+      noContext
+      [(var "foo", unit)]
+      (Term.Match
+        noContext
+        unit
+        [Term.Branch {patterns = [Pattern.Symbol noContext (var "foo1")], body = sym "foo1"}]
+      )
     )
   ]

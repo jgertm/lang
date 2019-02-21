@@ -23,9 +23,7 @@ import qualified Type.Wellformedness           as Wellformed
 
 synthesize, synthesize' :: Context -> Term -> Infer ((Type, Principality), Context)
 
-synthesize gamma e = do
-  judgement $ TypeSynthesis gamma e
-  synthesize' gamma e
+synthesize gamma e = synthesize' gamma e
 
 -- RULE: Var
 synthesize' gamma (Syntax.Symbol _ binding) = do
@@ -52,9 +50,7 @@ synthesize' gamma e = do
 
 spine, spine', recoverSpine, recoverSpine'
   :: Context -> [Term] -> (Type, Principality) -> Infer ((Type, Principality), Context)
-spine gamma s ap = do
-  judgement $ SpineTyping gamma s ap
-  spine' gamma s ap
+spine gamma s ap = spine' gamma s ap
 
 -- RULE: EmptySpine
 spine' gamma [] ap                        = pure (ap, gamma)
@@ -89,9 +85,7 @@ spine' gamma es (ExistentialVariable alpha, p) | (alpha, Type) `Set.member` Ctx.
     spine gamma' es (function, p)
 spine' _ _ _ = error "No spine typing rule defined"
 
-recoverSpine gamma s ap = do
-  judgement $ PrincipalityRecoveringSpineTyping gamma s ap
-  recoverSpine' gamma s ap
+recoverSpine gamma s ap = recoverSpine' gamma s ap
 
 -- RULE: SpineRecover
 recoverSpine' gamma s ap@(_, Principal) = do

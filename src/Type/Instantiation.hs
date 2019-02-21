@@ -13,9 +13,7 @@ import qualified Type.Wellformedness           as Wellformed
 
 to, to' :: Context -> Type -> (Type, Kind) -> Infer Context
 
-to gamma a tk = do
-  judgement $ Instantiation gamma a tk
-  to' gamma a tk
+to gamma a tk = to' gamma a tk
 
 -- RULE: InstReach
 to' gamma alphaTyp@(ExistentialVariable alpha) (ExistentialVariable beta, k)

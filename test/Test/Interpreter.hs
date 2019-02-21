@@ -47,10 +47,11 @@ tree = testGroup
     ]
   , testGroup
     "Pattern matching"
-    [ test "match stmt"            "(match 2 (1 1) (2 2))"               (int 2)
-    , test "fn + match stmt"       "((fn [x] (match x (0 1) (1 0))) 1)"  (int 0)
-    , test "match stmt (capture)"  "(match 1 (0 0) (n (+ n 1)))"         (int 2)
-    , test "match stmt (aliasing)" "(let [[foo 0]] (match 1 (foo foo)))" (int 1)
+    [ test "match stmt (simple)"       "(match 2 (1 1) (2 2))"               (int 2)
+    , test "match stmt (alternatives)" "(match 2 ((| 1 2) 1) (_ 3))"         (int 1)
+    , test "fn + match stmt"           "((fn [x] (match x (0 1) (1 0))) 1)"  (int 0)
+    , test "match stmt (capture)"      "(match 1 (0 0) (n (+ n 1)))"         (int 2)
+    , test "match stmt (aliasing)"     "(let [[foo 0]] (match 1 (foo foo)))" (int 1)
     ]
   , testGroup
     "Let binding"

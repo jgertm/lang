@@ -108,3 +108,5 @@ matches :: Getting (First a) s a -> s -> Bool
 matches prism value = isJust $ preview prism value
 
 inspect = traceM . toText . pShow
+
+for = flip traverse
