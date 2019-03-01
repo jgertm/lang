@@ -42,7 +42,6 @@ data TypeError
   | InstantiationError String
   | SubtypingError
   | UnificationError
-  | MatchError
   | TypeMismatch Type Type
   | UnknownBinding Syntax.Value
   | KindMismatch Kind Kind

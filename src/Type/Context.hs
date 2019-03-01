@@ -2,14 +2,16 @@
 
 module Type.Context where
 
-import qualified Data.Map.Strict  as Map
-import           Data.Sequence    (Seq (..), (|>))
-import qualified Data.Sequence    as Seq
-import qualified Data.Set         as Set
+import qualified Data.Map.Strict               as Map
+import           Data.Sequence                  ( Seq(..)
+                                                , (|>)
+                                                )
+import qualified Data.Sequence                 as Seq
+import qualified Data.Set                      as Set
 
-import           Error            (TypeError (..))
-import qualified Syntax.Reference as Syntax
-import qualified Type.Expression  as Type
+import           Error                          ( TypeError(..) )
+import qualified Syntax.Reference              as Syntax
+import qualified Type.Expression               as Type
 import           Type.Monad
 import           Type.Types
 
@@ -25,10 +27,9 @@ adds :: Context -> [Fact] -> Context
 adds (Context ctx) els = Context $ ctx <> Seq.fromList els
 
 split :: Context -> Fact -> (Context, Context)
-split (Context ctx) fact =
-  case Seq.breakr (fact ==) ctx of
-    (post, pre :|> elt') -> (Context pre, Context post)
-    _ -> error "Failed to split context"
+split (Context ctx) fact = case Seq.breakr (fact ==) ctx of
+  (post, pre :|> elt') -> (Context pre, Context post)
+  _                    -> error "Failed to split context"
 
 drop :: Context -> Fact -> Context
 drop ctx elt = let (pre, _) = split ctx elt in pre
@@ -85,8 +86,8 @@ lookup binding gamma = do
 apply :: Context -> Type -> Type
 apply ctx typ = case typ of
   Primitive _             -> typ
-  Function type1 type2    -> Function (apply ctx type1) (apply ctx type2)
-  Variant           types -> Variant (map (apply ctx) types)
+  Function type1  type2   -> Function (apply ctx type1) (apply ctx type2)
+  Variant  rowvar types   -> Variant rowvar (map (apply ctx) types)
   Tuple             types -> Tuple (map (apply ctx) types)
   Record            types -> Record (map (apply ctx) types)
   UniversalVariable var   -> case Map.lookup var $ universalSolutions ctx of
@@ -147,21 +148,23 @@ freeExistentialVariables ctx typ = case typ of
   ExistentialVariable ev ->
     if Map.notMember ev (existentialSolutions ctx) then Set.singleton ev else Set.empty
   Function type1 type2 -> freeExistentialVariables ctx type1 <> freeExistentialVariables ctx type2
-  Variant types        -> foldMap (freeExistentialVariables ctx) types
-  Tuple   types        -> foldMap (freeExistentialVariables ctx) types
-  Record  types        -> foldMap (freeExistentialVariables ctx) types
-  Exists _ _ body      -> freeExistentialVariables ctx body
-  Forall _ _ body      -> freeExistentialVariables ctx body
-  _                    -> Set.empty
+  Variant (Just rowvar) types ->
+    foldMap (freeExistentialVariables ctx) types <> Set.singleton rowvar
+  Variant _ types -> foldMap (freeExistentialVariables ctx) types
+  Tuple  types    -> foldMap (freeExistentialVariables ctx) types
+  Record types    -> foldMap (freeExistentialVariables ctx) types
+  Exists _ _ body -> freeExistentialVariables ctx body
+  Forall _ _ body -> freeExistentialVariables ctx body
+  _               -> Set.empty
 
 freeUniversalVariables :: Context -> Type -> Set (Variable 'Universal)
 freeUniversalVariables ctx typ = case typ of
   UniversalVariable uv ->
     if Map.notMember uv (universalSolutions ctx) then Set.singleton uv else Set.empty
   Function type1 type2 -> freeUniversalVariables ctx type1 <> freeUniversalVariables ctx type2
-  Variant types        -> foldMap (freeUniversalVariables ctx) types
-  Tuple   types        -> foldMap (freeUniversalVariables ctx) types
-  Record  types        -> foldMap (freeUniversalVariables ctx) types
+  Variant  _     types -> foldMap (freeUniversalVariables ctx) types
+  Tuple  types         -> foldMap (freeUniversalVariables ctx) types
+  Record types         -> foldMap (freeUniversalVariables ctx) types
   Exists _ _ body      -> freeUniversalVariables ctx body
   Forall _ _ body      -> freeUniversalVariables ctx body
   _                    -> Set.empty

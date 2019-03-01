@@ -79,7 +79,7 @@ data Kind
 data Type
   = Primitive Text
   | Function Type Type
-  | Variant (Map Syntax.Keyword Type)
+  | Variant (Maybe (Variable 'Existential)) (Map Syntax.Keyword Type)
   | Tuple (Map Int Type)
   | Record (Map Syntax.Keyword Type)
   | UniversalVariable (Variable 'Universal)

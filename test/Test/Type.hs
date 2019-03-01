@@ -9,14 +9,19 @@ import           Test.Tasty.HUnit
 
 import           Error                          ( TypeError(..) )
 import qualified Error
+import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Pattern                as Pattern
+import qualified Syntax.Term                   as Term
 import qualified Test.Utils                    as Utils
 import qualified Type
 import qualified Type.Context                  as Ctx
 import           Type.Expression               as Type
+import qualified Type.Match                    as Match
 import           Type.Types
 
+
 tree, inference :: TestTree
-tree = testGroup "Types" [context, inference]
+tree = testGroup "Types" [context, inference, patternExpansion]
 
 context =
   let marker = Marker . Var . show
@@ -55,7 +60,26 @@ inference
             $ Record (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
           , test "tuple"  "{1 nil true}"
             $ Tuple (Map.fromList [(1, Type.integer), (2, Type.unit), (3, Type.boolean)])
-          , test "variant" "[:foo 1]" $ Variant (Map.singleton (Utils.kw "foo") Type.integer)
+          , testGroup
+            "variants"
+            [ test "constant" "[:foo 1]"
+              $ Variant (Just (Var "alpha")) (Map.singleton (Utils.kw "foo") Type.integer)
+            , test "if stmt" "(if true [:foo 1] [:bar nil])" $ Variant
+              (Just (Var "alpha"))
+              (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.unit)])
+            , test "match stmt (consuming)"
+                   "(match [:foo 1] ([:foo 2] true) ([:foo 1] false))"
+                   Type.boolean
+            , test "match stmt (producing)" "(match 2 (1 [:foo nil]) (2 [:bar true]) (n [:quux n]))"
+              $ Variant
+                  (Just (Var "alpha"))
+                  (Map.fromList
+                    [ (Utils.kw "foo" , Type.unit)
+                    , (Utils.kw "bar" , Type.boolean)
+                    , (Utils.kw "quux", Type.integer)
+                    ]
+                  )
+            ]
           ]
         , testGroup
           "Builtins"
@@ -160,3 +184,40 @@ inference
                  (Function Type.integer Type.integer)
           ]
         ]
+
+patternExpansion = testGroup
+  "Pattern expansion"
+  [ testGroup
+    "variants"
+    [ testCase "empty" $ Match.expandVariant [] @?= mempty
+    , testCase "single branch"
+    $   Match.expandVariant
+          [ Term.Branch
+              { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
+              , body     = Term.Atom () Atom.Unit
+              }
+          ]
+    @?= Map.singleton
+          (Utils.kw "foo")
+          [Term.Branch {patterns = [Pattern.Atom () Atom.Unit], body = Term.Atom () Atom.Unit}]
+    , testCase "multiple branches"
+    $   Match.expandVariant
+          [ Term.Branch
+            { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
+            , body     = Term.Atom () Atom.Unit
+            }
+          , Term.Branch
+            { patterns = [Pattern.Variant () (Utils.kw "bar") (Pattern.Wildcard ())]
+            , body     = Term.Atom () Atom.Unit
+            }
+          ]
+    @?= Map.fromList
+          [ ( Utils.kw "foo"
+            , [Term.Branch {patterns = [Pattern.Atom () Atom.Unit], body = Term.Atom () Atom.Unit}]
+            )
+          , ( Utils.kw "bar"
+            , [Term.Branch {patterns = [Pattern.Wildcard ()], body = Term.Atom () Atom.Unit}]
+            )
+          ]
+    ]
+  ]

@@ -3,6 +3,7 @@ module Type.Match where
 import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
+import           Data.Text.Prettyprint.Doc
 
 import           Error                          ( TypeError(..) )
 import qualified Syntax.Pattern                as Pattern
@@ -59,10 +60,22 @@ check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }
           (recordTypes <> as, q)
           cp
 -- RULE: Match+ₖ
-check gamma [Term.Branch { patterns = Pattern.Variant _ tag rho : rhos, body = e }] (Variant aMap : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (Variant _ aMap : as, q) cp
+  | q == Principal || k `Map.member` aMap
+  = let
+      a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
+        $ Map.lookup k aMap
+    in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (variant@(Variant (Just rowvar) aMap) : as, Nonprincipal) cp
   = do
-    a <- liftMaybe MatchError $ Map.lookup tag aMap
-    check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
+    alpha <- freshExistential
+    let
+      (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type variant)
+      ak          = ExistentialVariable alpha
+      variant'    = Variant (Just rowvar) $ Map.insert k ak aMap
+      ctx =
+        Ctx.splice pre [DeclareExistential alpha Type, SolvedExistential rowvar Type variant'] post
+    check ctx [Term.Branch {patterns = rho : rhos, body = e}] (ak : as, Nonprincipal) cp
 -- RULE: MatchNeg
 check gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
   | not $ isWith a || isExistentiallyQuantified a = do
@@ -134,7 +147,7 @@ incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
       pure $ Ctx.drop ctx marker
     )
     (const $ pure gamma)
-incorporate _ _ _ _ _ = throwError MatchError
+incorporate _ _ _ _ _ = error "incorporate fallthrough"
 
 covers :: Context -> [Branch] -> ([Type], Principality) -> Bool
 -- RULE: CoversEmpty
@@ -147,7 +160,7 @@ covers gamma pis (Tuple aMap : as, q) =
 covers gamma pis (Record aMap : as, q) =
   let pis' = expandRecord pis in covers gamma pis' (elems aMap <> as, q)
 -- RULE: Covers+ (Variant)
-covers gamma pis (Variant aMap : as, q) =
+covers gamma pis (Variant _ aMap : as, q) =
   let pisMap  = expandVariant pis
       missing = Map.traverseMissing $ \_ _ -> Nothing
       tuple   = Map.zipWithAMatched $ \_ branches a -> Just (branches, a)
@@ -230,8 +243,11 @@ expandRecord _ = error "Can only expand record pattern"
 expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty
 expandVariant (Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e } : pis) =
-  let pisKs = expandVariant pis
-  in  Map.adjust (Term.Branch {patterns = rho : rhos, body = e} :) k pisKs
+  let pisKs      = expandVariant pis
+      subpattern = Term.Branch {patterns = rho : rhos, body = e}
+      prepend (Just pis) = Just $ subpattern : pis
+      prepend Nothing    = Just [subpattern]
+  in  Map.alter prepend k pisKs
 expandVariant (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pisKs      = expandVariant pis

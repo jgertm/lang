@@ -7,6 +7,7 @@ import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Map.Strict               as Map
 import qualified Data.Sequence                 as Seq
 import qualified Data.Set                      as Set
+import           Data.Text.Prettyprint.Doc
 
 import           Error                          ( TypeError(..) )
 import qualified Syntax.Atom                   as Atom
@@ -143,21 +144,34 @@ check' gamma (Term.Match _ e pi) (c, p) = do
   unless (Match.covers delta pi' ([Ctx.apply delta a], q)) $ throwError InsufficientCoverage
   pure delta
 -- RULE: +Iₖ (Sum injection introduction)
-check' gamma (Term.Variant _ k e) (Variant aMap, p) = do
-  ak <- liftMaybe AnalysisError $ Map.lookup k aMap
+check' gamma (Term.Variant _ k e) (Variant _ aMap, p) | p == Principal || k `Map.member` aMap = do
+  let ak =
+        fromMaybe (error $ show $ "[type.analysis] couldn't find tag: " <> pretty k)
+          $ Map.lookup k aMap
   check gamma e (ak, p)
 -- RULE: +Iâₖ (Sum injection introduction existential)
-check' gamma term@(Term.Variant _ k e) (ExistentialVariable alpha, Nonprincipal) = do
-  vMap <- sequenceA $ Map.singleton k freshExistential
-  let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-      variant     = Variant $ map ExistentialVariable vMap
-      ctx         = Ctx.splice
-        pre
-        (  (map (\exvar -> DeclareExistential exvar Type) $ elems vMap)
-        <> [SolvedExistential alpha Type variant]
-        )
-        post
-  check ctx term (variant, Nonprincipal)
+check' gamma (Term.Variant _ k e) (variant@(Variant (Just rowvar) aMap), Nonprincipal) = do
+  alpha <- freshExistential
+  let
+    (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type variant)
+    ak          = ExistentialVariable alpha
+    variant'    = Variant (Just rowvar) $ Map.insert k ak aMap
+    ctx =
+      Ctx.splice pre [DeclareExistential alpha Type, SolvedExistential rowvar Type variant'] post
+  check ctx e (ak, Nonprincipal)
+check' gamma (Term.Variant _ k e) (ExistentialVariable alpha, Nonprincipal)
+  | alpha `Map.notMember` Ctx.existentialSolutions gamma = do
+    ak <- ExistentialVariable <$> freshExistential
+    let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+        vMap        = Map.singleton k ak
+        variant     = Variant (Just alpha) vMap
+        ctx         = Ctx.splice
+          pre
+          (  (map (\(ExistentialVariable exvar) -> DeclareExistential exvar Type) $ elems vMap)
+          <> [SolvedExistential alpha Type variant]
+          )
+          post
+    check ctx e (ak, Nonprincipal)
 -- RULE: ×I (Product introduction)
 check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError

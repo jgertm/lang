@@ -3,6 +3,8 @@ This module implements the __SUBTYPING__ (@<:@) rules from /figure 22: Algorithm
 -}
 module Type.Subtyping where
 
+import qualified Data.Map.Merge.Strict         as Map
+import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 
 import           Error                          ( TypeError(..) )
@@ -78,11 +80,19 @@ equivalent' gamma alpha1@(ExistentialVariable _) alpha2@(ExistentialVariable _) 
   pure gamma
 -- RULE: ≡Unit
 equivalent' gamma prim@(Primitive _) prim'@(Primitive _) | prim == prim' = pure gamma
--- RULE: ≡⊕
+-- RULE: ≡⊕ (function)
 equivalent' gamma (Function a1 a2) (Function b1 b2)                      = do
   theta <- equivalent gamma a1 b1
   equivalent theta (Ctx.apply theta a2) (Ctx.apply theta b2)
--- TODO: ≡⊕ for variants, tuples and records
+-- RULE: ≡⊕ (variant)
+equivalent' gamma (Variant _ vMap1) (Variant _ vMap2) = do
+  let missing = Map.mapMissing $ \_ vTyp -> (Just vTyp, Nothing)
+      common  = Map.zipWithMatched $ \_ vTyp1 vTyp2 -> (Just vTyp1, Just vTyp2)
+      vMap    = Map.merge missing missing common vMap1 vMap2
+      equate ctx (Just v1, Just v2) = equivalent ctx v1 v2
+      equate ctx _                  = pure ctx
+  foldM equate gamma $ elems vMap
+-- TODO: ≡⊕ for variants, tuples
 -- RULE: ≡Vec
 equivalent' gamma (Vector t1 a1) (Vector t2 a2) = do
   theta <- equivalent gamma t1 t2

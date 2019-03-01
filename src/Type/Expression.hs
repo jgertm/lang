@@ -42,14 +42,14 @@ substitute expr match replacement
   | otherwise
   = let subst typ = substitute typ match replacement
     in  case expr of
-          Function type1 type2 -> Function (subst type1) (subst type2)
-          Variant types        -> Variant (map subst types)
-          Tuple   types        -> Tuple (map subst types)
-          Record  types        -> Record (map subst types)
-          Forall tv kind typ   -> Forall tv kind (subst typ)
-          Exists tv kind typ   -> Exists tv kind (subst typ)
-          Implies prop typ     -> Implies prop (subst typ)
-          With    typ  prop    -> With (subst typ) prop
-          Succ typ             -> Succ (subst typ)
-          Vector type1 type2   -> Vector (subst type1) (subst type2)
-          _                    -> expr
+          Function type1  type2 -> Function (subst type1) (subst type2)
+          Variant  rowvar types -> Variant rowvar (map subst types)
+          Tuple  types          -> Tuple (map subst types)
+          Record types          -> Record (map subst types)
+          Forall tv kind typ    -> Forall tv kind (subst typ)
+          Exists tv kind typ    -> Exists tv kind (subst typ)
+          Implies prop typ      -> Implies prop (subst typ)
+          With    typ  prop     -> With (subst typ) prop
+          Succ typ              -> Succ (subst typ)
+          Vector type1 type2    -> Vector (subst type1) (subst type2)
+          _                     -> expr
