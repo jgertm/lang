@@ -5,7 +5,7 @@ import           Data.Text.Prettyprint.Doc
 
 data Atom
   = Unit
-  | Integer Int
+  | Integer Integer
   | String Text
   | Boolean Bool
   deriving (Show, Eq, Ord, Generic)

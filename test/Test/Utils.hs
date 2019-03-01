@@ -21,7 +21,7 @@ noContext = ()
 unit :: Term
 unit = Term.Atom noContext Atom.Unit
 
-int :: Int -> Term
+int :: Integer -> Term
 int = Term.Atom noContext . Atom.Integer
 
 var :: Text -> Reference.Value
