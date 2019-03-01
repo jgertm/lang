@@ -63,9 +63,7 @@ check' gamma (Term.Let _ bindings body) cp = do
 -- RULE: If
 check' gamma (Term.If _ test true false) ap = do
   theta <- check gamma test (boolean, Principal)
-  alpha <- freshExistential
-  let theta' = Ctx.add theta (DeclareExistential alpha Type)
-  foldM (\ctx branch -> check ctx branch ap) theta' [true, false]
+  foldM (\ctx branch -> check ctx branch ap) theta [true, false]
 -- RULE: ∀I (Forall introduction)
 check' gamma v (Forall alpha k a, p) = do
   unless (checkedIntroduction v) $ throwError AnalysisError
@@ -137,11 +135,9 @@ check' gamma (Term.Lambda _ arg e) (alphaType@(ExistentialVariable alpha), Nonpr
     pure $ Ctx.inject delta (SolvedExistential alpha Type generalizedFunction) delta''
 -- RULE: Case
 check' gamma (Term.Match _ e pi) (c, p) = do
-  let pi' = concatMap
-        (\Term.Branch { patterns, body } ->
-          map (\pat -> Term.Branch {patterns = [pat], body }) patterns
-        )
-        pi
+  let expand Term.Branch { patterns, body } =
+        map (\pat -> Term.Branch {patterns = [pat], body }) patterns
+      pi' = concatMap expand pi
   ((a, q), theta) <- synthesize gamma e
   delta           <- Match.check theta pi' ([Ctx.apply theta a], q) (Ctx.apply theta c, p)
   unless (Match.covers delta pi' ([Ctx.apply delta a], q)) $ throwError InsufficientCoverage
@@ -170,9 +166,10 @@ check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
   foldM (\ctx (en, an) -> check ctx en (Ctx.apply ctx an, p)) gamma eaList
 check' gamma (Term.Record _ eMap) (Record aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError
-      tuple   = Map.zipWithAMatched $ \_ e a -> pure (e, a)
-  eaList <- Map.elems <$> Map.mergeA missing missing tuple eMap aMap
-  foldM (\ctx (en, an) -> check ctx en (Ctx.apply ctx an, p)) gamma eaList
+      tuple   = Map.zipWithMatched $ \_ e a -> (e, a)
+      recur ctx (en, an) = check ctx en (Ctx.apply ctx an, p)
+  eaMap <- Map.mergeA missing missing tuple eMap aMap
+  foldM recur gamma $ elems eaMap
 -- RULE: ×Iâₖ (Product introduction existential)
 check' gamma term@(Term.Tuple _ eMap) (ExistentialVariable alpha, Nonprincipal) = do
   vMap <- forM eMap $ const freshExistential

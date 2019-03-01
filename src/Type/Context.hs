@@ -27,8 +27,7 @@ adds (Context ctx) els = Context $ ctx <> Seq.fromList els
 split :: Context -> Fact -> (Context, Context)
 split (Context ctx) fact =
   case Seq.breakr (fact ==) ctx of
-    (post, pre :|> elt') -- | elt == elt'
-                           -> (Context pre, Context post)
+    (post, pre :|> elt') -> (Context pre, Context post)
     _ -> error "Failed to split context"
 
 drop :: Context -> Fact -> Context

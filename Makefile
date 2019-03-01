@@ -19,12 +19,13 @@ repl: delete-cabal
 ghcid: delete-cabal
 	ghcid \
 	--reload=./lib \
+	--reload=./examples \
 	--command='stack repl --ghci-options=-ignore-dot-ghci' \
 	--warnings \
 	--test=Dev.main
 
 test: delete-cabal
-	stack test
+	stack test -j 8 --fast
 
 run: build
 	./lang

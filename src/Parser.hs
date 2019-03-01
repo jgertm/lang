@@ -162,7 +162,9 @@ definition = injectContext
       let body' = case body of
             [form] -> form
             forms  -> Term.Sequence ctx forms
-      in  Definition.Constant ctx funcname $ foldr' (Term.Lambda ctx) body' args
+      in  Definition.Constant ctx funcname $ Term.Fix ctx funcname $ foldr' (Term.Lambda ctx)
+                                                                            body'
+                                                                            args
 typeExpr :: Parser Type
 typeExpr = injectContext
   $ cases [namedType, productType, sumType, recordType, variantType, functionType]

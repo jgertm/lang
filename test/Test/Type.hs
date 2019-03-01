@@ -62,6 +62,8 @@ inference
           [ test "addition" "(+ 2 3)" Type.integer
           , testError "addition error" "(+ 2 nil)" (TypeMismatch integer unit)
           ]
+        , testGroup "Partial application"
+                    [test "successor function" "(+ 1)" (Function Type.integer Type.integer)]
         , testGroup
           "Higher order functions"
           [ test "identity function" "(fn [x] x)"
@@ -123,16 +125,32 @@ inference
           ]
         , testGroup
           "Control flow"
-          [ test "let binding"               "(let [[foo nil]] foo)"               Type.unit
-          , test "complicated let binding"   "(let [[foo 1] [bar (+ 1 foo)]] bar)" Type.integer
-          , test "if stmt"                   "(if true nil nil)"                   Type.unit
-          , test "match stmt"                "(match 1 (2 nil) (1 nil))"           Type.unit
-          , test "match stmt (alternatives)" "(match 1 ((| 0 1) nil) (2 nil))"     Type.unit
-          , test "complicated match stmt"    "(match 1 (2 0) (n (+ n 1)))"         Type.integer
-          , test "match function" "(fn [x] (match x (1 nil)))" (Function Type.integer Type.unit)
-          , test "match function (alternatives)"
-                 "(fn [x] (match x ((| 0 1) nil)))"
-                 (Function Type.integer Type.unit)
+          [ testGroup
+            "let binding"
+            [ test "simple"      "(let [[foo nil]] foo)"               Type.unit
+            , test "complicated" "(let [[foo 1] [bar (+ 1 foo)]] bar)" Type.integer
+            ]
+          , testGroup
+            "if stmt"
+            [ test "simple"      "(if true nil nil)" Type.unit
+            , test "complicated" "(if false 1 2)"    Type.integer
+            , testError "if stmt test error"   "(if nil 1 2)"    (TypeMismatch boolean unit)
+            , testError "if stmt branch error" "(if true 1 nil)" (TypeMismatch integer unit)
+            ]
+          , testGroup
+            "pattern matching"
+            [ test "simple"       "(match 1 (2 nil) (1 nil))"       Type.unit
+            , test "alternatives" "(match 1 ((| 0 1) nil) (2 nil))" Type.unit
+            , test "complicated"  "(match 1 (2 0) (n (+ n 1)))"     Type.integer
+            , test "function" "(fn [x] (match x (1 nil)))" (Function Type.integer Type.unit)
+            , test "function (alternatives)"
+                   "(fn [x] (match x ((| 0 1) nil)))"
+                   (Function Type.integer Type.unit)
+            , testError "prototype error" "(match 1 (nil nil))" (TypeMismatch integer unit)
+            , testError "pattern error" "(match 1 (1 nil) (nil nil))" (TypeMismatch integer unit)
+            , testError "body error" "(match 1 (1 nil) (2 1))" (TypeMismatch unit integer)
+            , testError "alternative error" "(match 1 ((| 1 nil) nil))" (TypeMismatch integer unit)
+            ]
           , test "pointless recursion (atom)" "(recur foo 1)" Type.integer
           , test "pointless recursion (successor function)"
                  "(recur foo (fn [x] (+ 1 x)))"
@@ -140,15 +158,5 @@ inference
           , test "recursive function (factorial)"
                  "(recur fac (fn [x] (match x (0 1) (n (* n (fac (- n 1)))))))"
                  (Function Type.integer Type.integer)
-          , testError "if stmt test error"         "(if nil 1 2)"        (TypeMismatch boolean unit)
-          , testError "if stmt branch error"       "(if true 1 nil)"     (TypeMismatch integer unit)
-          , testError "match stmt prototype error" "(match 1 (nil nil))" (TypeMismatch integer unit)
-          , testError "match stmt pattern error"
-                      "(match 1 (1 nil) (nil nil))"
-                      (TypeMismatch integer unit)
-          , testError "match stmt body error" "(match 1 (1 nil) (2 1))" (TypeMismatch unit integer)
-          , testError "match stmt alternative error"
-                      "(match 1 ((| 1 nil) nil))"
-                      (TypeMismatch integer unit)
           ]
         ]

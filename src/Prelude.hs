@@ -37,8 +37,6 @@ import           Data.Generics.Product.Fields  as X
 import           Data.Generics.Product.Typed   as X
 import qualified Data.Map.Strict               as Map
 import           GHC.OverloadedLabels
-
--- import           GHC.Show                     (Show (showsPrec))
 import           Lens.Micro.Platform           as X
                                          hiding ( to )
 import           Text.Pretty.Simple

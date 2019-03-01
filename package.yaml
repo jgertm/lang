@@ -13,13 +13,16 @@ extra-source-files:
 
 ghc-options:
   - -fhide-source-paths
-  - -fwarn-incomplete-patterns
-  - -fwarn-incomplete-uni-patterns
-  - -fwarn-incomplete-record-updates
-  - -fwarn-redundant-constraints
+  - -freverse-errors
   - -O2
   - -Wall
+  - -Wincomplete-uni-patterns
+  - -Wincomplete-record-updates
   - -Wcompat
+  - -Widentities
+  - -Wredundant-constraints
+  - -Wmissing-export-lists
+  - -Wpartial-fields
   - -fllvm
   # - -Werror
 
@@ -65,7 +68,6 @@ default-extensions:
   - RoleAnnotations
   - ScopedTypeVariables
   - StandaloneDeriving
-  - StaticPointers
   - TemplateHaskell
   - TupleSections
   - TypeApplications
@@ -75,22 +77,21 @@ default-extensions:
   - ViewPatterns
 
 dependencies:
-  - base-noprelude >= 4.7 && < 5
   - ansi-terminal
-  - text
-  - parsec
+  - base-noprelude >= 4.7 && < 5
   - containers
+  - generic-lens
+  - microlens-platform
+  - mtl
+  - parsec
   - pretty-simple
   - prettyprinter
+  - prettyprinter
+  - text
+  - universum
 
 library:
   source-dirs:        src
-  dependencies:
-    - generic-lens
-    - microlens-platform
-    - mtl
-    - prettyprinter
-    - universum
 
 executables:
   # langi:

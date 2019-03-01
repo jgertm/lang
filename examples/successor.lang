@@ -1,13 +1,13 @@
 (defmodule examples.successor)
 
-(defn succ [n]
+(defn successor [n]
   (+ 1 n))
 
-(defn succsucc [n]
-  (succ (succ n)))
+(defn successor-of-successor [n]
+  (successor (successor n)))
 
 (defn foo [n a]
-  (+ a (succsucc n)))
+  (+ a (successor-of-successor n)))
 
 (defn main []
   (foo 2 3))

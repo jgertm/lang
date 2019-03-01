@@ -62,7 +62,8 @@ tree = testGroup
     ]
   , testGroup
     "Recursion"
-    [ test "simple recursive function "
+    [ test "pointlessly recursive function" "((recur f (fn [x] (+ 1 x))) 1)" (int 2)
+    , test "simple recursive function "
            "((recur f (fn [x] (match x (3 nil) (n (f (+ 1 n)))))) 1)"
            unit
     , test "factorial" "((recur fac (fn [x] (match x (0 1) (n (* n (fac (- n 1))))))) 4)" (int 24)

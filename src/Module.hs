@@ -1,6 +1,7 @@
 module Module where
 
 import qualified Data.Map.Strict               as Map
+import qualified Data.Sequence                 as Seq
 import           Data.Text.Prettyprint.Doc
 
 import           Classes
@@ -16,13 +17,19 @@ import qualified Type
 
 type Term = Term.Term Empty
 
-data Signature = Signature Syntax.Module (Map Syntax.Value Type.Type)
+data Signature = Signature
+  { name        :: Syntax.Module
+  , order       :: [Syntax.Value]
+  , definitions :: (Map Syntax.Value Type.Type)
+  } deriving (Generic)
 
 instance Pretty Signature where
-  pretty (Signature name bindings) =
-    let max = maximum $ map (length . show . pretty) $ keys bindings
+  pretty (Signature {name, order, definitions}) =
+    let max = maximum $ map (length . show . pretty) order
         meta = "module" <+> pretty name
-        content = braces $ align $ vsep $ map (\(binding, typ) -> hsep [fill max $ pretty binding, ":", pretty typ]) $ toPairs bindings
+        content = braces $ align $ vsep $ mapMaybe (\binding -> do
+                                                       typ <- Map.lookup binding definitions
+                                                       pure $ hsep [fill max $ pretty binding, ":", pretty typ]) $ order
     in parens $ vsep [meta, indent 2 content]
 
 types = Type.builtins
@@ -45,7 +52,15 @@ typecheck globals env (Def.Module _ name definitions) = foldM
   definitions
 
 signature :: Def.Definition phase -> Either Error Signature
-signature def@(Def.Module _ name _) = Signature name <$> typecheck types mempty def
+signature def@(Def.Module _ name contents) = do
+  definitions <- typecheck types mempty def
+  let order = mapMaybe
+        (\case
+          Def.Constant _ name _ -> Just name
+          _                     -> Nothing
+        )
+        contents
+  pure $ Signature {name , order , definitions }
 
 functions = Interpreter.builtins
 
@@ -62,7 +77,3 @@ run modul@Def.Module{} = do
   Interpreter.Closure main env <-
     liftMaybe (Module NoMainFunction) $ Map.lookup (Syntax.Local "main") $ load functions modul
   meta (const ()) <$> Interpreter.evalWith (Map.union env functions) main
-
-
-
-
