@@ -3,6 +3,7 @@ This module implements the type __SYNTHESIS__ (@<=@) rules from /figure 14a:: Al
 -}
 module Type.Synthesis
   ( synthesize
+  , atom
   )
 where
 
@@ -10,15 +11,14 @@ import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 
 import           Error                          ( TypeError(..) )
-import qualified Syntax.Term                   as Syntax
+import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Term                   as Term
 import qualified Type.Analysis                 as Analysis
 import qualified Type.Context                  as Ctx
 import qualified Type.Equation                 as Equation
 import           Type.Expression
 import           Type.Monad
-import           Type.Rules
 import           Type.Types
-import qualified Type.Wellformedness           as Wellformed
 
 
 synthesize, synthesize' :: Context -> Term -> Infer ((Type, Principality), Context)
@@ -26,17 +26,17 @@ synthesize, synthesize' :: Context -> Term -> Infer ((Type, Principality), Conte
 synthesize gamma e = synthesize' gamma e
 
 -- RULE: Var
-synthesize' gamma (Syntax.Symbol _ binding) = do
+synthesize' gamma (Term.Symbol _ binding) = do
   (a, p) <- Ctx.lookup binding gamma
   pure ((Ctx.apply gamma a, p), gamma)
 -- TODO: Anno
-synthesize' gamma (Syntax.Annotation _ e a) =
+synthesize' gamma (Term.Annotation _ e a) =
 --   guard $ Wellformed.checkTypeWithPrincipality gamma (a, Principal)
 --   delta <- Analysis.check gamma e (Ctx.apply gamma a) Principal
 --   pure ((Ctx.apply delta a, Principal), delta)
   error "Synthesis of annotated AST nodes not implemented"
 -- RULE: →E (Function elimination)
-synthesize' gamma (Syntax.Application _ e s) = do
+synthesize' gamma (Term.Application _ e s) = do
   (ap, theta) <- synthesize gamma e
   recoverSpine theta s ap
 -- RULE
@@ -107,3 +107,11 @@ recoverSpine' gamma s ap@(_, p) = do
       )
     $ throwError (RuleError "SpinePass")
   pure ((c, q), delta)
+
+atom :: Atom -> Type
+atom = Primitive . \case
+  Atom.Unit      -> "Unit"
+  Atom.Integer _ -> "Integer"
+  Atom.String  _ -> "String"
+  Atom.Boolean _ -> "Boolean"
+

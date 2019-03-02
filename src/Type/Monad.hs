@@ -2,11 +2,9 @@
 
 module Type.Monad where
 
-import           Control.Monad.RWS.Lazy
 import qualified Text.Show
 
 import           Error
-import           Type.Rules
 import           Type.Types
 
 

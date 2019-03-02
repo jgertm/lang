@@ -1,10 +1,14 @@
 {-|
 This module implements the __SUBTYPING__ (@<:@) rules from /figure 22: Algorithmic subtyping and equivalence/ (page 42)
 -}
-module Type.Subtyping where
+module Type.Subtyping
+  ( subtype
+  , polarity
+  , join
+  )
+where
 
 import qualified Data.Map.Merge.Strict         as Map
-import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 
 import           Error                          ( TypeError(..) )
@@ -13,12 +17,12 @@ import           Type.Equation                  ( equals )
 import           Type.Expression
 import qualified Type.Instantiation            as Instantiate
 import           Type.Monad
-import           Type.Rules
 import           Type.Types
+
 
 subtype, subtype' :: Context -> Polarity -> Type -> Type -> Infer Context
 
-subtype gamma pol a b = subtype' gamma pol a b
+subtype = subtype'
 
 -- RULE: <:Equiv
 subtype' gamma _ a b | not (isQuantified a) && not (isQuantified b) = equivalent gamma a b
@@ -70,7 +74,7 @@ subtype' _ _ _ _ = throwError SubtypingError
 
 equivalent, equivalent' :: Context -> Type -> Type -> Infer Context
 
-equivalent gamma a b = equivalent' gamma a b
+equivalent = equivalent'
 
 -- RULE: ≡Var
 equivalent' gamma alpha1@(UniversalVariable _) alpha2@(UniversalVariable _) | alpha1 == alpha2 =
@@ -131,7 +135,7 @@ equivalent' gamma tau alpha@(ExistentialVariable ev)
     &&              ev
     `Set.notMember` Ctx.freeExistentialVariables gamma tau
   = Instantiate.to gamma alpha (tau, Type)
-equivalent' gamma a b = throwError SubtypingError
+equivalent' _ _ _ = error "[type.subtyping] equivalent fallthrough"
 
 propositionsEquivalent :: Context -> Proposition -> Proposition -> Infer Context
 propositionsEquivalent gamma (Equals t1 t1') (Equals t2 t2') = do

@@ -12,7 +12,6 @@ import qualified Syntax.Reference              as Syntax
 import qualified Syntax.Term                   as Term
 import qualified Type.Context                  as Ctx
 import           Type.Monad
-import           Type.Rules
 import           Type.Synthesis                 ( synthesize )
 import           Type.Types                     ( Type(..) )
 

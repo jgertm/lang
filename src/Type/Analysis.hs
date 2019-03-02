@@ -1,7 +1,10 @@
 {-|
 This module implements the type __CHECKING__ (@<=@) rules from /figure 14a:: Algorithmic typing, including rules omitted from main paper/ (page 37)
 -}
-module Type.Analysis where
+module Type.Analysis
+  ( check
+  )
+where
 
 import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Map.Strict               as Map
@@ -10,22 +13,22 @@ import qualified Data.Set                      as Set
 import           Data.Text.Prettyprint.Doc
 
 import           Error                          ( TypeError(..) )
-import qualified Syntax.Atom                   as Atom
 import qualified Syntax.Term                   as Term
 import qualified Type.Context                  as Ctx
 import qualified Type.Equation                 as Equation
 import           Type.Expression
 import {-# SOURCE #-} qualified Type.Match     as Match
 import           Type.Monad
-import           Type.Rules
 import           Type.Subtyping                 ( subtype )
 import qualified Type.Subtyping                as Sub
 import {-# SOURCE #-} Type.Synthesis            ( synthesize )
+import {-# SOURCE #-} qualified Type.Synthesis as Synth
 import           Type.Types
+
 
 check, check' :: Context -> Term -> (Type, Principality) -> Infer Context
 
-check gamma e ap = check' gamma e ap
+check = check'
 
 check' gamma term (ExistentialVariable alpha, Nonprincipal)
   | alpha `Map.member` Ctx.existentialSolutions gamma
@@ -42,12 +45,12 @@ check' gamma (Term.Fix _ x v) ap@(a, p) = do
 -- RULE: 1Iα̂  (Atom introduction existential)
 check' gamma (Term.Atom _ atom) (ExistentialVariable alpha, Nonprincipal)
   | (alpha, Type) `Set.member` Ctx.existentials gamma = do
-    let typ         = atomType atom
+    let typ         = Synth.atom atom
         (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
     pure $ Ctx.inject pre (SolvedExistential alpha Type typ) post
 -- RULE: 1I (Atom introduction)
 check' gamma (Term.Atom _ atom) (typ, _) = do
-  let typ' = atomType atom
+  let typ' = Synth.atom atom
   unless (typ == typ') $ throwError (TypeMismatch typ typ')
   pure gamma
 -- RULE: Let [2013 paper]
@@ -75,11 +78,9 @@ check' gamma v (Forall alpha k a, p) = do
 check' gamma e (Exists alpha k a, _) = do
   unless (checkedIntroduction e) $ throwError AnalysisError
   alphaEx <- freshExistential
-  delta   <- check
-    (Ctx.add gamma (DeclareExistential alphaEx k))
-    e
-    (substitute a (UniversalVariable alpha) (ExistentialVariable alphaEx), Nonprincipal)
-  pure delta
+  let gamma' = Ctx.add gamma (DeclareExistential alphaEx k)
+      a'     = substitute a (UniversalVariable alpha) (ExistentialVariable alphaEx)
+  check gamma' e (a', Nonprincipal)
 -- RULE: ⊃I (Implies introduction)
 -- RULE: ⊃I⊥ (Implies introduction bottom)
 check' gamma v (Implies p a, Principal) = do
@@ -96,8 +97,8 @@ check' gamma v (Implies p a, Principal) = do
 check' gamma e (With a prop, p) = do
   when
       (case e of
-        Term.Match _ _ _ -> True
-        _                -> False
+        Term.Match{} -> True
+        _            -> False
       )
     $ throwError AnalysisError
   theta <- Equation.true gamma prop
@@ -110,7 +111,7 @@ check' gamma (Term.Lambda _ arg e) (Function a b, p) = do
   pure $ Ctx.drop ctx binding
 -- RULE: →Iα̂ (Function introduction existential)
 check' gamma (Term.Lambda _ arg e) (alphaType@(ExistentialVariable alpha), Nonprincipal)
-  | (alpha, Type) `Set.member` (Ctx.existentials gamma) = do
+  | (alpha, Type) `Set.member` Ctx.existentials gamma = do
     alpha1 <- freshExistential
     alpha2 <- freshExistential
     let
@@ -128,7 +129,7 @@ check' gamma (Term.Lambda _ arg e) (alphaType@(ExistentialVariable alpha), Nonpr
       DeclareExistential evar kind -> do
         uvar <- lift freshUniversal
         tell [(uvar, kind)]
-        pure $ [DeclareUniversal uvar kind, SolvedExistential evar kind (UniversalVariable uvar)]
+        pure [DeclareUniversal uvar kind, SolvedExistential evar kind (UniversalVariable uvar)]
       fact -> pure [fact]
     let delta'' = Context $ Seq.reverse facts
         generalizedFunction =
@@ -167,7 +168,7 @@ check' gamma (Term.Variant _ k e) (ExistentialVariable alpha, Nonprincipal)
         variant     = Variant (Just alpha) vMap
         ctx         = Ctx.splice
           pre
-          (  (map (\(ExistentialVariable exvar) -> DeclareExistential exvar Type) $ elems vMap)
+          (  map (\(ExistentialVariable exvar) -> DeclareExistential exvar Type) (elems vMap)
           <> [SolvedExistential alpha Type variant]
           )
           post
@@ -176,7 +177,7 @@ check' gamma (Term.Variant _ k e) (ExistentialVariable alpha, Nonprincipal)
 check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError
       tuple   = Map.zipWithAMatched $ \_ e a -> pure (e, a)
-  eaList <- Map.elems <$> Map.mergeA missing missing tuple eMap aMap
+  eaList <- elems <$> Map.mergeA missing missing tuple eMap aMap
   foldM (\ctx (en, an) -> check ctx en (Ctx.apply ctx an, p)) gamma eaList
 check' gamma (Term.Record _ eMap) (Record aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError
@@ -191,21 +192,20 @@ check' gamma term@(Term.Tuple _ eMap) (ExistentialVariable alpha, Nonprincipal) 
       tuple       = Tuple $ map ExistentialVariable vMap
       ctx         = Ctx.splice
         pre
-        (  (map (\exvar -> DeclareExistential exvar Type) $ elems vMap)
-        <> [SolvedExistential alpha Type tuple]
-        )
+        (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type tuple])
         post
   check ctx term (tuple, Nonprincipal)
 check' gamma term@(Term.Record _ eMap) (ExistentialVariable alpha, Nonprincipal) = do
   vMap <- forM eMap $ const freshExistential
-  let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-      record      = Record $ map ExistentialVariable vMap
-      ctx         = Ctx.splice
-        pre
-        (  (map (\exvar -> DeclareExistential exvar Type) $ elems vMap)
-        <> [SolvedExistential alpha Type record]
-        )
-        post
+  let
+    (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+    record      = Record $ map ExistentialVariable vMap
+    ctx         = Ctx.splice
+      pre
+      (  map (\exvar -> DeclareExistential exvar Type) (elems vMap)
+      <> [SolvedExistential alpha Type record]
+      )
+      post
   check ctx term (record, Nonprincipal)
 -- RULE: Nil
 check' gamma (Term.Vector _ []       ) (Vector t _, _) = Equation.true gamma (Equals t Zero)
@@ -225,17 +225,10 @@ check' gamma expr (b, _) = do
   let polarity = (Sub.join `on` Sub.polarity) b a
   subtype theta polarity a b
 
-atomType :: Atom -> Type
-atomType = Primitive . \case
-  Atom.Unit      -> "Unit"
-  Atom.Integer _ -> "Integer"
-  Atom.String  _ -> "String"
-  Atom.Boolean _ -> "Boolean"
-
 checkedIntroduction :: Term -> Bool
-checkedIntroduction (Term.Lambda _ _ _ ) = True
-checkedIntroduction (Term.Atom   _ _   ) = True
-checkedIntroduction (Term.Record _ _   ) = True
-checkedIntroduction (Term.Variant _ _ _) = True
-checkedIntroduction (Term.Vector _ _   ) = True
-checkedIntroduction _                    = False
+checkedIntroduction Term.Lambda{}  = True
+checkedIntroduction Term.Atom{}    = True
+checkedIntroduction Term.Record{}  = True
+checkedIntroduction Term.Variant{} = True
+checkedIntroduction Term.Vector{}  = True
+checkedIntroduction _              = False

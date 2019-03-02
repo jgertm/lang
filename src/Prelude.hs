@@ -106,5 +106,6 @@ matches :: Getting (First a) s a -> s -> Bool
 matches prism value = isJust $ preview prism value
 
 inspect = traceM . toText . pShow
+spy x = let rep = toText $ pShow x in trace rep x
 
 for = flip traverse

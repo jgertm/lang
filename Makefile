@@ -1,14 +1,5 @@
-PROJECT = lang
-NIX_SHELL = nix-shell --attr env $(PROJECT).nix
-
 delete-cabal:
 	rm -f *.cabal
-
-generate-nix-files: delete-cabal
-	cabal2nix --hpack . > default.nix
-
-shell: generate-nix-files
-	$(NIX_SHELL)
 
 build: delete-cabal
 	stack install --local-bin-path=. -j 8 --fast

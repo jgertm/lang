@@ -1,12 +1,10 @@
 module Type.Instantiation where
 
-import qualified Data.Map.Strict               as Map
 import qualified Data.Set                      as Set
 
 import           Error                          ( TypeError(..) )
 import qualified Type.Context                  as Ctx
 import           Type.Monad
-import           Type.Rules
 import           Type.Types
 import qualified Type.Wellformedness           as Wellformed
 

@@ -1,4 +1,9 @@
-module Type.Match where
+module Type.Match
+  ( check
+  , covers
+  , expandVariant
+  )
+where
 
 import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Map.Strict               as Map
@@ -15,6 +20,7 @@ import qualified Type.Equation                 as Equation
 import           Type.Expression
 import qualified Type.Instantiation            as Instantiate
 import           Type.Monad
+import qualified Type.Synthesis                as Synth
 import           Type.Types
 
 
@@ -27,7 +33,7 @@ check gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
 -- RULE: MatchUnit
 check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] ap@(primitive : as, q) cp
   = do
-    let typ = Analysis.atomType atom
+    let typ = Synth.atom atom
     gamma' <- if primitive == typ
       then pure gamma
       else catchError (Instantiate.to gamma primitive (typ, Type))
@@ -149,18 +155,21 @@ incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
     (const $ pure gamma)
 incorporate _ _ _ _ _ = error "incorporate fallthrough"
 
-covers :: Context -> [Branch] -> ([Type], Principality) -> Bool
+covers, covers' :: Context -> [Branch] -> ([Type], Principality) -> Bool
+
+covers = covers'
+
 -- RULE: CoversEmpty
-covers _ (Term.Branch { patterns = [] } : _) ([], _) = True
+covers' _ (Term.Branch { patterns = [] } : _) ([], _) = True
 -- RULE: Covers1 (Atom)
-covers gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers gamma pis' (as, q)
+covers' gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers gamma pis' (as, q)
 -- RULE: Covers× (Tuple/Record)
-covers gamma pis (Tuple aMap : as, q) =
+covers' gamma pis (Tuple aMap : as, q) =
   let pis' = expandTuple pis in covers gamma pis' (elems aMap <> as, q)
-covers gamma pis (Record aMap : as, q) =
+covers' gamma pis (Record aMap : as, q) =
   let pis' = expandRecord pis in covers gamma pis' (elems aMap <> as, q)
 -- RULE: Covers+ (Variant)
-covers gamma pis (Variant _ aMap : as, q) =
+covers' gamma pis (Variant _ aMap : as, q) =
   let pisMap  = expandVariant pis
       missing = Map.traverseMissing $ \_ _ -> Nothing
       tuple   = Map.zipWithAMatched $ \_ branches a -> Just (branches, a)
@@ -168,21 +177,21 @@ covers gamma pis (Variant _ aMap : as, q) =
         Nothing      -> False
         Just pisAMap -> all (\(pisK, aK) -> covers gamma pisK (aK : as, q)) pisAMap
 -- RULE: Covers∃
-covers gamma pis (Exists alpha k _ : as, q) =
+covers' gamma pis (Exists alpha k _ : as, q) =
   let gamma' = Ctx.add gamma $ DeclareUniversal alpha k in covers gamma' pis (as, q)
 -- RULE: Covers∧
-covers gamma pis (With a0 prop : as, Principal) =
+covers' gamma pis (With a0 prop : as, Principal) =
   coversAssuming gamma prop pis (a0 : as, Principal)
 -- RULE: Covers∧!/ (Nonprincipal)
-covers gamma pis (With a0 _ : as, Nonprincipal) = covers gamma pis (a0 : as, Nonprincipal) -- FIXME: I think there's a typo regarding this rule in the paper
+covers' gamma pis (With a0 _ : as, Nonprincipal) = covers gamma pis (a0 : as, Nonprincipal) -- FIXME: I think there's a typo regarding this rule in the paper
 -- TODO: CoversVec
 -- covers gamma pis (Vector t a : as, Principal) =
 --   let (pisNil, pisCons) = expandVector pis
 --   in  guarded pi && coversAssuming gamma (Equals t Zero) pisNil (as, Principal)
 -- TODO: CoversVec!/ (Nonprincipal)
 -- RULE: CoversVar
-covers gamma pis (_ : as, q) = let pis' = expandVariable pis in covers gamma pis' (as, q)
-covers _ _ _ = False
+covers' gamma pis (_ : as, q) = let pis' = expandVariable pis in covers gamma pis' (as, q)
+covers' _ _ _ = False
 
 -- TODO
 coversAssuming :: Context -> Proposition -> [Branch] -> ([Type], Principality) -> Bool
@@ -218,7 +227,7 @@ expandVector (Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e } : 
 expandVector (Term.Branch { patterns = Pattern.Vector _ (rho : rho') : rhos, body = e } : pis) =
   let (pisNil, pisCons) = expandVector pis
   in  (pisNil, Term.Branch {patterns = rho : rho' <> rhos, body = e} : pisCons)
-expandVector _ = error "Can only expand vector pattern"
+expandVector _ = error "[type.match] can only expand vector pattern"
 
 expandTuple :: [Branch] -> [Branch]
 expandTuple [] = []
@@ -228,7 +237,7 @@ expandTuple (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pis' = expandTuple pis
     in  (Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e} : pis')
-expandTuple _ = error "Can only expand tuple pattern"
+expandTuple _ = error "[type.match] can only expand tuple pattern"
 
 expandRecord :: [Branch] -> [Branch]
 expandRecord [] = []
@@ -238,7 +247,7 @@ expandRecord (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pis' = expandRecord pis
     in  (Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e} : pis')
-expandRecord _ = error "Can only expand record pattern"
+expandRecord _ = error "[type.match] can only expand record pattern"
 
 expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty
@@ -253,21 +262,21 @@ expandVariant (Term.Branch { patterns = rho : rhos, body = e } : pis)
   = let pisKs      = expandVariant pis
         commonHead = Term.Branch {patterns = Pattern.Wildcard () : rhos, body = e}
     in  map (commonHead :) pisKs
-expandVariant _ = error "Can only expand variant pattern"
+expandVariant _ = error "[type.match] can only expand variant pattern"
 
 expandVariable :: [Branch] -> [Branch]
 expandVariable [] = []
 expandVariable (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pis' = expandVariable pis in Term.Branch {patterns = rhos, body = e} : pis'
-expandVariable _ = error "Can only expand variable or wildcard pattern"
+expandVariable _ = error "[type.match] can only expand variable or wildcard pattern"
 
 expandAtom :: [Branch] -> [Branch]
 expandAtom [] = []
 expandAtom (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho || isAtom rho
   = let pis' = expandAtom pis in Term.Branch {patterns = rhos, body = e} : pis'
-expandAtom _ = error "Can only expand variable, wildcard or atom pattern"
+expandAtom branches = error "[type.match] can only expand variable, wildcard or atom pattern"
 
 
 isSymbol, isWildcard, isAtom :: Pattern -> Bool
