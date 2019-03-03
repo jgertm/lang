@@ -67,16 +67,37 @@ check gamma branches@[Term.Branch { patterns = Pattern.Tuple _ rhoMap : _ }] (Ex
           (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type tuple])
           post
     check ctx branches (tuple : as, Nonprincipal) cp
-check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] (Record aMap : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] (Record _ aMap : as, q) cp
   | Map.keysSet rhoMap `Set.isSubsetOf` Map.keysSet aMap
-  = do
-    let rowAs          = Map.restrictKeys aMap (Map.keysSet rhoMap)
+  = let rowAs          = Map.restrictKeys aMap (Map.keysSet rhoMap)
         recordPatterns = elems rhoMap
         recordTypes    = elems rowAs
-    check gamma
-          [Term.Branch {patterns = recordPatterns <> rhos, body = e}]
-          (recordTypes <> as, q)
-          cp
+    in  check gamma
+              [Term.Branch {patterns = recordPatterns <> rhos, body = e}]
+              (recordTypes <> as, q)
+              cp
+check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : _ }] (record@(Record (Open rowvar) aMap) : as, Nonprincipal) cp
+  = do
+    newVMap <- forM (Map.difference rhoMap aMap) $ const freshExistential
+    let
+      (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type record)
+      newAMap     = map ExistentialVariable newVMap
+      record'     = Record (Open rowvar) $ Map.union newAMap aMap
+      ctx         = Ctx.splice
+        pre
+        (elems (map (`DeclareExistential` Type) newVMap) <> [SolvedExistential rowvar Type record'])
+        post
+    check ctx branches (record' : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] asp@(ExistentialVariable alpha : as, q) cp
+  = do
+    vMap <- forM rhoMap $ const freshExistential
+    let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+        record      = Record (Open alpha) $ map ExistentialVariable vMap
+        ctx         = Ctx.splice
+          pre
+          (elems (map (`DeclareExistential` Type) vMap) <> [SolvedExistential alpha Type record])
+          post
+    check ctx branches (record : as, Nonprincipal) cp
 -- RULE: Match+ₖ
 check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (Variant _ aMap : as, q) cp
   | q == Principal || k `Map.member` aMap
@@ -84,12 +105,12 @@ check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }
       a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
         $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : _ }] (variant@(Variant (Just rowvar) aMap) : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
       (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type variant)
-      variant'    = Variant (Just rowvar) $ Map.insert k (ExistentialVariable ak) aMap
+      variant'    = Variant (Open rowvar) $ Map.insert k (ExistentialVariable ak) aMap
       ctx =
         Ctx.splice pre [DeclareExistential ak Type, SolvedExistential rowvar Type variant'] post
     check ctx branches (variant' : as, Nonprincipal) cp
@@ -98,7 +119,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : rhos, b
     ak <- freshExistential
     let
       (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-      variant = Variant (Just alpha) $ Map.singleton k (ExistentialVariable ak)
+      variant = Variant (Open alpha) $ Map.singleton k (ExistentialVariable ak)
       ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
     check ctx branches (variant : as, Nonprincipal) cp
 -- RULE: MatchNeg
@@ -185,7 +206,7 @@ covers' gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers ga
 -- RULE: Covers× (Tuple/Record)
 covers' gamma pis (Tuple aMap : as, q) =
   let pis' = expandTuple pis in covers gamma pis' (elems aMap <> as, q)
-covers' gamma pis (Record aMap : as, q) =
+covers' gamma pis (Record _ aMap : as, q) =
   let pis' = expandRecord pis in covers gamma pis' (elems aMap <> as, q)
 -- RULE: Covers+ (Variant)
 covers' gamma pis (Variant _ aMap : as, q) =
@@ -259,14 +280,24 @@ expandTuple (Term.Branch { patterns = rho : rhos, body = e } : pis)
 expandTuple _ = error "[type.match] can only expand tuple pattern"
 
 expandRecord :: [Branch] -> [Branch]
-expandRecord [] = []
-expandRecord (Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e } : pis) =
-  let pis' = expandRecord pis in Term.Branch {patterns = elems rhoMap <> rhos, body = e} : pis'
-expandRecord (Term.Branch { patterns = rho : rhos, body = e } : pis)
-  | isSymbol rho || isWildcard rho
-  = let pis' = expandRecord pis
-    in  (Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e} : pis')
-expandRecord _ = error "[type.match] can only expand record pattern"
+expandRecord = fst . expandRecord'
+ where
+  expandRecord' :: [Branch] -> ([Branch], Map Syntax.Keyword Pattern)
+  expandRecord' [] = (mempty, mempty)
+  expandRecord' (Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e } : pis) =
+    let (pis', wildcards) = expandRecord' pis
+        wildcards'        = Map.union (map (const $ Pattern.Wildcard ()) rhoMap) wildcards
+    in  ( Term.Branch {patterns = elems (Map.union rhoMap wildcards') <> rhos, body = e} : pis'
+        , wildcards'
+        )
+  expandRecord' (Term.Branch { patterns = rho : rhos, body = e } : pis)
+    | isSymbol rho || isWildcard rho
+    = let (pis', wildcards) = expandRecord' pis
+      in  ( Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e}
+            : pis'
+          , wildcards
+          )
+  expandRecord' _ = error "[type.match] can only expand record pattern"
 
 expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty

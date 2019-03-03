@@ -21,8 +21,8 @@ checkKind _ (Primitive _) Type = True
 checkKind gamma (Function tau1 tau2) Type
   | checkKind gamma tau1 Type && checkKind gamma tau2 Type = True
 checkKind gamma (Variant _ taus) Type    = all (\tau -> checkKind gamma tau Type) taus
-checkKind gamma (Tuple  taus   ) Type    = all (\tau -> checkKind gamma tau Type) taus
-checkKind gamma (Record taus   ) Type    = all (\tau -> checkKind gamma tau Type) taus
+checkKind gamma (Tuple taus    ) Type    = all (\tau -> checkKind gamma tau Type) taus
+checkKind gamma (Record _ taus ) Type    = all (\tau -> checkKind gamma tau Type) taus
 -- RULE: ZeroSort
 checkKind _     Zero             Natural = True
 -- RULE: SuccSort
@@ -46,8 +46,8 @@ checkType _     (Primitive _        ) = True
 -- RULE: BinWF
 checkType gamma (Function a b       ) = checkType gamma a && checkType gamma b
 checkType gamma (Variant  _ as      ) = all (checkType gamma) as
-checkType gamma (Tuple  as          ) = all (checkType gamma) as
-checkType gamma (Record as          ) = all (checkType gamma) as
+checkType gamma (Tuple as           ) = all (checkType gamma) as
+checkType gamma (Record _ as        ) = all (checkType gamma) as
 -- RULE: VecWF
 checkType gamma (Vector t a         ) = checkKind gamma t Natural && checkType gamma a
 -- RULE: ForallWF

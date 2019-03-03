@@ -44,8 +44,8 @@ substitute expr match replacement
     in  case expr of
           Function type1  type2 -> Function (subst type1) (subst type2)
           Variant  rowvar types -> Variant rowvar (map subst types)
-          Tuple  types          -> Tuple (map subst types)
-          Record types          -> Record (map subst types)
+          Tuple types           -> Tuple (map subst types)
+          Record rowvar types   -> Record rowvar (map subst types)
           Forall tv kind typ    -> Forall tv kind (subst typ)
           Exists tv kind typ    -> Exists tv kind (subst typ)
           Implies prop typ      -> Implies prop (subst typ)

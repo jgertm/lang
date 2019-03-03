@@ -79,9 +79,9 @@ data Kind
 data Type
   = Primitive Text
   | Function Type Type
-  | Variant (Maybe (Variable 'Existential)) (Map Syntax.Keyword Type)
+  | Variant Row (Map Syntax.Keyword Type)
   | Tuple (Map Int Type)
-  | Record (Map Syntax.Keyword Type)
+  | Record Row (Map Syntax.Keyword Type)
   | UniversalVariable (Variable 'Universal)
   | ExistentialVariable (Variable 'Existential)
   | Forall (Variable 'Universal)
@@ -112,6 +112,8 @@ instance Pretty Type where
         body = hsep $ "->" : map pretty (a : args b)
     in parens body
   pretty t = show t
+
+data Row = Closed | Open (Variable 'Existential) deriving (Generic, Show, Eq, Ord)
 
 data Proposition =
   Equals Type

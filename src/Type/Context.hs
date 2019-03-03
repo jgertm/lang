@@ -85,12 +85,12 @@ lookup binding gamma = do
 
 apply :: Context -> Type -> Type
 apply ctx typ = case typ of
-  Primitive _             -> typ
-  Function type1  type2   -> Function (apply ctx type1) (apply ctx type2)
-  Variant  rowvar types   -> Variant rowvar (map (apply ctx) types)
-  Tuple             types -> Tuple (map (apply ctx) types)
-  Record            types -> Record (map (apply ctx) types)
-  UniversalVariable var   -> case Map.lookup var $ universalSolutions ctx of
+  Primitive _           -> typ
+  Function type1  type2 -> Function (apply ctx type1) (apply ctx type2)
+  Variant  rowvar types -> Variant rowvar (map (apply ctx) types)
+  Tuple types           -> Tuple (map (apply ctx) types)
+  Record rowvar types   -> Record rowvar (map (apply ctx) types)
+  UniversalVariable var -> case Map.lookup var $ universalSolutions ctx of
     Just tau -> apply ctx tau
     Nothing  -> typ
   ExistentialVariable var -> case Map.lookup var $ existentialSolutions ctx of
@@ -148,14 +148,14 @@ freeExistentialVariables ctx typ = case typ of
   ExistentialVariable ev ->
     if Map.notMember ev (existentialSolutions ctx) then Set.singleton ev else Set.empty
   Function type1 type2 -> freeExistentialVariables ctx type1 <> freeExistentialVariables ctx type2
-  Variant (Just rowvar) types ->
-    foldMap (freeExistentialVariables ctx) types <> Set.singleton rowvar
-  Variant _ types -> foldMap (freeExistentialVariables ctx) types
-  Tuple  types    -> foldMap (freeExistentialVariables ctx) types
-  Record types    -> foldMap (freeExistentialVariables ctx) types
-  Exists _ _ body -> freeExistentialVariables ctx body
-  Forall _ _ body -> freeExistentialVariables ctx body
-  _               -> Set.empty
+  Variant  (Open alpha) types -> foldMap (freeExistentialVariables ctx) types <> Set.singleton alpha
+  Variant  _            types -> foldMap (freeExistentialVariables ctx) types
+  Tuple types                 -> foldMap (freeExistentialVariables ctx) types
+  Record (Open alpha) types   -> foldMap (freeExistentialVariables ctx) types <> Set.singleton alpha
+  Record _            types   -> foldMap (freeExistentialVariables ctx) types
+  Exists _ _ body             -> freeExistentialVariables ctx body
+  Forall _ _ body             -> freeExistentialVariables ctx body
+  _                           -> Set.empty
 
 freeUniversalVariables :: Context -> Type -> Set (Variable 'Universal)
 freeUniversalVariables ctx typ = case typ of
@@ -163,8 +163,8 @@ freeUniversalVariables ctx typ = case typ of
     if Map.notMember uv (universalSolutions ctx) then Set.singleton uv else Set.empty
   Function type1 type2 -> freeUniversalVariables ctx type1 <> freeUniversalVariables ctx type2
   Variant  _     types -> foldMap (freeUniversalVariables ctx) types
-  Tuple  types         -> foldMap (freeUniversalVariables ctx) types
-  Record types         -> foldMap (freeUniversalVariables ctx) types
+  Tuple types          -> foldMap (freeUniversalVariables ctx) types
+  Record _ types       -> foldMap (freeUniversalVariables ctx) types
   Exists _ _ body      -> freeUniversalVariables ctx body
   Forall _ _ body      -> freeUniversalVariables ctx body
   _                    -> Set.empty

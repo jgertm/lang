@@ -56,23 +56,59 @@ inference
           ]
         , testGroup
           "Values"
-          [ test "record" "{:foo nil :bar 1}"
-            $ Record (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
-          , test "tuple"  "{1 nil true}"
-            $ Tuple (Map.fromList [(1, Type.integer), (2, Type.unit), (3, Type.boolean)])
+          [ testGroup
+            "records"
+            [ test "constant" "{:foo nil :bar 1}" $ Record
+              (Open (Var "alpha"))
+              (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
+            , test "if stmt" "(if true {:foo 1 :bar true} {:foo 2 :bar false})" $ Record
+              (Open (Var "alpha"))
+              (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)])
+            , test
+              "match stmt (consuming)"
+              "(match {:foo 1 :bar true} ({:foo 2} 1) ({:bar false} 2) ({:foo 1 :bar true} 3))"
+              Type.integer
+            , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
+              (Open (Var "alpha"))
+              (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
+            , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
+              (Open (Var "alpha"))
+              (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
+            , test "function (consuming)"
+                   "(fn [x] (match x ({:foo 2} nil) ({:foo 1 :bar true} nil)))"
+              $ Function
+                  (Record (Open (Var "beta")) $ Map.fromList
+                    [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)]
+                  )
+                  Type.unit
+            ]
+          , testGroup
+            "tuples"
+            [ test "constant" "{1 nil true}"
+              $ Tuple (Map.fromList [(1, Type.integer), (2, Type.unit), (3, Type.boolean)])
+            , test "if stmt"  "(if true {true false} {false true})"
+              $ Tuple (Map.fromList [(1, Type.boolean), (2, Type.boolean)])
+            , test "match stmt (consuming)"
+                   "(match {true true} ({false _} 1) ({true true} 2))"
+                   Type.integer
+            , test "match stmt (producing)" "(match nil (nil {true 2}))"
+              $ Tuple (Map.fromList [(1, Type.boolean), (2, Type.integer)])
+            , test "function (consuming)"   "(fn [x] (match x ({true 1} nil)))"
+              $ Function (Tuple $ Map.fromList [(1, Type.boolean), (2, Type.integer)]) Type.unit
+            ]
           , testGroup
             "variants"
             [ test "constant" "[:foo 1]"
-              $ Variant (Just (Var "alpha")) (Map.singleton (Utils.kw "foo") Type.integer)
+              $ Variant (Open (Var "alpha")) (Map.singleton (Utils.kw "foo") Type.integer)
             , test "if stmt" "(if true [:foo 1] [:bar nil])" $ Variant
-              (Just (Var "alpha"))
+              (Open (Var "alpha"))
               (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.unit)])
             , test "match stmt (consuming)"
                    "(match [:foo 1] ([:foo 2] true) ([:foo 1] false))"
                    Type.boolean
             , test "match stmt (producing)" "(match 2 (1 [:foo nil]) (2 [:bar true]) (n [:quux n]))"
               $ Variant
-                  (Just (Var "alpha"))
+                  (Open (Var "alpha"))
                   (Map.fromList
                     [ (Utils.kw "foo" , Type.unit)
                     , (Utils.kw "bar" , Type.boolean)
@@ -82,7 +118,7 @@ inference
             , test "function (consuming)"   "(fn [x] (match x ([:foo nil] 1) ([:bar true] 2)))"
               $ Function
                   (Variant
-                    (Just (Var "beta"))
+                    (Open (Var "beta"))
                     (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.boolean)])
                   )
                   Type.integer
