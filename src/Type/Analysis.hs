@@ -160,19 +160,14 @@ check' gamma (Term.Variant _ k e) (variant@(Variant (Just rowvar) aMap), Nonprin
     ctx =
       Ctx.splice pre [DeclareExistential alpha Type, SolvedExistential rowvar Type variant'] post
   check ctx e (ak, Nonprincipal)
-check' gamma (Term.Variant _ k e) (ExistentialVariable alpha, Nonprincipal)
+check' gamma term@(Term.Variant _ k _) (ExistentialVariable alpha, Nonprincipal)
   | alpha `Map.notMember` Ctx.existentialSolutions gamma = do
-    ak <- ExistentialVariable <$> freshExistential
-    let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-        vMap        = Map.singleton k ak
-        variant     = Variant (Just alpha) vMap
-        ctx         = Ctx.splice
-          pre
-          (  map (\(ExistentialVariable exvar) -> DeclareExistential exvar Type) (elems vMap)
-          <> [SolvedExistential alpha Type variant]
-          )
-          post
-    check ctx e (ak, Nonprincipal)
+    ak <- freshExistential
+    let
+      (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+      variant = Variant (Just alpha) $ Map.singleton k (ExistentialVariable ak)
+      ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
+    check ctx term (variant, Nonprincipal)
 -- RULE: ×I (Product introduction)
 check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError
@@ -197,15 +192,12 @@ check' gamma term@(Term.Tuple _ eMap) (ExistentialVariable alpha, Nonprincipal) 
   check ctx term (tuple, Nonprincipal)
 check' gamma term@(Term.Record _ eMap) (ExistentialVariable alpha, Nonprincipal) = do
   vMap <- forM eMap $ const freshExistential
-  let
-    (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-    record      = Record $ map ExistentialVariable vMap
-    ctx         = Ctx.splice
-      pre
-      (  map (\exvar -> DeclareExistential exvar Type) (elems vMap)
-      <> [SolvedExistential alpha Type record]
-      )
-      post
+  let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+      record      = Record $ map ExistentialVariable vMap
+      ctx         = Ctx.splice
+        pre
+        (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type record])
+        post
   check ctx term (record, Nonprincipal)
 -- RULE: Nil
 check' gamma (Term.Vector _ []       ) (Vector t _, _) = Equation.true gamma (Equals t Zero)

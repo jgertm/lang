@@ -79,6 +79,13 @@ inference
                     , (Utils.kw "quux", Type.integer)
                     ]
                   )
+            , test "function (consuming)"   "(fn [x] (match x ([:foo nil] 1) ([:bar true] 2)))"
+              $ Function
+                  (Variant
+                    (Just (Var "beta"))
+                    (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.boolean)])
+                  )
+                  Type.integer
             ]
           ]
         , testGroup

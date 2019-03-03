@@ -51,10 +51,22 @@ check gamma branches (With a _ : as, Nonprincipal) cp =
 -- RULE: Match×
 check gamma [Term.Branch { patterns = Pattern.Tuple _ rhoMap : rhos, body = e }] (Tuple aMap : as, q) cp
   | Map.keysSet rhoMap == Map.keysSet aMap
-  = do
-    let tuplePatterns = elems rhoMap
+  = let tuplePatterns = elems rhoMap
         tupleTypes    = elems aMap
-    check gamma [Term.Branch {patterns = tuplePatterns <> rhos, body = e}] (tupleTypes <> as, q) cp
+    in  check gamma
+              [Term.Branch {patterns = tuplePatterns <> rhos, body = e}]
+              (tupleTypes <> as, q)
+              cp
+check gamma branches@[Term.Branch { patterns = Pattern.Tuple _ rhoMap : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
+  = do
+    vMap <- forM rhoMap $ const freshExistential
+    let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+        tuple       = Tuple $ map ExistentialVariable vMap
+        ctx         = Ctx.splice
+          pre
+          (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type tuple])
+          post
+    check ctx branches (tuple : as, Nonprincipal) cp
 check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] (Record aMap : as, q) cp
   | Map.keysSet rhoMap `Set.isSubsetOf` Map.keysSet aMap
   = do
@@ -72,16 +84,23 @@ check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }
       a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
         $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
-check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (variant@(Variant (Just rowvar) aMap) : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : _ }] (variant@(Variant (Just rowvar) aMap) : as, Nonprincipal) cp
   = do
-    alpha <- freshExistential
+    ak <- freshExistential
     let
       (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type variant)
-      ak          = ExistentialVariable alpha
-      variant'    = Variant (Just rowvar) $ Map.insert k ak aMap
+      variant'    = Variant (Just rowvar) $ Map.insert k (ExistentialVariable ak) aMap
       ctx =
-        Ctx.splice pre [DeclareExistential alpha Type, SolvedExistential rowvar Type variant'] post
-    check ctx [Term.Branch {patterns = rho : rhos, body = e}] (ak : as, Nonprincipal) cp
+        Ctx.splice pre [DeclareExistential ak Type, SolvedExistential rowvar Type variant'] post
+    check ctx branches (variant' : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (ExistentialVariable alpha : as, Nonprincipal) cp
+  = do
+    ak <- freshExistential
+    let
+      (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+      variant = Variant (Just alpha) $ Map.singleton k (ExistentialVariable ak)
+      ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
+    check ctx branches (variant : as, Nonprincipal) cp
 -- RULE: MatchNeg
 check gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
   | not $ isWith a || isExistentiallyQuantified a = do
