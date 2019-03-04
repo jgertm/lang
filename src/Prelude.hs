@@ -108,4 +108,5 @@ matches prism value = isJust $ preview prism value
 inspect = traceM . toText . pShow
 spy x = let rep = toText $ pShow x in trace rep x
 
+for :: (Traversable t, Applicative f) => t a -> (a -> f b) -> f (t b)
 for = flip traverse

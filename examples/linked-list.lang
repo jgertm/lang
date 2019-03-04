@@ -1,0 +1,10 @@
+(defmodule examples.linked-list)
+
+(deftype IntList
+  (| [:nil Unit]
+     [:cons {Integer IntList}]))
+
+(defn empty? [list]
+  (match list
+    ([:nil _] true)
+    (_ false)))

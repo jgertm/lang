@@ -113,8 +113,8 @@ renameDefinition :: (MonadRename m) => Definition.Definition phase -> m Definiti
 renameDefinition (Definition.Module _ name definitions) = do
   definitions' <- traverse renameDefinition definitions
   pure $ Definition.Module Nothing name definitions'
-renameDefinition (Definition.Type _ name typ) =
-  pure $ Definition.Type Nothing name (meta (const Nothing) typ)
+renameDefinition (Definition.Type _ name params typ) =
+  pure $ Definition.Type Nothing name params (meta (const Nothing) typ)
 renameDefinition (Definition.Constant _ name body) = do
   name' <- alias name
   body' <- renameNode body

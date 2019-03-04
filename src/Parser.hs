@@ -146,8 +146,9 @@ definition = injectContext
   typeDefinition = sexp $ do
     reserved "deftype"
     typename  <- typeName
+    params    <- many typeName
     structure <- typeExpr
-    pure $ \ctx -> Definition.Type ctx typename structure
+    pure $ \ctx -> Definition.Type ctx typename params structure
   constantDefinition = sexp $ do
     reserved "def"
     constname <- name
@@ -167,28 +168,26 @@ definition = injectContext
                                                                             args
 typeExpr :: Parser Type
 typeExpr = injectContext
-  $ cases [namedType, productType, sumType, recordType, variantType, functionType]
+  $ cases [namedType, applicationType, tupleType, recordType, variantType, functionType]
  where
   namedType = do
     name <- typeName
     pure $ \ctx -> Type.Named ctx name
-  productType = sexp $ do
-    reserved "product"
-    factors <- many1 typeExpr
-    pure $ \ctx -> Type.Product ctx factors
-  sumType = sexp $ do
-    reserved "sum"
-    summands <- many1 typeExpr
-    pure $ \ctx -> Type.Sum ctx summands
-  recordType = sexp $ do
-    reserved "record"
+  applicationType = sexp $ do
+    hkt    <- typeName
+    params <- many1 typeExpr
+    pure $ \ctx -> Type.Application ctx hkt params
+  tupleType = tuple $ do
+    elements <- many1 typeExpr
+    pure $ \ctx -> Type.Tuple ctx elements
+  recordType = record $ do
     rows <- record (many1 row)
     pure $ \ctx -> Type.Record ctx rows
     where row = (,) <$> keyword <*> typeExpr
   variantType = sexp $ do
-    tag  <- keyword
-    body <- typeExpr
-    pure $ \ctx -> Type.Variant ctx tag body
+    reserved "|"
+    variants <- many1 $ variant $ (,) <$> keyword <*> typeExpr
+    pure $ \ctx -> Type.Variant ctx variants
   functionType = sexp $ do
     reserved "fn"
     domains <- many1 typeExpr

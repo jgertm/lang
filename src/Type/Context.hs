@@ -103,6 +103,7 @@ apply ctx typ = case typ of
   Zero                -> Zero
   Succ sub            -> Succ (apply ctx sub)
   Vector type1 type2  -> Vector (apply ctx type1) (apply ctx type2)
+  Fix    var   sub    -> Fix var sub
 
 substitute :: Context -> Type -> Type -> Context
 substitute (Context ctx) match replacement = Context $ map replace ctx

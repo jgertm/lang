@@ -98,19 +98,36 @@ data Type
   | Succ Type
   | Vector Type
            Type
+  | Fix (Variable 'Existential)
+        Type
   deriving (Show, Eq, Ord, Generic)
 
 instance Pretty Type where
   pretty (Primitive prim) = pretty prim
-  pretty (UniversalVariable (Var var)) = pretty var
-  pretty (Forall (Var var) _ typ) =
-    let body = hsep ["forall", pretty var <> ".", pretty typ]
-    in parens body
   pretty (Function a b) =
     let args (Function a b) = a : args b
         args t              = [t]
         body = hsep $ "->" : map pretty (a : args b)
     in parens body
+  pretty (Variant rowvar cases) =
+    let cases' = map (\(tag, typ) -> brackets $ pretty tag <+> pretty typ) $ toPairs cases
+        suffix = case rowvar of
+                   Closed -> mempty
+                   Open _ -> "..."
+    in  parens $ (hsep $ "|" : cases') <+> suffix
+  pretty (Tuple fields) = braces $ hsep $ map pretty $ elems fields
+  pretty (Record rowvar fields) =
+    let fields' = map (\(name, typ) -> pretty name <+> pretty typ) $ toPairs fields
+        suffix = case rowvar of
+                   Closed -> mempty
+                   Open _ -> "..."
+    in  braces $ (hsep fields') <+> suffix
+  pretty (UniversalVariable (Var var)) = pretty var
+  pretty (ExistentialVariable (Var var)) = pretty var
+  pretty (Forall (Var var) _ typ) =
+    parens $ hsep ["forall", pretty var <> ".", pretty typ]
+  pretty (Fix (Var var) typ) =
+    parens $ hsep ["fix", pretty var <> ".", pretty typ ]
   pretty t = show t
 
 data Row = Closed | Open (Variable 'Existential) deriving (Generic, Show, Eq, Ord)

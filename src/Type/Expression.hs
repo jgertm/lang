@@ -2,6 +2,13 @@
 
 module Type.Expression where
 
+import qualified Data.Map.Strict               as Map
+import qualified Data.Sequence                 as Seq
+
+import qualified Syntax.Definition             as Def
+import qualified Syntax.Reference              as Ref
+import qualified Syntax.Type                   as Syntax
+import           Type.Monad
 import           Type.Types
 
 
@@ -31,6 +38,10 @@ real = Primitive "Real"
 string = Primitive "String"
 boolean = Primitive "Boolean"
 
+builtins :: Map Ref.Type Type
+builtins = Map.fromList $ map (\typ@(Primitive name) -> (Ref.Type name, typ))
+                              [unit, integer, rational, real, string, boolean]
+
 fn :: [Type] -> Type
 fn []       = error "Cannot construct function type without types"
 fn (t : ts) = foldr Function t ts
@@ -53,3 +64,29 @@ substitute expr match replacement
           Succ typ              -> Succ (subst typ)
           Vector type1 type2    -> Vector (subst type1) (subst type2)
           _                     -> expr
+
+fromSyntax :: Syntax.Type phase -> Type
+fromSyntax = fromSyntaxWith builtins
+
+fromSyntaxWith :: Map Ref.Type Type -> Syntax.Type phase -> Type
+fromSyntaxWith bindings (Syntax.Named _ typ@(Ref.Type name)) =
+  fromMaybe (error $ "[type.expression] unknown named type: " <> name) $ Map.lookup typ bindings
+fromSyntaxWith bindings (Syntax.Tuple _ fields) =
+  Tuple (map (fromSyntaxWith bindings) $ Map.fromList $ zip [1 ..] fields)
+fromSyntaxWith bindings (Syntax.Record _ fields) =
+  Record Closed (map (fromSyntaxWith bindings) $ Map.fromList fields)
+fromSyntaxWith bindings (Syntax.Variant _ cases) =
+  Variant Closed (map (fromSyntaxWith bindings) $ Map.fromList cases)
+fromSyntaxWith bindings (Syntax.Function _ types) = fn $ map (fromSyntaxWith bindings) types
+
+fromDefinition :: Map Ref.Type Type -> Def.Definition phase -> Infer (Type, Context)
+fromDefinition bindings (Def.Type _ name params body) = do
+  nameVar   <- freshExistential
+  paramVars <- traverse (const freshExistential) params
+  let paramTypes  = Map.fromList $ zip params $ map ExistentialVariable paramVars
+      newBindings = Map.insert name (ExistentialVariable nameVar) $ Map.union paramTypes bindings
+      typ         = Fix nameVar $ fromSyntaxWith (Map.union newBindings bindings) body
+      ctx         = Context $ Seq.fromList $ map (`DeclareExistential` Type) (nameVar : paramVars)
+  pure (typ, ctx)
+fromDefinition _ _ =
+  error "[type.expression] only type definitions can be converted to type expressions"

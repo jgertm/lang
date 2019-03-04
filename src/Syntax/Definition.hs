@@ -13,6 +13,7 @@ data Definition phase
            [Definition phase]
   | Type (Context phase)
          Ref.Type
+         [Ref.Type]
          (Type phase)
   | Constant (Context phase)
              Ref.Value
@@ -30,7 +31,7 @@ instance Tree Definition phase where
           \case
             Module ctx name defs ->
               Module ctx name <$> traverse (walkM f) defs
-            Type ctx name typ -> pure $ Type ctx name typ
+            Type ctx name params typ -> pure $ Type ctx name params typ
             Constant ctx name body -> pure $ Constant ctx name body
   metaM f def =
     case def of
@@ -38,10 +39,10 @@ instance Tree Definition phase where
         ctx' <- f ctx
         defs' <- traverse (metaM f) defs
         pure $ Module ctx' name defs'
-      Type ctx name typ -> do
+      Type ctx name params typ -> do
         ctx' <- f ctx
         typ' <- metaM f typ
-        pure $ Type ctx' name typ'
+        pure $ Type ctx' name params typ'
       Constant ctx name term -> do
         ctx' <- f ctx
         term' <- metaM f term
