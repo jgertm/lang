@@ -10,10 +10,7 @@ import qualified Text.Show
 import qualified Syntax.Atom                   as Syntax
 import qualified Syntax.Reference              as Syntax
 import qualified Type.Expression               as Type
-import           Type.Types                     ( Kind(..)
-                                                , Type(..)
-                                                , Variable(..)
-                                                )
+import           Type.Types                     ( Type(..) )
 
 data Builtin = Builtin
   { name     :: Text

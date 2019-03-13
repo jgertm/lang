@@ -51,6 +51,7 @@ import           Universum                     as X
                                                 , TVar
                                                 , Type
                                                 , ap
+                                                , drop
                                                 , empty
                                                 , id
                                                 , join
@@ -58,6 +59,7 @@ import           Universum                     as X
                                                 , product
                                                 , some
                                                 , sum
+                                                , try
                                                 , (.)
                                                 )
 
@@ -92,7 +94,7 @@ identical _        = True
 errorToMaybe :: Except e a -> Maybe a
 errorToMaybe = rightToMaybe . runExcept
 
-infixr 0 |>>
+infixl 0 |>>
 
 infixr 0 <<|
 
@@ -105,7 +107,10 @@ f <<| x = f x
 matches :: Getting (First a) s a -> s -> Bool
 matches prism value = isJust $ preview prism value
 
+inspect :: (Monad m, Show a) => a -> m ()
 inspect = traceM . toText . pShow
+
+spy :: Show a => a -> a
 spy x = let rep = toText $ pShow x in trace rep x
 
 for :: (Traversable t, Applicative f) => t a -> (a -> f b) -> f (t b)

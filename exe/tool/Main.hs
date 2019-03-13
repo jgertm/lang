@@ -1,9 +1,12 @@
-module Main where
+module Main
+  ( main
+  )
+where
 
 import           Data.Text.Prettyprint.Doc
-import qualified System.Environment            as Env
+import           Options.Applicative     hiding ( action )
 
-import           Classes
+import qualified Application                   as App
 import qualified Module
 import qualified Parser
 import qualified Syntax.Term                   as Term
@@ -11,26 +14,52 @@ import qualified Syntax.Term                   as Term
 
 main :: IO ()
 main = do
-  args <- Env.getArgs
-  case args of
-    []             -> greet
-    ["type", file] -> do
+  options <- execParser opts
+  case action options of
+    Typecheck file -> do
       content <- readFile file
-      case Module.signature =<< Parser.parse Parser.file "<input>" content of
-        Right sig -> putTextLn $ show $ pretty sig
+      case App.run $ Module.load Module.empty =<< Parser.parse Parser.file file content of
+        Right mod -> putTextLn $ show $ pretty mod
         Left  err -> do
           putStrLn "ERROR"
           print err
-    ["run", file] -> do
+    Run file -> do
       content <- readFile file
-      let ast = Parser.parse Parser.file "<input>" content
-      guard $ isRight $ Module.signature =<< ast
-      case Module.run =<< ast of
+      let modul = App.run $ Module.load Module.native =<< Parser.parse Parser.file file content
+      guard $ isRight modul
+      case Module.run =<< modul of
         Left  err                -> print err
         Right (Term.Atom _ atom) -> putTextLn $ show $ pretty atom
-
+        Right term               -> print term
+    Repl _ -> undefined
 
 greet :: IO ()
 greet = putTextLn $ unlines
   [" _             ", "| |___ ___ ___ ", "| | .'|   | . |", "|_|__,|_|_|_  |", "          |___|"]
 
+data Options = Options {action :: Command} deriving (Generic, Show)
+
+data Command
+  = Run FilePath
+  | Typecheck FilePath
+  | Repl (Maybe FilePath)
+  deriving (Generic, Show)
+
+opts :: ParserInfo Options
+opts =
+  flip info mempty
+    $    (do
+           action <- hsubparser $ mconcat
+             [ command "run" $ info run (progDesc "Execute a .lang file")
+             , command "type" $ info typecheck (progDesc "Typecheck a .lang file")
+             , command "repl" $ info repl (progDesc "Launch a lang REPL")
+             ]
+           pure Options {action }
+         )
+    <**> helper
+ where
+  run              = Run <$> filepath
+  typecheck        = Typecheck <$> filepath
+  repl             = Repl <$> optionalFilepath
+  filepath         = argument str (metavar "FILE")
+  optionalFilepath = argument (Just <$> str) (metavar "FILE" <> value Nothing)

@@ -1,6 +1,9 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Syntax.Pattern where
+module Syntax.Pattern
+  ( Pattern(..)
+  )
+where
 
 import           Classes
 import           Syntax.Atom                    ( Atom )

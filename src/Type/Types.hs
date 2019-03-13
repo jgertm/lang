@@ -1,4 +1,20 @@
-module Type.Types where
+module Type.Types
+  ( Type(..)
+  , Fact(..)
+  , Context(..)
+  , Kind(..)
+  , Variable(..)
+  , Quantification(..)
+  , Row(..)
+  , Principality(..)
+  , Proposition(..)
+  , Polarity(..)
+  , Term
+  , Atom
+  , Branch
+  , Pattern
+  )
+where
 
 import           Data.Text.Prettyprint.Doc
 

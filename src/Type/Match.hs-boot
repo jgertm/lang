@@ -1,4 +1,4 @@
-module Type.Match where
+module Type.Match (check, covers) where
 
 import Type.Monad (Infer)
 import Type.Types

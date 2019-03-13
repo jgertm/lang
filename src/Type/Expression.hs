@@ -1,6 +1,19 @@
 {-# LANGUAGE DataKinds #-}
 
-module Type.Expression where
+module Type.Expression
+  ( substitute
+  , fn
+  , integer
+  , boolean
+  , natives
+  , isVariable
+  , isQuantified
+  , isUniversallyQuantified
+  , isExistentiallyQuantified
+  , isWith
+  , fromDefinition
+  )
+where
 
 import qualified Data.Map.Strict               as Map
 import qualified Data.Sequence                 as Seq
@@ -38,9 +51,13 @@ real = Primitive "Real"
 string = Primitive "String"
 boolean = Primitive "Boolean"
 
-builtins :: Map Ref.Type Type
-builtins = Map.fromList $ map (\typ@(Primitive name) -> (Ref.Type name, typ))
-                              [unit, integer, rational, real, string, boolean]
+natives :: Map Ref.Type Type
+natives = Map.fromList $ map
+  (\case
+    typ@(Primitive name) -> (Ref.Type name, typ)
+    _                    -> error "[type.expression] unnamed type in natives"
+  )
+  [unit, integer, rational, real, string, boolean]
 
 fn :: [Type] -> Type
 fn []       = error "Cannot construct function type without types"
@@ -64,9 +81,6 @@ substitute expr match replacement
           Succ typ              -> Succ (subst typ)
           Vector type1 type2    -> Vector (subst type1) (subst type2)
           _                     -> expr
-
-fromSyntax :: Syntax.Type phase -> Type
-fromSyntax = fromSyntaxWith builtins
 
 fromSyntaxWith :: Map Ref.Type Type -> Syntax.Type phase -> Type
 fromSyntaxWith bindings (Syntax.Named _ typ@(Ref.Type name)) =

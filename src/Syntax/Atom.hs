@@ -1,4 +1,7 @@
-module Syntax.Atom where
+module Syntax.Atom
+  ( Atom(..)
+  )
+where
 
 import           Data.Text.Prettyprint.Doc
 

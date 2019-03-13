@@ -2,6 +2,7 @@ module Type
   ( module Type
   , Type(..)
   , Context(..)
+  , synthesize
   )
 where
 

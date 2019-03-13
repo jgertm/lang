@@ -7,6 +7,8 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 
 import           Parser
+import qualified Parser.Pattern                as Pattern
+import qualified Parser.Reference              as Reference
 import qualified Syntax.Atom                   as Atom
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Reference              as Reference
@@ -20,14 +22,14 @@ tree = testGroup
   "Parser"
   [ testGroup
     "Primitives"
-    [ let test = tester name
+    [ let test = tester Reference.variableName
       in  testGroup
             "Variable names"
             [ test "compact name" "foobar" $ var "foobar"
             , test "qualified name" "foo/bar" $ varIn ["foo"] "bar"
             , test "deeply qualified name" "foo.bar/baz" $ varIn ["foo", "bar"] "baz"
             ]
-    , let test = tester moduleName
+    , let test = tester Reference.moduleName
       in  testGroup
             "Module names"
             [ test "compact name" "foo" $ Reference.Module ["foo"]
@@ -95,7 +97,7 @@ tree = testGroup
     "Pattern matches"
     [ testGroup
         "pattern clauses"
-        [ let test = tester (removeContext <$> patternExpr)
+        [ let test = tester (removeContext <$> Pattern.expr)
           in
             testGroup
               "Patterns"

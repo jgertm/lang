@@ -1,8 +1,10 @@
-module Interpreter where
+module Interpreter
+  ( eval
+  , evalWith
+  )
+where
 
 import qualified Data.Map.Strict               as Map
-import           Data.Text.Prettyprint.Doc
-import           Text.Pretty.Simple
 
 import qualified Builtins
 import           Classes
@@ -29,8 +31,8 @@ step term@(Term.Symbol _ symbol) env k = case lookup symbol env of
 step term@(Term.Fix _ recur body) env k =
   let env' = insert recur (Closure term env) env in (body, env', k)
 step (Term.If _ test true false) env k = (test, env, Conditional true false k)
-step (Term.Atom _ (Atom.Boolean bool)) env (Conditional true false k) =
-  let next = if bool then true else false in (next, env, k)
+step (Term.Atom _ (Atom.Boolean boolean)) env (Conditional true false k) =
+  let next = if boolean then true else false in (next, env, k)
 
 step (Term.Let _ ((name, value) : bindings) body) env k =
   let k' = case bindings of
@@ -45,9 +47,9 @@ step fn env (Arguments args env' k) = case args of
   (arg : rest) -> (arg, env', Call fn env (Arguments rest env' k))
 step result env (Call (Term.Lambda _ arg body) env' k) =
   let env'' = insert arg (Closure result env) env' in (body, env'', k)
-step (Term.Atom () result) env (Call (Term.Extra () (Native bi args)) _ k) = case k of
-  Arguments{} -> (Term.Extra () $ Native bi (args <> [result]), env, k)
-  _           -> (Term.Atom () (Builtins.function bi $ args <> [result]), env, k)
+step (Term.Atom () result) env (Call (Term.Extra () (Native builtin args)) _ k) = case k of
+  Arguments{} -> (Term.Extra () $ Native builtin (args <> [result]), env, k)
+  _           -> (Term.Atom () (Builtins.function builtin $ args <> [result]), env, k)
 
 step (Term.Match _ prototype branches) env k = (prototype, env, Select branches env k)
 step prototype _ (Select (Term.Branch { patterns, body } : branches) env k) =
@@ -87,9 +89,9 @@ evalWith env term = case find isFinal $ runWith env $ meta (const ()) term of
   Nothing             -> Left $ Interpretation Unimplemented
 
 evalTrace :: Term.Term phase -> [(Int, CEK)]
-evalTrace term =
-  let (steps, final : _) = break isFinal $ run $ meta (const ()) term
-  in  zip [0 ..] $ steps <> [final]
+evalTrace term = case break isFinal $ run $ meta (const ()) term of
+  (steps, final : _) -> zip [0 ..] $ steps <> [final]
+  _                  -> error "[interpreter] invalid interpretation trace"
 
 builtins :: Map Reference.Value Closure
-builtins = map (\bi -> Closure (Term.Extra () $ Native bi []) mempty) Builtins.builtins
+builtins = map (\builtin -> Closure (Term.Extra () $ Native builtin []) mempty) Builtins.builtins

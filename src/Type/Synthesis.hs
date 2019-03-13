@@ -91,10 +91,10 @@ recoverSpine gamma s ap = recoverSpine' gamma s ap
 recoverSpine' gamma s ap@(_, Principal) = do
   (cp, delta) <- spine gamma s ap
   case cp of
-    (c, Principal) -> pure (cp, delta)
+    (_, Principal) -> pure (cp, delta)
     (c, Nonprincipal) ->
       let fvs = Ctx.freeExistentialVariables gamma c
-      in  if Set.null fvs then pure (cp, delta) else throwError $ PrincipalityRecoveryFailure fvs
+      in  if Set.null fvs then pure (cp, delta) else typeerror $ PrincipalityRecoveryFailure fvs
 -- RULE: SpinePass
 recoverSpine' gamma s ap@(_, p) = do
   ((c, q), delta) <- spine gamma s ap

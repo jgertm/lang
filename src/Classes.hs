@@ -1,4 +1,16 @@
-module Classes where
+module Classes
+  ( Context
+  , Extra
+  , Empty
+  , Tree(..)
+  , ascendM
+  , descendM
+  , ascend
+  , descend
+  , metaM_
+  , meta
+  )
+where
 
 
 type family Context phase
@@ -7,10 +19,6 @@ type family Extra phase
 data Empty
 type instance Classes.Context Empty = ()
 type instance Classes.Extra Empty = ()
-
-data Direction
-  = Up
-  | Down
 
 class Tree (t :: * -> *) p where
   walkM :: (Monad f) => (t p -> f (t p)) -> t p -> f (t p)

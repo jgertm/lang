@@ -1,4 +1,4 @@
-module Type.Synthesis where
+module Type.Synthesis (synthesize, atom) where
 
 import Type.Monad
 import Type.Types

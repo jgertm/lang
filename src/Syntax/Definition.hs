@@ -1,6 +1,9 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Syntax.Definition where
+module Syntax.Definition
+  ( Definition(..)
+  )
+where
 
 import           Classes
 import qualified Syntax.Reference              as Ref

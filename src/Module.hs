@@ -1,14 +1,23 @@
-module Module where
+module Module
+  ( load
+  , run
+  , native
+  , empty
+  , Module(..)
+  )
+where
 
 import qualified Data.Map.Strict               as Map
-import qualified Data.Sequence                 as Seq
+import           Data.Sequence                  ( (|>) )
 import           Data.Text.Prettyprint.Doc
 
-import           Classes
-import           Error
+import qualified Builtins
+import           Classes                        ( Empty
+                                                , meta
+                                                )
+import           Error                          ( Error )
 import qualified Interpreter
 import qualified Interpreter.Types             as Interpreter
-import qualified Renaming
 import qualified Syntax.Definition             as Def
 import qualified Syntax.Reference              as Syntax
 import qualified Syntax.Term                   as Term
@@ -16,61 +25,82 @@ import qualified Type
 
 
 type Term = Term.Term Empty
+data Module = Module
+  { name      :: Ref.Module
+  , types     :: Map Ref.Type Type
+  , constants :: Map Ref.Value (Interpreter.Closure, Type)
+  , order     :: Seq Ref.Value
+  , imports   :: Map Ref.Module Module
+  } deriving (Generic, Show)
 
-data Signature = Signature
-  { name        :: Syntax.Module
-  , order       :: [Syntax.Value]
-  , definitions :: (Map Syntax.Value Type.Type)
-  } deriving (Generic)
+instance Pretty Module where
+  pretty Module {name, types, constants, order} =
+    let longest = maximum $ map (length . show . pretty) order
+        intro = "module" <+> pretty name
+        types' = lined $ map (\(typename, expr) -> hsep [pretty typename, "=", pretty expr]) $ toPairs types
+        constants' = lined $ mapMaybe (\binding -> do
+                                          (_, typ) <- Map.lookup binding constants
+                                          pure $ hsep [fill longest $ pretty binding, ":", pretty typ]) $ toList order
+        content = braces $ align $ mconcat [types', line', constants'] -- FIXME: empty line when there are no typedefs
+    in parens $ vsep [intro, indent 2 content]
+    where lined = mconcat . punctuate hardline
 
-instance Pretty Signature where
-  pretty (Signature {name, order, definitions}) =
-    let max = maximum $ map (length . show . pretty) order
-        meta = "module" <+> pretty name
-        content = braces $ align $ vsep $ mapMaybe (\binding -> do
-                                                       typ <- Map.lookup binding definitions
-                                                       pure $ hsep [fill max $ pretty binding, ":", pretty typ]) $ order
-    in parens $ vsep [meta, indent 2 content]
+native, empty :: Module
 
-types = Type.builtins
+native = Module
+  { name      = Ref.Module ["lang", "core", "native"]
+  , types     = Type.natives
+  , constants = map
+    (\bi ->
+      let closure = Interpreter.Closure (Term.Extra () $ Interpreter.Native bi []) mempty
+          typ     = Builtins.typ bi
+      in  (closure, typ)
+    )
+    Builtins.builtins
+  , order     = mempty
+  , imports   = mempty
+  }
 
-typecheck
-  :: Map Syntax.Value Type.Type
-  -> Map Syntax.Value Type.Type
-  -> Def.Definition phase
-  -> Either Error (Map Syntax.Value Type.Type)
-typecheck globals env (Def.Constant _ name body) = do
-  typ <- Type.inferWith (Map.union env globals) body
-  pure $ Map.singleton name typ
-typecheck globals env (Def.Module _ name definitions) = foldM
-  (\acc def -> do
-    types <- typecheck globals acc def
-    let acc' = Map.union types acc
-    pure acc'
-  )
-  env
-  definitions
+empty = Module
+  { name      = Ref.Module []
+  , types     = mempty
+  , constants = mempty
+  , order     = mempty
+  , imports   = Map.singleton (name native) native
+  }
 
-signature :: Def.Definition phase -> Either Error Signature
-signature def@(Def.Module _ name contents) = do
-  definitions <- typecheck types mempty def
-  let order = mapMaybe
-        (\case
-          Def.Constant _ name _ -> Just name
-          _                     -> Nothing
-        )
-        contents
-  pure $ Signature {name , order , definitions }
+typedefs :: Module -> Map Ref.Type Type
+typedefs modul =
+  let locals   = types modul
+      imported = foldMap typedefs $ elems $ imports modul
+  in  locals <> imported
 
-functions = Interpreter.builtins
+bindings :: Module -> Map Ref.Value Type
+bindings modul =
+  let locals   = map snd $ constants modul
+      imported = foldMap bindings $ elems $ imports modul
+  in  locals <> imported
 
-load
-  :: Map Syntax.Value Interpreter.Closure
-  -> Def.Definition phase
-  -> Map Syntax.Value Interpreter.Closure
-load env (Def.Constant _ name body) =
-  Map.insert name (Interpreter.Closure (meta (const ()) body) env) env
-load env (Def.Module _ _ definitions) = foldl' load env definitions
+values :: Module -> Map Ref.Value Interpreter.Closure
+values modul =
+  let locals   = map fst $ constants modul
+      imported = foldMap values $ elems $ imports modul
+  in  locals <> imported
+
+load :: (Type.MonadInfer s m) => Module -> Definition phase -> m Module
+load modul@Module { constants, order } (Def.Constant _ name body) = do
+  let ctx   = Ctx.initialize $ bindings modul
+      body' = meta (const ()) body
+  ((typ, _), _) <- Type.synthesize ctx body'
+  let closure    = Interpreter.Closure (meta (const ()) body') $ values modul
+      constants' = Map.insert name (closure, typ) constants
+      order'     = order |> name
+  pure $ modul { constants = constants', order = order' }
+load modul@Module { types } typedef@(Def.Type _ name _ _) = do
+  (typ, _) <- Type.fromDefinition (typedefs modul) typedef
+  let types' = Map.insert name typ types
+  pure $ modul { types = types' }
+load modul (Def.Module _ name definitions) = foldM load modul { name } definitions
 
 run :: Def.Definition phase -> Either Error Term
 run modul@Def.Module{} = do

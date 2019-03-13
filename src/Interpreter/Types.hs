@@ -1,4 +1,16 @@
-module Interpreter.Types where
+module Interpreter.Types
+  ( Evaluation
+  , Pattern
+  , Term
+  , C
+  , E
+  , K
+  , CEK
+  , Native(..)
+  , Closure(..)
+  , Continuation(..)
+  )
+where
 
 import qualified Builtins
 import           Classes
@@ -19,7 +31,7 @@ type Branch = Term.Branch Evaluation
 
 data Native = Native Builtins.Builtin [Atom.Atom] deriving (Show, Eq, Ord)
 
-data Closure = Closure Term E deriving (Show, Eq)
+data Closure = Closure C E deriving (Show, Eq)
 
 data Continuation
   = Done

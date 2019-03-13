@@ -55,11 +55,6 @@ add name action = do
   modify $ insertName name
   action
 
-adds :: (MonadRename m) => [Value] -> m a -> m a
-adds names action = do
-  traverse_ (modify . insertName) names
-  action
-
 check :: (MonadRename m) => Value -> m ()
 check name = do
   env <- get

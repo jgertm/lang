@@ -1,4 +1,10 @@
-module Type.Equation where
+module Type.Equation
+  ( incorporate
+  , equals
+  , true
+  , unify
+  )
+where
 
 import qualified Data.Set                      as Set
 

@@ -1,4 +1,7 @@
-module Type.Instantiation where
+module Type.Instantiation
+  ( to
+  )
+where
 
 import qualified Data.Set                      as Set
 

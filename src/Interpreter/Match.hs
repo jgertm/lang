@@ -6,7 +6,6 @@ where
 import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Map.Strict               as Map
 
-import           Classes
 import           Interpreter.Types
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Reference              as Reference
@@ -14,7 +13,7 @@ import qualified Syntax.Term                   as Term
 
 
 match :: Pattern -> Term -> Maybe (Map Reference.Value Term)
-match (Pattern.Wildcard _   ) term = Just mempty
+match (Pattern.Wildcard _   ) _    = Just mempty
 match (Pattern.Symbol _ name) term = Just $ Map.singleton name term
 match (Pattern.Vector _ patterns) (Term.Vector _ values) | length patterns == length values =
   concatMapM (uncurry match) $ zip patterns values

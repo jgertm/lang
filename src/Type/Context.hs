@@ -1,6 +1,25 @@
 {-# LANGUAGE DataKinds #-}
 
-module Type.Context where
+module Type.Context
+  ( universals
+  , existentials
+  , existentialSolutions
+  , freeExistentialVariables
+  , freeUniversalVariables
+  , initialize
+  , add
+  , adds
+  , drop
+  , lookup
+  , apply
+  , substitute
+  , split
+  , before
+  , inject
+  , splice
+  , isUnsolved
+  )
+where
 
 import qualified Data.Map.Strict               as Map
 import           Data.Sequence                  ( Seq(..)
@@ -16,9 +35,12 @@ import           Type.Monad
 import           Type.Types
 
 
+empty :: Context
+empty = Context mempty
+
 initialize :: Map Syntax.Value Type -> Context
-initialize bindings =
-  Context $ Seq.fromList $ map (\(n, t) -> Binding n t Principal) $ Map.toList bindings
+initialize initialBindings =
+  Context $ Seq.fromList $ map (\(n, t) -> Binding n t Principal) $ Map.toList initialBindings
 
 add :: Context -> Fact -> Context
 add (Context ctx) elt = Context $ ctx |> elt
@@ -28,8 +50,8 @@ adds (Context ctx) els = Context $ ctx <> Seq.fromList els
 
 split :: Context -> Fact -> (Context, Context)
 split (Context ctx) fact = case Seq.breakr (fact ==) ctx of
-  (post, pre :|> elt') -> (Context pre, Context post)
-  _                    -> error "Failed to split context"
+  (post, pre :|> _) -> (Context pre, Context post)
+  _                 -> error "Failed to split context"
 
 drop :: Context -> Fact -> Context
 drop ctx elt = let (pre, _) = split ctx elt in pre
@@ -41,13 +63,13 @@ splice :: (Foldable t) => Context -> t Fact -> Context -> Context
 splice (Context pre) els (Context post) = Context $ mconcat [pre, Seq.fromList $ toList els, post]
 
 before :: Context -> Variable 'Existential -> Variable 'Existential -> Bool
-before (Context ctx) pred succ =
+before (Context ctx) predecessor succecessor =
   let matchExvar exvar = \case
         DeclareExistential exvar' _  -> exvar == exvar'
         SolvedExistential exvar' _ _ -> exvar == exvar'
         _                            -> False
-      predIndex = Seq.findIndexL (matchExvar pred) ctx
-      succIndex = Seq.findIndexL (matchExvar succ) ctx
+      predIndex = Seq.findIndexL (matchExvar predecessor) ctx
+      succIndex = Seq.findIndexL (matchExvar succecessor) ctx
   in  predIndex < succIndex
 
 existentials :: Context -> Set (Variable 'Existential, Kind)

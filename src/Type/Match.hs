@@ -31,7 +31,7 @@ check gamma [] _ _ = pure gamma
 check gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
   Analysis.check gamma e (c, p)
 -- RULE: MatchUnit
-check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] ap@(primitive : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] (primitive : as, q) cp
   = do
     let typ = Synth.atom atom
     gamma' <- if primitive == typ
@@ -88,7 +88,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : _ }] (r
         (elems (map (`DeclareExistential` Type) newVMap) <> [SolvedExistential rowvar Type record'])
         post
     check ctx branches (record' : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] asp@(ExistentialVariable alpha : as, q) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : _ }] (ExistentialVariable alpha : as, _) cp
   = do
     vMap <- forM rhoMap $ const freshExistential
     let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
@@ -105,7 +105,7 @@ check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }
       a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
         $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
@@ -114,7 +114,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : _ }] (v
       ctx =
         Ctx.splice pre [DeclareExistential ak Type, SolvedExistential rowvar Type variant'] post
     check ctx branches (variant' : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (ExistentialVariable alpha : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
@@ -171,7 +171,7 @@ check gamma (pi@Term.Branch { patterns } : pi') ([a], p) cp = do
   let as = replicate (length patterns) a
   theta <- check gamma [pi] (as, p) cp
   check theta pi' (map (Ctx.apply theta) [a], p) cp
-check gamma pis@(pi : pi') (as, q) cp =
+check gamma pis (as, q) cp =
   foldM (\ctx pi -> check ctx [pi] (map (Ctx.apply ctx) as, q) cp) gamma pis
 
 incorporate
@@ -239,7 +239,7 @@ coversAssuming :: Context -> Proposition -> [Branch] -> ([Type], Principality) -
 -- coversAssuming gamma (Equals t1 t2) pis (as, Principal) =
 --   Equation.unify gamma (Ctx.apply gamma t1) (Ctx.apply gamma t2) -- FIXME: where to get kind k?
 -- TODO: CoversEqBot
-coversAssuming = undefined
+coversAssuming = error "[type.match] coversAssuming is not implemented"
 
 guarded :: [Branch] -> Bool
 guarded (Term.Branch { patterns } : pis) = case patterns of
@@ -304,8 +304,8 @@ expandVariant [] = mempty
 expandVariant (Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e } : pis) =
   let pisKs      = expandVariant pis
       subpattern = Term.Branch {patterns = rho : rhos, body = e}
-      prepend (Just pis) = Just $ subpattern : pis
-      prepend Nothing    = Just [subpattern]
+      prepend (Just patterns) = Just $ subpattern : patterns
+      prepend Nothing         = Just [subpattern]
   in  Map.alter prepend k pisKs
 expandVariant (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
@@ -326,7 +326,7 @@ expandAtom [] = []
 expandAtom (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho || isAtom rho
   = let pis' = expandAtom pis in Term.Branch {patterns = rhos, body = e} : pis'
-expandAtom branches = error "[type.match] can only expand variable, wildcard or atom pattern"
+expandAtom _ = error "[type.match] can only expand variable, wildcard or atom pattern"
 
 
 isSymbol, isWildcard, isAtom :: Pattern -> Bool

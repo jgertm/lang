@@ -13,7 +13,6 @@ extra-source-files:
 
 ghc-options:
   - -fhide-source-paths
-  - -freverse-errors
   - -O2
   - -Wall
   - -Wincomplete-uni-patterns
@@ -23,6 +22,7 @@ ghc-options:
   - -Wredundant-constraints
   - -Wmissing-export-lists
   - -Wpartial-fields
+  - -Wno-type-defaults
   - -fllvm
   # - -Werror
 
@@ -107,6 +107,7 @@ executables:
     dependencies:
       - lang
       - haskeline
+      - optparse-applicative
 
 tests:
   lang-tests:

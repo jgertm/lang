@@ -2,8 +2,6 @@
 
 module Type.Monad where
 
-import qualified Text.Show
-
 import           Error
 import           Type.Types
 

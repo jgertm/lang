@@ -1,7 +1,16 @@
-module Syntax.Reference where
+module Syntax.Reference
+  ( Value(..)
+  , Module(..)
+  , Keyword(..)
+  , Type(..)
+  , nest
+  , append
+  )
+where
 
 import qualified Data.Text                     as Text
 import           Data.Text.Prettyprint.Doc
+                                         hiding ( nest )
 
 
 data Value

@@ -1,15 +1,18 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Syntax.Type where
+module Syntax.Type
+  ( Type(..)
+  )
+where
 
 import           Classes
 import qualified Syntax.Reference              as Ref
 
 data Type phase
-  | Application (Context phase)
-                Syntax.Type
-                [Type phase]
   = Named (Context phase) Ref.Type
+  | Application (Context phase)
+                Ref.Type
+                [Type phase]
   | Tuple (Context phase)
           [Type phase]
   | Record (Context phase)
@@ -30,7 +33,7 @@ instance Tree Type phase where
   walkM f =
     \case
       Named ctx name -> pure $ Named ctx name
-      Application ctx hkt params -> Application ctx hkt <$> traverse down params
+      Application ctx operator params -> Application ctx operator <$> traverse down params
       Tuple ctx fields -> Tuple ctx <$> traverse down fields
       Record ctx fields -> Record ctx <$> (for fields $ \(name, typ) -> sequenceA (name, f typ))
       Variant ctx cases -> Variant ctx <$> (for cases $ \(tag, typ) -> sequenceA (tag, f typ))
@@ -42,10 +45,10 @@ instance Tree Type phase where
       Named ctx name -> do
         ctx' <- f ctx
         pure $ Named ctx' name
-      Application ctx hkt params -> do
+      Application ctx operator params -> do
         ctx' <- f ctx
         params' <- traverse (metaM f) params
-        pure $ Application ctx' hkt params'
+        pure $ Application ctx' operator params'
       Tuple ctx fields -> do
         ctx' <- f ctx
         fields' <- traverse (metaM f) fields

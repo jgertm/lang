@@ -1,6 +1,10 @@
 {-# LANGUAGE UndecidableInstances #-}
 
-module Syntax.Term where
+module Syntax.Term
+  ( Term(..)
+  , Branch(..)
+  )
+where
 
 import           Data.Bitraversable
 

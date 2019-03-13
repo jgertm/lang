@@ -1,4 +1,7 @@
-module Type.Wellformedness where
+module Type.Wellformedness
+  ( checkKind
+  )
+where
 
 import qualified Data.Map                      as Map
 import           Data.Sequence                  ( Seq(..) )
@@ -83,13 +86,12 @@ checkContext (Context (rest :|> Binding x a Nonprincipal)) =
   in  and
         [ checkContext gamma
         , checkType gamma a
-        , (not $ any
-            (\case
-              Binding x' _ _ -> x == x'
-              _              -> False
-            )
-            rest
+        , not $ any
+          (\case
+            Binding x' _ _ -> x == x'
+            _              -> False
           )
+          rest
         ]
 -- RULE: Hyp!Ctx
 checkContext (Context (rest :|> Binding x a Principal)) =
@@ -147,8 +149,10 @@ checkContext (Context (rest :|> SolvedExistential ev kind t)) =
         ]
 -- RULE: EqnVarCtx
 checkContext (Context (rest :|> SolvedUniversal uv tau)) =
-  let gamma          = Context rest
-      Just (_, kind) = find (\(uv', _) -> uv == uv') $ Ctx.universals gamma
+  let gamma = Context rest
+      kind  = case find (\(uv', _) -> uv == uv') $ Ctx.universals gamma of
+        Just ak -> snd ak
+        Nothing -> error "[type.wellformedness] couldn't find kind of solved universal variable"
   in  and
         [ checkContext gamma
         , not $ any
