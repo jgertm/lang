@@ -83,8 +83,8 @@ unify gamma (Function tau1 tau2) (Function tau1' tau2', Type)  = do
   theta <- unify gamma tau1 (tau1', Type)
   unify theta (Ctx.apply theta tau2) (Ctx.apply theta tau2', Type)
 -- RULE: ElimeqClash
-unify _ sigma (tau, _) | clash sigma tau = throwError UnificationError
+unify _ sigma (tau, _) | clash sigma tau = typeerror UnificationError
 -- RULE: ElimeqUvarLBot
 -- RULE: ElimeqUvarRBot
 -- RULE: ElimeqBinBot
-unify _ _ _                              = throwError UnificationError
+unify _ _ _                              = typeerror UnificationError

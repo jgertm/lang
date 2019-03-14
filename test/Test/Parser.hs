@@ -28,6 +28,8 @@ tree = testGroup
             [ test "compact name" "foobar" $ var "foobar"
             , test "qualified name" "foo/bar" $ varIn ["foo"] "bar"
             , test "deeply qualified name" "foo.bar/baz" $ varIn ["foo", "bar"] "baz"
+            , test "operator (plus)" "+" $ var "+"
+            , test "operator (times)" "*" $ var "*"
             ]
     , let test = tester Reference.moduleName
       in  testGroup
@@ -54,6 +56,9 @@ tree = testGroup
                       (lambda "x" (Term.Application noContext (sym "f") [sym "x"]))
             )
           ]
+        , testGroup
+          "Applications"
+          [test "one plus one" "(+ 1 1)" $ Term.Application noContext (sym "+") [int 1, int 1]]
         , testGroup
           "Tuples"
           [ test "single element" "{nil}" $ tuple [(1, unit)]

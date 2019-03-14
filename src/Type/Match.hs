@@ -37,7 +37,7 @@ check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] (p
     gamma' <- if primitive == typ
       then pure gamma
       else catchError (Instantiate.to gamma primitive (typ, Type))
-                      (const $ throwError $ TypeMismatch primitive typ)
+                      (const $ typeerror $ TypeMismatch primitive typ)
     check gamma' [Term.Branch {patterns = rhos, body = e}] (map (Ctx.apply gamma') as, q) cp
 -- RULE: Match∃
 check gamma branches (Exists alpha k a : as, q) cp =

@@ -3,7 +3,11 @@
 module Type.Expression
   ( substitute
   , fn
+  , unit
   , integer
+  , rational
+  , real
+  , string
   , boolean
   , natives
   , isVariable

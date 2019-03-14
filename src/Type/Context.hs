@@ -102,7 +102,7 @@ bindings gamma = Map.fromList
 lookup :: Syntax.Value -> Context -> Infer (Type, Principality)
 lookup binding gamma = do
   case Map.lookup binding $ bindings gamma of
-    Nothing     -> throwError $ UnknownBinding binding
+    Nothing     -> typeerror $ UnknownBinding binding
     Just result -> pure result
 
 apply :: Context -> Type -> Type

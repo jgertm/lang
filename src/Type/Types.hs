@@ -16,7 +16,9 @@ module Type.Types
   )
 where
 
+import qualified Data.Map.Strict               as Map
 import           Data.Text.Prettyprint.Doc
+import qualified Universum.Unsafe              as Unsafe
 
 import qualified Classes
 import qualified Syntax.Atom                   as Syntax
@@ -84,7 +86,7 @@ data Quantification
   | Universal
 
 newtype Variable (quantification :: Quantification) =
-  Var Text
+  Var Int
   deriving (Show, Eq, Ord, Generic)
 
 data Kind
@@ -119,32 +121,56 @@ data Type
   deriving (Show, Eq, Ord, Generic)
 
 instance Pretty Type where
-  pretty (Primitive prim) = pretty prim
-  pretty (Function a b) =
-    let args (Function a b) = a : args b
-        args t              = [t]
-        body = hsep $ "->" : map pretty (a : args b)
-    in parens body
-  pretty (Variant rowvar cases) =
-    let cases' = map (\(tag, typ) -> brackets $ pretty tag <+> pretty typ) $ toPairs cases
-        suffix = case rowvar of
-                   Closed -> mempty
-                   Open _ -> "..."
-    in  parens $ (hsep $ "|" : cases') <+> suffix
-  pretty (Tuple fields) = braces $ hsep $ map pretty $ elems fields
-  pretty (Record rowvar fields) =
-    let fields' = map (\(name, typ) -> pretty name <+> pretty typ) $ toPairs fields
-        suffix = case rowvar of
-                   Closed -> mempty
-                   Open _ -> "..."
-    in  braces $ (hsep fields') <+> suffix
-  pretty (UniversalVariable (Var var)) = pretty var
-  pretty (ExistentialVariable (Var var)) = pretty var
-  pretty (Forall (Var var) _ typ) =
-    parens $ hsep ["forall", pretty var <> ".", pretty typ]
-  pretty (Fix (Var var) typ) =
-    parens $ hsep ["fix", pretty var <> ".", pretty typ ]
-  pretty t = show t
+  pretty = evaluatingState initial . render
+    where initial = (greekAlphabet, mempty)
+          display :: (MonadState ([Text], Map Int Text) m) => Variable q -> m (Doc ann)
+          display (Var i) = do
+            (alphabet, knownVariables) <- get
+            case Map.lookup i knownVariables of
+              Just name -> pure $ pretty name
+              Nothing -> do
+                let varName = Unsafe.head alphabet
+                    knownVariables' = Map.insert i varName knownVariables
+                put (Unsafe.tail alphabet, knownVariables')
+                pure $ pretty varName
+          render :: (MonadState ([Text], Map Int Text) m) => Type -> m (Doc ann)
+          render (Primitive prim) = pure $ pretty prim
+          render (Function a b) = do
+            let args (Function inp out) = inp : args out
+                args t                  = [t]
+            arguments <- traverse render (a : args b)
+            let body = hsep $ "->" : arguments
+            pure $ parens body
+          render (Variant rowvar cases) = do
+            cases' <- for (toPairs cases) $ \(tag, typ) -> do
+              typ' <- render typ
+              pure $ brackets $ pretty tag <+> typ'
+            let cases'' = case rowvar of
+                           Closed -> cases'
+                           Open _ -> cases' <> ["..."]
+            pure $ parens $ hsep $ "|" : cases''
+          render (Tuple fields) = do
+            fields' <- traverse render $ elems fields
+            pure $ braces $ hsep fields'
+          render (Record rowvar fields) = do
+            fields' <- for (toPairs fields) $ \(name, typ) -> do
+              typ' <- render typ
+              pure $ pretty name <+> typ'
+            let fields'' = case rowvar of
+                             Closed -> fields'
+                             Open _ -> fields' <> ["..."]
+            pure $ braces $ hsep fields''
+          render (UniversalVariable var) = display var
+          render (ExistentialVariable var) = display var
+          render (Forall var _ typ) = do
+            var' <- display var
+            typ' <- render typ
+            pure $ parens $ hsep ["forall", var' <> ".", typ']
+          render (Fix var typ) = do
+            var' <- display var
+            typ' <- render typ
+            pure $ parens $ hsep ["fix", var' <> ".", typ']
+          render t = pure $ show t
 
 data Row = Closed | Open (Variable 'Existential) deriving (Generic, Show, Eq, Ord)
 
@@ -158,3 +184,31 @@ data Polarity
   | Negative
   | Neutral
   deriving (Show, Eq)
+
+greekAlphabet :: IsString s => [s]
+greekAlphabet =
+  [ "alpha"
+  , "beta"
+  , "gamma"
+  , "delta"
+  , "epsilon"
+  , "zeta"
+  , "eta"
+  , "theta"
+  , "iota"
+  , "kappa"
+  , "lambda"
+  , "mu"
+  , "nu"
+  , "xi"
+  , "omicron"
+  , "pi"
+  , "rho"
+  , "sigma"
+  , "tau"
+  , "upsilon"
+  , "phi"
+  , "chi"
+  , "psi"
+  , "omega"
+  ]

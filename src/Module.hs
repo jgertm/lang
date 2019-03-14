@@ -17,14 +17,21 @@ import           Classes                        ( Empty
                                                 )
 import           Error                          ( Error )
 import qualified Interpreter
+import           Interpreter.Types              ( Evaluation )
 import qualified Interpreter.Types             as Interpreter
+import qualified Syntax.Atom                   as Atom
+import           Syntax.Definition              ( Definition )
 import qualified Syntax.Definition             as Def
-import qualified Syntax.Reference              as Syntax
+import qualified Syntax.Reference              as Ref
+import           Syntax.Term                    ( Term )
 import qualified Syntax.Term                   as Term
+import           Type                           ( Type )
 import qualified Type
+import qualified Type.Context                  as Ctx
+import qualified Type.Expression               as Type
+import qualified Type.Monad                    as Type
 
 
-type Term = Term.Term Empty
 data Module = Module
   { name      :: Ref.Module
   , types     :: Map Ref.Type Type
@@ -102,8 +109,9 @@ load modul@Module { types } typedef@(Def.Type _ name _ _) = do
   pure $ modul { types = types' }
 load modul (Def.Module _ name definitions) = foldM load modul { name } definitions
 
-run :: Def.Definition phase -> Either Error Term
-run modul@Def.Module{} = do
-  Interpreter.Closure main env <-
-    liftMaybe (Module NoMainFunction) $ Map.lookup (Syntax.Local "main") $ load functions modul
-  meta (const ()) <$> Interpreter.evalWith (Map.union env functions) main
+run :: Module -> Either Error (Term Empty)
+run modul = do
+  let env = values modul
+      Interpreter.Closure main _ =
+        fromMaybe (error "[module] no main function found") $ Map.lookup (Ref.Local "main") env
+  meta (const ()) <$> Interpreter.evalWith env (Term.Application () main [Term.Atom () Atom.Unit])

@@ -57,6 +57,6 @@ to' gamma (ExistentialVariable alpha) (Succ t1, Natural) = do
 -- RULE: InstSolve
 to' gamma (ExistentialVariable alpha) (tau, k) = do
   let (gamma0, gamma1) = Ctx.split gamma (DeclareExistential alpha k)
-  unless (Wellformed.checkKind gamma0 tau k) $ throwError (InstantiationError "C")
+  unless (Wellformed.checkKind gamma0 tau k) $ typeerror (InstantiationError "C")
   pure $ Ctx.inject gamma0 (SolvedExistential alpha k tau) gamma1
-to' _ _ _ = throwError (RuleError "InstFallthrough")
+to' _ _ _ = typeerror (RuleError "InstFallthrough")

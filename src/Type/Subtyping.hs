@@ -70,7 +70,7 @@ subtype' gamma Negative a b |
                             |
   -- RULE: <:+-R
                               not (negative a) && positive b = subtype gamma Positive a b
-subtype' _ _ _ _ = throwError SubtypingError
+subtype' _ _ _ _ = typeerror SubtypingError
 
 equivalent, equivalent' :: Context -> Type -> Type -> Infer Context
 

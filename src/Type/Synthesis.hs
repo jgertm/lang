@@ -105,7 +105,7 @@ recoverSpine' gamma s ap@(_, p) = do
       == Principal
       || (not . Set.null $ Ctx.freeExistentialVariables delta c)
       )
-    $ throwError (RuleError "SpinePass")
+    $ typeerror (RuleError "SpinePass")
   pure ((c, q), delta)
 
 atom :: Atom -> Type

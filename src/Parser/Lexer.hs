@@ -14,9 +14,11 @@ module Parser.Lexer
 where
 
 import           Text.Parsec                    ( ParsecT
+                                                , char
                                                 , choice
                                                 , letter
                                                 , oneOf
+                                                , option
                                                 , try
                                                 )
 import           Text.Parsec.Token       hiding ( identifier
@@ -56,7 +58,10 @@ identifier :: Parser Text
 identifier = toText <$> P.identifier lexer
 
 integer :: Parser Integer
-integer = P.integer lexer
+integer = trimr $ do
+  sign      <- option 1 (char '-' $> -1)
+  magnitude <- P.natural lexer
+  pure $ sign * magnitude
 
 string :: Parser Text
 string = toText <$> P.stringLiteral lexer

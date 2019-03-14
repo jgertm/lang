@@ -51,7 +51,7 @@ expr = injectContext $ cases
   matchTerm = sexp $ do
     reserved "match"
     body     <- expr
-    branches <- many branch
+    branches <- many1 branch
     pure $ \ctx -> Match ctx body branches
    where
     branch = sexp $ do

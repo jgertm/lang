@@ -34,8 +34,8 @@ check' gamma term (ExistentialVariable alpha, Nonprincipal)
   | alpha `Map.member` Ctx.existentialSolutions gamma
   = case Map.lookup alpha (Ctx.existentialSolutions gamma) of
     Just (solution, Type) -> check gamma term (solution, Nonprincipal)
-    Just (_       , kind) -> throwError $ KindMismatch Type kind
-    Nothing               -> throwError $ UnsolvedExistential alpha
+    Just (_       , kind) -> typeerror $ KindMismatch Type kind
+    Nothing               -> typeerror $ UnsolvedExistential alpha
 -- TODO: equirecursive vs isorecursive
 check' gamma term (typ@(Fix alpha sub), p) = do
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
@@ -58,7 +58,7 @@ check' gamma (Term.Atom _ atom) (ExistentialVariable alpha, Nonprincipal)
 -- RULE: 1I (Atom introduction)
 check' gamma (Term.Atom _ atom) (typ, _) = do
   let typ' = Synth.atom atom
-  unless (typ == typ') $ throwError (TypeMismatch typ typ')
+  unless (typ == typ') $ typeerror (TypeMismatch typ typ')
   pure gamma
 -- RULE: Let [2013 paper]
 check' gamma (Term.Let _ bindings body) cp = do
@@ -77,13 +77,13 @@ check' gamma (Term.If _ test true false) ap = do
   foldM (\ctx branch -> check ctx branch ap) theta [true, false]
 -- RULE: ∀I (Forall introduction)
 check' gamma v (Forall alpha k a, p) = do
-  unless (checkedIntroduction v) $ throwError AnalysisError
+  unless (checkedIntroduction v) $ typeerror AnalysisError
   let declaration = DeclareUniversal alpha k
   gamma' <- check (Ctx.add gamma declaration) v (a, p)
   pure $ Ctx.drop gamma' declaration
 -- RULE: ∃I (Exists introduction)
 check' gamma e (Exists alpha k a, _) = do
-  unless (checkedIntroduction e) $ throwError AnalysisError
+  unless (checkedIntroduction e) $ typeerror AnalysisError
   alphaEx <- freshExistential
   let gamma' = Ctx.add gamma (DeclareExistential alphaEx k)
       a'     = substitute a (UniversalVariable alpha) (ExistentialVariable alphaEx)
@@ -91,7 +91,7 @@ check' gamma e (Exists alpha k a, _) = do
 -- RULE: ⊃I (Implies introduction)
 -- RULE: ⊃I⊥ (Implies introduction bottom)
 check' gamma v (Implies p a, Principal) = do
-  unless (checkedIntroduction v) $ throwError AnalysisError
+  unless (checkedIntroduction v) $ typeerror AnalysisError
   marker <- Marker <$> freshExistential
   catchError
     (do
@@ -107,7 +107,7 @@ check' gamma e (With a prop, p) = do
         Term.Match{} -> True
         _            -> False
       )
-    $ throwError AnalysisError
+    $ typeerror AnalysisError
   theta <- Equation.true gamma prop
   check theta e (Ctx.apply theta a, p)
 -- RULE: →I (Function introduction)
@@ -149,7 +149,7 @@ check' gamma (Term.Match _ e pi) (c, p) = do
       pi' = concatMap expand pi
   ((a, q), theta) <- synthesize gamma e
   delta           <- Match.check theta pi' ([Ctx.apply theta a], q) (Ctx.apply theta c, p)
-  unless (Match.covers delta pi' ([Ctx.apply delta a], q)) $ throwError InsufficientCoverage
+  unless (Match.covers delta pi' ([Ctx.apply delta a], q)) $ typeerror InsufficientCoverage
   pure delta
 -- RULE: +Iₖ (Sum injection introduction)
 check' gamma (Term.Variant _ k e) (Variant _ aMap, p) | p == Principal || k `Map.member` aMap = do
@@ -177,12 +177,12 @@ check' gamma term@(Term.Variant _ k _) (ExistentialVariable alpha, Nonprincipal)
     check ctx term (variant, Nonprincipal)
 -- RULE: ×I (Product introduction)
 check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
-  let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError
+  let missing = Map.traverseMissing $ \_ _ -> typeerror AnalysisError
       tuple   = Map.zipWithMatched $ \_ e a -> (e, a)
   eaList <- elems <$> Map.mergeA missing missing tuple eMap aMap
   foldM (\ctx (en, an) -> check ctx en (Ctx.apply ctx an, p)) gamma eaList
 check' gamma (Term.Record _ eMap) (Record _ aMap, p) = do
-  let missing = Map.traverseMissing $ \_ _ -> throwError AnalysisError
+  let missing = Map.traverseMissing $ \_ _ -> typeerror AnalysisError
       tuple   = Map.zipWithMatched $ \_ e a -> (e, a)
       recur ctx (en, an) = check ctx en (Ctx.apply ctx an, p)
   eaMap <- Map.mergeA missing missing tuple eMap aMap

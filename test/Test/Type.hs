@@ -24,7 +24,7 @@ tree, inference :: TestTree
 tree = testGroup "Types" [context, inference, patternExpansion]
 
 context =
-  let marker = Marker . Var . show
+  let marker = Marker . Var
   in  testGroup
         "Context"
         [ testCase "split"
@@ -58,26 +58,27 @@ inference
           "Values"
           [ testGroup
             "records"
-            [ test "constant" "{:foo nil :bar 1}" $ Record
-              (Open (Var "alpha"))
-              (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
+            [ test "constant" "{:foo nil :bar 1}"
+              $ Record
+                  (Open (Var 1))
+                  (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
             , test "if stmt" "(if true {:foo 1 :bar true} {:foo 2 :bar false})" $ Record
-              (Open (Var "alpha"))
+              (Open (Var 1))
               (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)])
             , test
               "match stmt (consuming)"
               "(match {:foo 1 :bar true} ({:foo 2} 1) ({:bar false} 2) ({:foo 1 :bar true} 3))"
               Type.integer
             , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
-              (Open (Var "alpha"))
+              (Open (Var 1))
               (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
             , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
-              (Open (Var "alpha"))
+              (Open (Var 1))
               (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
             , test "function (consuming)"
                    "(fn [x] (match x ({:foo 2} nil) ({:foo 1 :bar true} nil)))"
               $ Function
-                  (Record (Open (Var "beta")) $ Map.fromList
+                  (Record (Open (Var 2)) $ Map.fromList
                     [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)]
                   )
                   Type.unit
@@ -99,16 +100,16 @@ inference
           , testGroup
             "variants"
             [ test "constant" "[:foo 1]"
-              $ Variant (Open (Var "alpha")) (Map.singleton (Utils.kw "foo") Type.integer)
+              $ Variant (Open (Var 1)) (Map.singleton (Utils.kw "foo") Type.integer)
             , test "if stmt" "(if true [:foo 1] [:bar nil])" $ Variant
-              (Open (Var "alpha"))
+              (Open (Var 1))
               (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.unit)])
             , test "match stmt (consuming)"
                    "(match [:foo 1] ([:foo 2] true) ([:foo 1] false))"
                    Type.boolean
             , test "match stmt (producing)" "(match 2 (1 [:foo nil]) (2 [:bar true]) (n [:quux n]))"
               $ Variant
-                  (Open (Var "alpha"))
+                  (Open (Var 1))
                   (Map.fromList
                     [ (Utils.kw "foo" , Type.unit)
                     , (Utils.kw "bar" , Type.boolean)
@@ -118,7 +119,7 @@ inference
             , test "function (consuming)"   "(fn [x] (match x ([:foo nil] 1) ([:bar true] 2)))"
               $ Function
                   (Variant
-                    (Open (Var "beta"))
+                    (Open (Var 2))
                     (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.boolean)])
                   )
                   Type.integer
@@ -134,58 +135,61 @@ inference
         , testGroup
           "Higher order functions"
           [ test "identity function" "(fn [x] x)"
-            $ let var = Var "delta"
+            $ let var = Var 4
               in  Forall var Type (Function (UniversalVariable var) (UniversalVariable var))
           , test "constant function" "(fn [x] nil)"
-            $ let var = Var "delta" in Forall var Type (Function (UniversalVariable var) Type.unit)
+            $ let var = Var 4 in Forall var Type (Function (UniversalVariable var) Type.unit)
           , test "successor function" "(fn [n] (+ 1 n))" (Function Type.integer Type.integer)
-          , test "delayed arguent" "(fn [f] (f nil))"
-            $ let var = Var "zeta"
+          , test "delayed arguent"  "(fn [f] (f nil))"
+            $ let var = Var 6
               in  Forall
                     var
                     Type
                     (Function (Function Type.unit (UniversalVariable var)) (UniversalVariable var))
-          , test "apply function"  "(fn [f x] (fn [x] (f x)))"
+          , test "apply function"   "(fn [f x] (fn [x] (f x)))"
             $ let
-                mu     = Var "mu"
-                lambda = Var "lambda"
-                kappa  = Var "kappa"
+                alpha = Var 12
+                beta  = Var 11
+                gamma = Var 10
               in
                 Forall
-                  mu
+                  alpha
                   Type
                   (Forall
-                    lambda
+                    beta
                     Type
                     (Function
-                      (Function (UniversalVariable mu) (UniversalVariable lambda))
+                      (Function (UniversalVariable alpha) (UniversalVariable beta))
                       (Forall
-                        kappa
+                        gamma
                         Type
-                        (Function (UniversalVariable kappa)
-                                  (Function (UniversalVariable mu) (UniversalVariable lambda))
+                        (Function (UniversalVariable gamma)
+                                  (Function (UniversalVariable alpha) (UniversalVariable beta))
                         )
                       )
                     )
                   )
-          , test "compose function" "(fn [g f] (fn [x] (g (f x))))" $ Forall
-            (Var "xi")
-            Type
-            (Forall
-              (Var "nu")
-              Type
-              (Function
-                (Function (UniversalVariable (Var "xi")) (UniversalVariable (Var "nu")))
-                (Forall
-                  (Var "mu")
-                  Type
-                  (Function
-                    (Function (UniversalVariable (Var "mu")) (UniversalVariable (Var "xi")))
-                    (Function (UniversalVariable (Var "mu")) (UniversalVariable (Var "nu")))
-                  )
-                )
-              )
-            )
+          , test "compose function" "(fn [g f] (fn [x] (g (f x))))"
+            $ let alpha = Var 12
+                  beta  = Var 14
+                  gamma = Var 13
+              in  Forall
+                    beta
+                    Type
+                    (Forall
+                      gamma
+                      Type
+                      (Function
+                        (Function (UniversalVariable beta) (UniversalVariable gamma))
+                        (Forall
+                          alpha
+                          Type
+                          (Function (Function (UniversalVariable alpha) (UniversalVariable beta))
+                                    (Function (UniversalVariable alpha) (UniversalVariable gamma))
+                          )
+                        )
+                      )
+                    )
           , test "composed functions"
                  "((fn [g f] (fn [x] (g (f x)))) (fn [n] (+ 1 n)) (fn [m] (* 2 m)))"
                  (Function Type.integer Type.integer)
@@ -231,36 +235,40 @@ inference
 patternExpansion = testGroup
   "Pattern expansion"
   [ testGroup
-    "variants"
-    [ testCase "empty" $ Match.expandVariant [] @?= mempty
-    , testCase "single branch"
-    $   Match.expandVariant
-          [ Term.Branch
+      "variants"
+      [ testCase "empty" $ Match.expandVariant [] @?= mempty
+      , testCase "single branch"
+      $   Match.expandVariant
+            [ Term.Branch
+                { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
+                , body     = Term.Atom () Atom.Unit
+                }
+            ]
+      @?= Map.singleton
+            (Utils.kw "foo")
+            [Term.Branch {patterns = [Pattern.Atom () Atom.Unit], body = Term.Atom () Atom.Unit}]
+      , testCase "multiple branches"
+      $   Match.expandVariant
+            [ Term.Branch
               { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
               , body     = Term.Atom () Atom.Unit
               }
-          ]
-    @?= Map.singleton
-          (Utils.kw "foo")
-          [Term.Branch {patterns = [Pattern.Atom () Atom.Unit], body = Term.Atom () Atom.Unit}]
-    , testCase "multiple branches"
-    $   Match.expandVariant
-          [ Term.Branch
-            { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
-            , body     = Term.Atom () Atom.Unit
-            }
-          , Term.Branch
-            { patterns = [Pattern.Variant () (Utils.kw "bar") (Pattern.Wildcard ())]
-            , body     = Term.Atom () Atom.Unit
-            }
-          ]
-    @?= Map.fromList
-          [ ( Utils.kw "foo"
-            , [Term.Branch {patterns = [Pattern.Atom () Atom.Unit], body = Term.Atom () Atom.Unit}]
-            )
-          , ( Utils.kw "bar"
-            , [Term.Branch {patterns = [Pattern.Wildcard ()], body = Term.Atom () Atom.Unit}]
-            )
-          ]
-    ]
+            , Term.Branch
+              { patterns = [Pattern.Variant () (Utils.kw "bar") (Pattern.Wildcard ())]
+              , body     = Term.Atom () Atom.Unit
+              }
+            ]
+      @?= Map.fromList
+            [ ( Utils.kw "foo"
+              , [ Term.Branch
+                    { patterns = [Pattern.Atom () Atom.Unit]
+                    , body     = Term.Atom () Atom.Unit
+                    }
+                ]
+              )
+            , ( Utils.kw "bar"
+              , [Term.Branch {patterns = [Pattern.Wildcard ()], body = Term.Atom () Atom.Unit}]
+              )
+            ]
+      ]
   ]
