@@ -23,7 +23,7 @@ ghc-options:
   - -Wmissing-export-lists
   - -Wpartial-fields
   - -Wno-type-defaults
-  - -fllvm
+  # - -fllvm
   # - -Werror
 
 default-extensions:
@@ -92,6 +92,8 @@ dependencies:
 
 library:
   source-dirs:        src
+  other-modules:
+    - Dev
 
 executables:
   # langi:

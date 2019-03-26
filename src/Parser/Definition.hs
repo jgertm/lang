@@ -42,7 +42,7 @@ definition = injectContext
     body     <- many1 Term.expr
     pure $ \ctx ->
       let args' = case args of
-            [] -> [Local "run"]
+            [] -> [Local "_"]
             _  -> args
           body' = case body of
             [form] -> form

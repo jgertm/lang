@@ -29,6 +29,7 @@ data InterpretationError
   | Semantics
   | UnboundSymbol Syntax.Value
   | NoMatchingPattern
+  | Unknown
   deriving (Show, Eq)
 
 data ModuleError =

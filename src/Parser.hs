@@ -30,4 +30,3 @@ term = Term.expr
 
 typ :: Parser (Type Parsing)
 typ = Type.expr
-

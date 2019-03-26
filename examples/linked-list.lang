@@ -7,4 +7,12 @@
 (defn empty? [list]
   (match list
     ([:nil _] true)
-    (_ false)))
+    ([:cons _] false)))
+
+; (defn sum [list]
+  ; (match list
+    ; ([:nil _] 0)
+    ; ([:cons {n tl}] (+ n (sum tl)))))
+
+(defn main []
+  (empty? [:cons {2 [:nil nil]}]))

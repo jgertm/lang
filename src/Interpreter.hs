@@ -1,6 +1,7 @@
 module Interpreter
   ( eval
   , evalWith
+  , builtins
   )
 where
 

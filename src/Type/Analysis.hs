@@ -41,8 +41,8 @@ check' gamma term (typ@(Fix alpha sub), p) = do
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
       solution    = SolvedExistential alpha Type typ
       gamma'      = Ctx.inject pre solution post
-  gamma'' <- check gamma' term (sub, p)
-  pure $ Ctx.drop gamma' solution
+  -- gamma'' <- check gamma' term (sub, p) -- FIXME
+  pure $ gamma'
 -- RULE: Rec
 check' gamma (Term.Fix _ x v) ap@(a, p) = do
   let binding = Binding x a p

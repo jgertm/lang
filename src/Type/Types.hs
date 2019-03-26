@@ -4,6 +4,7 @@ module Type.Types
   , Context(..)
   , Kind(..)
   , Variable(..)
+  , VariableId(..)
   , Quantification(..)
   , Row(..)
   , Principality(..)
@@ -23,7 +24,7 @@ import qualified Universum.Unsafe              as Unsafe
 import qualified Classes
 import qualified Syntax.Atom                   as Syntax
 import qualified Syntax.Pattern                as Syntax
-import qualified Syntax.Reference              as Syntax
+import qualified Syntax.Reference              as Ref
 import qualified Syntax.Term                   as Syntax
 
 
@@ -41,7 +42,7 @@ data Fact
                      Kind
   | DeclareExistential (Variable 'Existential)
                        Kind
-  | Binding Syntax.Value
+  | Binding Ref.Value
             Type
             Principality
   | SolvedUniversal (Variable 'Universal)
@@ -81,13 +82,17 @@ data Principality
   | Nonprincipal
   deriving (Show, Eq, Ord, Generic)
 
+newtype Variable (quantification :: Quantification) =
+  Variable VariableId
+  deriving (Show, Eq, Ord, Generic)
+
 data Quantification
   = Existential
   | Universal
 
-newtype Variable (quantification :: Quantification) =
-  Var Int
-  deriving (Show, Eq, Ord, Generic)
+newtype VariableId =
+  VariableId Int
+  deriving (Show, Eq, Ord, Enum, Generic)
 
 data Kind
   = Type
@@ -97,9 +102,9 @@ data Kind
 data Type
   = Primitive Text
   | Function Type Type
-  | Variant Row (Map Syntax.Keyword Type)
+  | Variant Row (Map Ref.Keyword Type)
   | Tuple (Map Int Type)
-  | Record Row (Map Syntax.Keyword Type)
+  | Record Row (Map Ref.Keyword Type)
   | UniversalVariable (Variable 'Universal)
   | ExistentialVariable (Variable 'Existential)
   | Forall (Variable 'Universal)
@@ -123,17 +128,17 @@ data Type
 instance Pretty Type where
   pretty = evaluatingState initial . render
     where initial = (greekAlphabet, mempty)
-          display :: (MonadState ([Text], Map Int Text) m) => Variable q -> m (Doc ann)
-          display (Var i) = do
+          display :: (MonadState ([Text], Map VariableId Text) m) => Variable q -> m (Doc ann)
+          display (Variable varid) = do
             (alphabet, knownVariables) <- get
-            case Map.lookup i knownVariables of
+            case Map.lookup varid knownVariables of
               Just name -> pure $ pretty name
               Nothing -> do
                 let varName = Unsafe.head alphabet
-                    knownVariables' = Map.insert i varName knownVariables
+                    knownVariables' = Map.insert varid varName knownVariables
                 put (Unsafe.tail alphabet, knownVariables')
                 pure $ pretty varName
-          render :: (MonadState ([Text], Map Int Text) m) => Type -> m (Doc ann)
+          render :: (MonadState ([Text], Map VariableId Text) m) => Type -> m (Doc ann)
           render (Primitive prim) = pure $ pretty prim
           render (Function a b) = do
             let args (Function inp out) = inp : args out

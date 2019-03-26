@@ -12,6 +12,7 @@ import           Classes
 import qualified Error
 import qualified Interpreter
 import qualified Interpreter.Types             as Interpreter
+import qualified Module
 import qualified Parser
 import qualified Syntax.Atom                   as Atom
 import qualified Syntax.Definition             as Def
@@ -32,28 +33,18 @@ import           Type.Types                     ( Principality(..) )
 main :: IO ()
 main = do
   putStrLn ""
-  Right ast@(Def.Module _ _ (typedef : empty : nth)) <- file
-    <$> readFile "examples/linked-list.lang"
-  inspect typedef
-  -- pPrint nth
-  putStrLn ""
-  let Right nil   = parse "[:list/nil nil]"
-      Right cons  = parse "[:list/cons {2 [:list/nil nil]}]"
-      Right ccons = parse "[:list/cons {1 [:list/cons {2 [:list/nil nil]}]}]"
-  let result =
-        App.run
-          $ App.App
-          $ do
-              (list, ctx) <- Type.fromDefinition Type.natives typedef
-              -- inspect list
-              Analysis.check ctx ccons (list, Principal)
-  pPrint result
+  let path = "examples/linked-list.lang"
+  src <- readFile path
+  let Right modul = App.run $ Module.load path src
+  putStrLn . show . pretty $ modul
   pass
 
 
 
 eval :: Term.Term phase -> Interpreter.Term
 eval = fromRight undefined . Interpreter.eval
+
+infer = Type.infer
 
 parse :: Text -> Either Error.Error (Term Empty)
 parse = fmap (meta $ const ()) . Parser.parse Parser.term "<dev>"

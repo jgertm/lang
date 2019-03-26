@@ -7,6 +7,7 @@ import qualified Data.Map.Strict               as Map
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
+import           Application                   as App
 import           Error                          ( TypeError(..) )
 import qualified Error
 import qualified Syntax.Atom                   as Atom
@@ -24,7 +25,7 @@ tree, inference :: TestTree
 tree = testGroup "Types" [context, inference, patternExpansion]
 
 context =
-  let marker = Marker . Var
+  let marker = Marker . Utils.tvar
   in  testGroup
         "Context"
         [ testCase "split"
@@ -38,12 +39,14 @@ context =
 inference
   = let
       test :: TestName -> Text -> Type -> TestTree
-      test name source expectedType = testCase name $ case Type.infer $ Utils.parse source of
-        Left  err          -> assertFailure (show err)
-        Right inferredType -> inferredType @?= expectedType
+      test name source expectedType =
+        testCase name $ case App.run $ Type.infer $ Utils.parse source of
+          Left  err          -> assertFailure (show err)
+          Right inferredType -> inferredType @?= expectedType
       testError :: TestName -> Text -> TypeError -> TestTree
       testError name source expectedError =
-        testCase name $ Type.infer (Utils.parse source) @?= Left (Error.Type expectedError)
+        testCase name $ App.run (Type.infer $ Utils.parse source) @?= Left
+          (Error.Type expectedError)
     in
       testGroup
         "Inference"
@@ -58,27 +61,26 @@ inference
           "Values"
           [ testGroup
             "records"
-            [ test "constant" "{:foo nil :bar 1}"
-              $ Record
-                  (Open (Var 1))
-                  (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
+            [ test "constant" "{:foo nil :bar 1}" $ Record
+              (Open (Utils.tvar 1))
+              (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
             , test "if stmt" "(if true {:foo 1 :bar true} {:foo 2 :bar false})" $ Record
-              (Open (Var 1))
+              (Open (Utils.tvar 1))
               (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)])
             , test
               "match stmt (consuming)"
               "(match {:foo 1 :bar true} ({:foo 2} 1) ({:bar false} 2) ({:foo 1 :bar true} 3))"
               Type.integer
             , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
-              (Open (Var 1))
+              (Open (Utils.tvar 1))
               (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
             , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
-              (Open (Var 1))
+              (Open (Utils.tvar 1))
               (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
             , test "function (consuming)"
                    "(fn [x] (match x ({:foo 2} nil) ({:foo 1 :bar true} nil)))"
               $ Function
-                  (Record (Open (Var 2)) $ Map.fromList
+                  (Record (Open (Utils.tvar 2)) $ Map.fromList
                     [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)]
                   )
                   Type.unit
@@ -100,16 +102,16 @@ inference
           , testGroup
             "variants"
             [ test "constant" "[:foo 1]"
-              $ Variant (Open (Var 1)) (Map.singleton (Utils.kw "foo") Type.integer)
+              $ Variant (Open (Utils.tvar 1)) (Map.singleton (Utils.kw "foo") Type.integer)
             , test "if stmt" "(if true [:foo 1] [:bar nil])" $ Variant
-              (Open (Var 1))
+              (Open (Utils.tvar 1))
               (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.unit)])
             , test "match stmt (consuming)"
                    "(match [:foo 1] ([:foo 2] true) ([:foo 1] false))"
                    Type.boolean
             , test "match stmt (producing)" "(match 2 (1 [:foo nil]) (2 [:bar true]) (n [:quux n]))"
               $ Variant
-                  (Open (Var 1))
+                  (Open (Utils.tvar 1))
                   (Map.fromList
                     [ (Utils.kw "foo" , Type.unit)
                     , (Utils.kw "bar" , Type.boolean)
@@ -119,7 +121,7 @@ inference
             , test "function (consuming)"   "(fn [x] (match x ([:foo nil] 1) ([:bar true] 2)))"
               $ Function
                   (Variant
-                    (Open (Var 2))
+                    (Open (Utils.tvar 2))
                     (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.boolean)])
                   )
                   Type.integer
@@ -135,22 +137,23 @@ inference
         , testGroup
           "Higher order functions"
           [ test "identity function" "(fn [x] x)"
-            $ let var = Var 4
+            $ let var = Utils.tvar 4
               in  Forall var Type (Function (UniversalVariable var) (UniversalVariable var))
           , test "constant function" "(fn [x] nil)"
-            $ let var = Var 4 in Forall var Type (Function (UniversalVariable var) Type.unit)
+            $ let var = Utils.tvar 4
+              in  Forall var Type (Function (UniversalVariable var) Type.unit)
           , test "successor function" "(fn [n] (+ 1 n))" (Function Type.integer Type.integer)
           , test "delayed arguent"  "(fn [f] (f nil))"
-            $ let var = Var 6
+            $ let var = Utils.tvar 6
               in  Forall
                     var
                     Type
                     (Function (Function Type.unit (UniversalVariable var)) (UniversalVariable var))
           , test "apply function"   "(fn [f x] (fn [x] (f x)))"
             $ let
-                alpha = Var 12
-                beta  = Var 11
-                gamma = Var 10
+                alpha = Utils.tvar 12
+                beta  = Utils.tvar 11
+                gamma = Utils.tvar 10
               in
                 Forall
                   alpha
@@ -170,9 +173,9 @@ inference
                     )
                   )
           , test "compose function" "(fn [g f] (fn [x] (g (f x))))"
-            $ let alpha = Var 12
-                  beta  = Var 14
-                  gamma = Var 13
+            $ let alpha = Utils.tvar 12
+                  beta  = Utils.tvar 14
+                  gamma = Utils.tvar 13
               in  Forall
                     beta
                     Type

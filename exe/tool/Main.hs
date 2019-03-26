@@ -18,19 +18,16 @@ main = do
   case action options of
     Typecheck file -> do
       content <- readFile file
-      case App.run $ Module.load Module.empty =<< Parser.parse Parser.file file content of
+      case App.run $ Module.load file content of
         Right mod -> putTextLn $ show $ pretty mod
         Left  err -> do
           putStrLn "ERROR"
           print err
     Run file -> do
       content <- readFile file
-      let modul = App.run $ Module.load Module.native =<< Parser.parse Parser.file file content
-      guard $ isRight modul
-      case Module.run =<< modul of
-        Left  err                -> print err
-        Right (Term.Atom _ atom) -> putTextLn $ show $ pretty atom
-        Right term               -> print term
+      case App.run $ Module.run =<< Module.load file content of
+        Left  err  -> print err
+        Right atom -> putTextLn $ show $ pretty atom
     Repl _ -> undefined
 
 greet :: IO ()

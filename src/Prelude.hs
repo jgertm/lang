@@ -21,7 +21,9 @@ import           Control.Monad.Except          as X
                                                 , MonadError(..)
                                                 , liftEither
                                                 , runExcept
+                                                , runExceptT
                                                 , withExcept
+                                                , withExceptT
                                                 )
 import           Control.Monad.Writer          as X
                                                 ( MonadWriter

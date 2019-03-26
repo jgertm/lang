@@ -8,6 +8,7 @@ import qualified Renaming
 import qualified Syntax.Atom                   as Atom
 import qualified Syntax.Reference              as Reference
 import qualified Syntax.Term                   as Term
+import qualified Type.Types                    as Type
 
 
 data Test
@@ -54,3 +55,7 @@ tuple = Term.Tuple noContext . Map.fromList
 record = Term.Record noContext . Map.fromList
 variant tag body = Term.Variant noContext tag body
 vector = Term.Vector noContext
+
+
+tvar :: Int -> Type.Variable quantification
+tvar = Type.Variable . Type.VariableId

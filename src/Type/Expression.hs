@@ -16,6 +16,8 @@ module Type.Expression
   , isExistentiallyQuantified
   , isWith
   , fromDefinition
+  , findVariant
+  , findRecord
   )
 where
 
@@ -86,25 +88,40 @@ substitute expr match replacement
           Vector type1 type2    -> Vector (subst type1) (subst type2)
           _                     -> expr
 
-fromSyntaxWith :: Map Ref.Type Type -> Syntax.Type phase -> Type
-fromSyntaxWith bindings (Syntax.Named _ typ@(Ref.Type name)) =
-  fromMaybe (error $ "[type.expression] unknown named type: " <> name) $ Map.lookup typ bindings
-fromSyntaxWith bindings (Syntax.Tuple _ fields) =
-  Tuple (map (fromSyntaxWith bindings) $ Map.fromList $ zip [1 ..] fields)
-fromSyntaxWith bindings (Syntax.Record _ fields) =
-  Record Closed (map (fromSyntaxWith bindings) $ Map.fromList fields)
-fromSyntaxWith bindings (Syntax.Variant _ cases) =
-  Variant Closed (map (fromSyntaxWith bindings) $ Map.fromList cases)
-fromSyntaxWith bindings (Syntax.Function _ types) = fn $ map (fromSyntaxWith bindings) types
+fromSyntax :: Map Ref.Type Type -> Syntax.Type phase -> Type
+fromSyntax typedefs (Syntax.Named _ typ@(Ref.Type name)) =
+  fromMaybe (error $ "[type.expression] unknown named type: " <> name) $ Map.lookup typ typedefs
+fromSyntax typedefs (Syntax.Tuple _ fields) =
+  Tuple (map (fromSyntax typedefs) $ Map.fromList $ zip [1 ..] fields)
+fromSyntax typedefs (Syntax.Record _ fields) =
+  Record Closed (map (fromSyntax typedefs) $ Map.fromList fields)
+fromSyntax typedefs (Syntax.Variant _ cases) =
+  Variant Closed (map (fromSyntax typedefs) $ Map.fromList cases)
+fromSyntax typedefs (Syntax.Function _ types) = fn $ map (fromSyntax typedefs) types
 
-fromDefinition :: Map Ref.Type Type -> Def.Definition phase -> Infer (Type, Context)
-fromDefinition bindings (Def.Type _ name params body) = do
+fromDefinition :: Def.Definition phase -> Infer (Type, Context)
+fromDefinition (Def.Type _ name params body) = do
+  typedefs  <- ask
   nameVar   <- freshExistential
   paramVars <- traverse (const freshExistential) params
   let paramTypes  = Map.fromList $ zip params $ map ExistentialVariable paramVars
-      newBindings = Map.insert name (ExistentialVariable nameVar) $ Map.union paramTypes bindings
-      typ         = Fix nameVar $ fromSyntaxWith (Map.union newBindings bindings) body
+      newTypedefs = Map.insert name (ExistentialVariable nameVar) $ Map.union paramTypes typedefs
+      typ         = Fix nameVar $ fromSyntax (Map.union newTypedefs typedefs) body
       ctx         = Context $ Seq.fromList $ map (`DeclareExistential` Type) (nameVar : paramVars)
   pure (typ, ctx)
-fromDefinition _ _ =
+fromDefinition _ =
   error "[type.expression] only type definitions can be converted to type expressions"
+
+findVariant :: Ref.Keyword -> Map Ref.Type Type -> Maybe Type
+findVariant tag =
+  let match (Variant Closed tags) = tag `Map.member` tags
+      match (Fix     _      body) = match body
+      match _                     = False
+  in  find match
+
+findRecord :: Set Ref.Keyword -> Map Ref.Type Type -> Maybe Type
+findRecord fields =
+  let match (Record Closed fieldMap) = fields == Map.keysSet fieldMap
+      match (Fix    _      body    ) = match body
+      match _                        = False
+  in  find match
