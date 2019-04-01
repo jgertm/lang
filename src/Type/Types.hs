@@ -7,6 +7,7 @@ module Type.Types
   , VariableId(..)
   , Quantification(..)
   , Row(..)
+  , compareExtent
   , Principality(..)
   , Proposition(..)
   , Polarity(..)
@@ -23,6 +24,7 @@ import qualified Universum.Unsafe              as Unsafe
 
 import qualified Classes
 import qualified Syntax.Atom                   as Syntax
+import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Syntax
 import qualified Syntax.Reference              as Ref
 import qualified Syntax.Term                   as Syntax
@@ -178,6 +180,12 @@ instance Pretty Type where
           render t = pure $ show t
 
 data Row = Closed | Open (Variable 'Existential) deriving (Generic, Show, Eq, Ord)
+
+
+compareExtent :: Syntax.Extent -> Row -> Bool
+compareExtent Syntax.Closed Closed   = True
+compareExtent Syntax.Open   (Open _) = True
+compareExtent _             _        = False
 
 data Proposition =
   Equals Type

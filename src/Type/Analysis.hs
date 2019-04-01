@@ -13,6 +13,7 @@ import qualified Data.Set                      as Set
 import           Data.Text.Prettyprint.Doc
 
 import           Error                          ( TypeError(..) )
+import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Term                   as Term
 import qualified Type.Context                  as Ctx
 import qualified Type.Equation                 as Equation
@@ -152,22 +153,24 @@ check' gamma (Term.Match _ e pi) (c, p) = do
   unless (Match.covers delta pi' ([Ctx.apply delta a], q)) $ typeerror InsufficientCoverage
   pure delta
 -- RULE: +Iₖ (Sum injection introduction)
-check' gamma (Term.Variant _ k e) (Variant _ aMap, p) | p == Principal || k `Map.member` aMap = do
-  let ak =
-        fromMaybe (error $ show $ "[type.analysis] couldn't find tag: " <> pretty k)
-          $ Map.lookup k aMap
-  check gamma e (ak, p)
+check' gamma (Term.Variant _ extent k e) (Variant row aMap, p)
+  | compareExtent extent row && (p == Principal || k `Map.member` aMap) = do
+    let ak =
+          fromMaybe (error $ show $ "[type.analysis] couldn't find tag: " <> pretty k)
+            $ Map.lookup k aMap
+    check gamma e (ak, p)
 -- RULE: +Iâₖ (Sum injection introduction existential)
-check' gamma (Term.Variant _ k e) (variant@(Variant (Open rowvar) aMap), Nonprincipal) = do
-  alpha <- freshExistential
-  let
-    (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type variant)
-    ak          = ExistentialVariable alpha
-    variant'    = Variant (Open rowvar) $ Map.insert k ak aMap
-    ctx =
-      Ctx.splice pre [DeclareExistential alpha Type, SolvedExistential rowvar Type variant'] post
-  check ctx e (ak, Nonprincipal)
-check' gamma term@(Term.Variant _ k _) (ExistentialVariable alpha, Nonprincipal)
+check' gamma (Term.Variant _ Syntax.Open k e) (variant@(Variant (Open rowvar) aMap), Nonprincipal)
+  = do
+    alpha <- freshExistential
+    let
+      (pre, post) = Ctx.split gamma (SolvedExistential rowvar Type variant)
+      ak          = ExistentialVariable alpha
+      variant'    = Variant (Open rowvar) $ Map.insert k ak aMap
+      ctx =
+        Ctx.splice pre [DeclareExistential alpha Type, SolvedExistential rowvar Type variant'] post
+    check ctx e (ak, Nonprincipal)
+check' gamma term@(Term.Variant _ Syntax.Open k _) (ExistentialVariable alpha, Nonprincipal)
   | alpha `Map.notMember` Ctx.existentialSolutions gamma = do
     ak <- freshExistential
     let
@@ -175,13 +178,21 @@ check' gamma term@(Term.Variant _ k _) (ExistentialVariable alpha, Nonprincipal)
       variant = Variant (Open alpha) $ Map.singleton k (ExistentialVariable ak)
       ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
     check ctx term (variant, Nonprincipal)
+check' gamma term@(Term.Variant _ Syntax.Closed k _) (ExistentialVariable alpha, Nonprincipal)
+  | alpha `Map.notMember` Ctx.existentialSolutions gamma = do
+    typedefs <- ask
+    let variant =
+          fromMaybe (error "[type.analysis] couldn't find defined variant type for tag")
+            $ findVariant k typedefs
+        gamma' = gamma
+    check gamma' term (variant, Principal)
 -- RULE: ×I (Product introduction)
 check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> typeerror AnalysisError
       tuple   = Map.zipWithMatched $ \_ e a -> (e, a)
   eaList <- elems <$> Map.mergeA missing missing tuple eMap aMap
   foldM (\ctx (en, an) -> check ctx en (Ctx.apply ctx an, p)) gamma eaList
-check' gamma (Term.Record _ eMap) (Record _ aMap, p) = do
+check' gamma (Term.Record _ Syntax.Closed eMap) (Record Closed aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> typeerror AnalysisError
       tuple   = Map.zipWithMatched $ \_ e a -> (e, a)
       recur ctx (en, an) = check ctx en (Ctx.apply ctx an, p)
@@ -197,11 +208,14 @@ check' gamma term@(Term.Tuple _ eMap) (ExistentialVariable alpha, Nonprincipal) 
         (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type tuple])
         post
   check ctx term (tuple, Nonprincipal)
-check' gamma term@(Term.Record _ eMap) (ExistentialVariable alpha, Nonprincipal) = do
+check' gamma term@(Term.Record _ extent eMap) (ExistentialVariable alpha, Nonprincipal) = do
   vMap <- forM eMap $ const freshExistential
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-      record      = Record (Open alpha) $ map ExistentialVariable vMap
-      ctx         = Ctx.splice
+      row         = case extent of
+        Syntax.Open   -> Open alpha
+        Syntax.Closed -> Closed
+      record = Record row $ map ExistentialVariable vMap
+      ctx    = Ctx.splice
         pre
         (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type record])
         post

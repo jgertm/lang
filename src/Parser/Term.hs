@@ -79,14 +79,14 @@ expr = injectContext $ cases
   tupleTerm = tuple $ do
     fields <- Map.fromList . zip [1 ..] <$> many1 expr
     pure $ \ctx -> Tuple ctx fields
-  recordTerm = record $ do
+  recordTerm = withExtent $ record $ do
     rows <- Map.fromList <$> many row
-    pure $ \ctx -> Record ctx rows
+    pure $ \extent ctx -> Record ctx extent rows
     where row = (,) <$> keyword <*> expr
-  variantTerm = variant $ do
+  variantTerm = withExtent $ variant $ do
     tag  <- keyword
     body <- expr
-    pure $ \ctx -> Variant ctx tag body
+    pure $ \extent ctx -> Variant ctx extent tag body
   vectorTerm = vector $ do
     elements <- many expr
     pure $ \ctx -> Vector ctx elements

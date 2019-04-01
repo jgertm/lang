@@ -11,6 +11,7 @@ import           Application                   as App
 import           Error                          ( TypeError(..) )
 import qualified Error
 import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Term                   as Term
 import qualified Test.Utils                    as Utils
@@ -60,27 +61,31 @@ inference
         , testGroup
           "Values"
           [ testGroup
-            "records"
-            [ test "constant" "{:foo nil :bar 1}" $ Record
-              (Open (Utils.tvar 1))
-              (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
-            , test "if stmt" "(if true {:foo 1 :bar true} {:foo 2 :bar false})" $ Record
-              (Open (Utils.tvar 1))
-              (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)])
+            "records (closed)"
+            [ test "constant" "{:foo nil :bar 1}"
+              $ Record
+                  Closed
+                  (Map.fromList [(Utils.kw "foo", Type.unit), (Utils.kw "bar", Type.integer)])
+            , test "if stmt" "(if true {:foo 1 :bar true} {:foo 2 :bar false})"
+              $ Record
+                  Closed
+                  (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)])
             , test
               "match stmt (consuming)"
               "(match {:foo 1 :bar true} ({:foo 2} 1) ({:bar false} 2) ({:foo 1 :bar true} 3))"
               Type.integer
-            , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
-              (Open (Utils.tvar 1))
-              (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
-            , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))" $ Record
-              (Open (Utils.tvar 1))
-              (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
+            , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))"
+              $ Record
+                  Closed
+                  (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
+            , test "match stmt (producing)" "(match nil (nil {:foo true :bar 2}))"
+              $ Record
+                  Closed
+                  (Map.fromList [(Utils.kw "foo", Type.boolean), (Utils.kw "bar", Type.integer)])
             , test "function (consuming)"
-                   "(fn [x] (match x ({:foo 2} nil) ({:foo 1 :bar true} nil)))"
+                   "(fn [x] (match x ({:foo 2 :bar _} nil) ({:foo 1 :bar true} nil)))" -- FIXME: smaller pattern first
               $ Function
-                  (Record (Open (Utils.tvar 2)) $ Map.fromList
+                  (Record Closed $ Map.fromList
                     [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.boolean)]
                   )
                   Type.unit
@@ -100,16 +105,17 @@ inference
               $ Function (Tuple $ Map.fromList [(1, Type.boolean), (2, Type.integer)]) Type.unit
             ]
           , testGroup
-            "variants"
-            [ test "constant" "[:foo 1]"
+            "variants (open)"
+            [ test "constant" "#+[:foo 1]"
               $ Variant (Open (Utils.tvar 1)) (Map.singleton (Utils.kw "foo") Type.integer)
-            , test "if stmt" "(if true [:foo 1] [:bar nil])" $ Variant
+            , test "if stmt" "(if true #+[:foo 1] #+[:bar nil])" $ Variant
               (Open (Utils.tvar 1))
               (Map.fromList [(Utils.kw "foo", Type.integer), (Utils.kw "bar", Type.unit)])
             , test "match stmt (consuming)"
-                   "(match [:foo 1] ([:foo 2] true) ([:foo 1] false))"
+                   "(match #+[:foo 1] (#+[:foo 2] true) (#+[:foo 1] false))"
                    Type.boolean
-            , test "match stmt (producing)" "(match 2 (1 [:foo nil]) (2 [:bar true]) (n [:quux n]))"
+            , test "match stmt (producing)"
+                   "(match 2 (1 #+[:foo nil]) (2 #+[:bar true]) (n #+[:quux n]))"
               $ Variant
                   (Open (Utils.tvar 1))
                   (Map.fromList
@@ -118,7 +124,7 @@ inference
                     , (Utils.kw "quux", Type.integer)
                     ]
                   )
-            , test "function (consuming)"   "(fn [x] (match x ([:foo nil] 1) ([:bar true] 2)))"
+            , test "function (consuming)" "(fn [x] (match x (#+[:foo nil] 1) (#+[:bar true] 2)))"
               $ Function
                   (Variant
                     (Open (Utils.tvar 2))
@@ -243,7 +249,11 @@ patternExpansion = testGroup
       , testCase "single branch"
       $   Match.expandVariant
             [ Term.Branch
-                { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
+                { patterns = [ Pattern.Variant ()
+                                               Syntax.Closed
+                                               (Utils.kw "foo")
+                                               (Pattern.Atom () Atom.Unit)
+                             ]
                 , body     = Term.Atom () Atom.Unit
                 }
             ]
@@ -253,11 +263,15 @@ patternExpansion = testGroup
       , testCase "multiple branches"
       $   Match.expandVariant
             [ Term.Branch
-              { patterns = [Pattern.Variant () (Utils.kw "foo") (Pattern.Atom () Atom.Unit)]
+              { patterns = [ Pattern.Variant ()
+                                             Syntax.Closed
+                                             (Utils.kw "foo")
+                                             (Pattern.Atom () Atom.Unit)
+                           ]
               , body     = Term.Atom () Atom.Unit
               }
             , Term.Branch
-              { patterns = [Pattern.Variant () (Utils.kw "bar") (Pattern.Wildcard ())]
+              { patterns = [Pattern.Variant () Syntax.Closed (Utils.kw "bar") (Pattern.Wildcard ())]
               , body     = Term.Atom () Atom.Unit
               }
             ]

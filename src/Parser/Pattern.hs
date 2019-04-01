@@ -34,14 +34,14 @@ expr = injectContext $ cases
   tuplePattern = tuple $ do
     subpatterns <- Map.fromList . zip [1 ..] <$> many1 expr
     pure $ \ctx -> Tuple ctx subpatterns
-  recordPattern = record $ do
+  recordPattern = withExtent $ record $ do
     subpatterns <- Map.fromList <$> many row
-    pure $ \ctx -> Record ctx subpatterns
+    pure $ \extent ctx -> Record ctx extent subpatterns
     where row = (,) <$> keyword <*> expr
-  variantPattern = variant $ do
+  variantPattern = withExtent $ variant $ do
     tag        <- keyword
     subpattern <- expr
-    pure $ \ctx -> Variant ctx tag subpattern
+    pure $ \extent ctx -> Variant ctx extent tag subpattern
   atomPattern = do
     atm <- Atom.expr
     pure $ \ctx -> Atom ctx atm

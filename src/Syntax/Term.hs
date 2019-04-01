@@ -10,6 +10,7 @@ import           Data.Bitraversable
 
 import           Classes
 import           Syntax.Atom                    ( Atom )
+import           Syntax.Common
 import           Syntax.Pattern                 ( Pattern )
 import           Syntax.Reference               ( Keyword
                                                 , Value
@@ -41,8 +42,10 @@ data Term phase
   | Tuple (Context phase)
           (Map Int (Term phase))
   | Record (Context phase)
+           Extent
            (Map Keyword (Term phase))
   | Variant (Context phase)
+            Extent
             Keyword
             (Term phase)
   | Vector (Context phase)
@@ -84,8 +87,8 @@ instance Tree Term phase where
             Application ctx fn args ->
               Application ctx <$> down fn <*> traverse down args
             Tuple ctx fields -> Tuple ctx <$> traverse down fields
-            Record ctx rows -> Record ctx <$> traverse down rows
-            Variant ctx tag value -> Variant ctx tag <$> down value
+            Record ctx extent rows -> Record ctx extent <$> traverse down rows
+            Variant ctx extent tag value -> Variant ctx extent tag <$> down value
             Vector ctx els -> Vector ctx <$> traverse down els
             Symbol ctx name -> pure $ Symbol ctx name
             Atom ctx atom -> pure $ Atom ctx atom
@@ -131,14 +134,14 @@ instance Tree Term phase where
         ctx' <- f ctx
         fields' <- traverse (metaM f) fields
         pure $ Tuple ctx' fields'
-      Record ctx rows -> do
+      Record ctx extent rows -> do
         ctx' <- f ctx
         rows' <- traverse (metaM f) rows
-        pure $ Record ctx' rows'
-      Variant ctx tag value -> do
+        pure $ Record ctx' extent rows'
+      Variant ctx extent tag value -> do
         ctx' <- f ctx
         value' <- metaM f value
-        pure $ Variant ctx' tag value'
+        pure $ Variant ctx' extent tag value'
       Vector ctx els -> do
         ctx' <- f ctx
         els' <- traverse (metaM f) els

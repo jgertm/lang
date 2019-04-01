@@ -11,6 +11,7 @@ import qualified Data.Set                      as Set
 import           Data.Text.Prettyprint.Doc
 
 import           Error                          ( TypeError(..) )
+import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Reference              as Syntax
 import qualified Syntax.Term                   as Term
@@ -30,6 +31,12 @@ check gamma [] _ _ = pure gamma
 -- RULE: MatchBase
 check gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
   Analysis.check gamma e (c, p)
+-- RULE: MatchFixT
+check gamma term (typ@(Fix alpha sub) : as, p) cp =
+  let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+      solution    = SolvedExistential alpha Type typ
+      gamma'      = Ctx.inject pre solution post
+  in  check gamma' term (sub : as, p) cp
 -- RULE: MatchUnit
 check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] (primitive : as, q) cp
   = do
@@ -67,7 +74,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Tuple _ rhoMap : _ }] (Ex
           (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type tuple])
           post
     check ctx branches (tuple : as, Nonprincipal) cp
-check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }] (Record _ aMap : as, q) cp
+check gamma [Term.Branch { patterns = Pattern.Record _ Syntax.Closed rhoMap : rhos, body = e }] (Record Closed aMap : as, q) cp
   | Map.keysSet rhoMap `Set.isSubsetOf` Map.keysSet aMap
   = let rowAs          = Map.restrictKeys aMap (Map.keysSet rhoMap)
         recordPatterns = elems rhoMap
@@ -76,7 +83,7 @@ check gamma [Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e }
               [Term.Branch {patterns = recordPatterns <> rhos, body = e}]
               (recordTypes <> as, q)
               cp
-check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : _ }] (record@(Record (Open rowvar) aMap) : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Record _ Syntax.Open rhoMap : _ }] (record@(Record (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
     newVMap <- forM (Map.difference rhoMap aMap) $ const freshExistential
     let
@@ -88,24 +95,27 @@ check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : _ }] (r
         (elems (map (`DeclareExistential` Type) newVMap) <> [SolvedExistential rowvar Type record'])
         post
     check ctx branches (record' : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Record _ rhoMap : _ }] (ExistentialVariable alpha : as, _) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Record _ extent rhoMap : _ }] (ExistentialVariable alpha : as, _) cp
   = do
     vMap <- forM rhoMap $ const freshExistential
     let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-        record      = Record (Open alpha) $ map ExistentialVariable vMap
-        ctx         = Ctx.splice
+        row         = case extent of
+          Syntax.Open   -> Open alpha
+          Syntax.Closed -> Closed
+        record = Record row $ map ExistentialVariable vMap
+        ctx    = Ctx.splice
           pre
           (elems (map (`DeclareExistential` Type) vMap) <> [SolvedExistential alpha Type record])
           post
     check ctx branches (record : as, Nonprincipal) cp
 -- RULE: Match+ₖ
-check gamma [Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e }] (Variant _ aMap : as, q) cp
-  | q == Principal || k `Map.member` aMap
+check gamma [Term.Branch { patterns = Pattern.Variant _ extent k rho : rhos, body = e }] (Variant row aMap : as, q) cp
+  | compareExtent extent row && (q == Principal || k `Map.member` aMap)
   = let
       a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
         $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
@@ -114,7 +124,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k _ : _ }] (var
       ctx =
         Ctx.splice pre [DeclareExistential ak Type, SolvedExistential rowvar Type variant'] post
     check ctx branches (variant' : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
@@ -122,6 +132,20 @@ check gamma branches@[Term.Branch { patterns = Pattern.Variant _ k _ : _ }] (Exi
       variant = Variant (Open alpha) $ Map.singleton k (ExistentialVariable ak)
       ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
     check ctx branches (variant : as, Nonprincipal) cp
+check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Closed k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
+  = do
+    typedefs <- ask
+    let variant =
+          fromMaybe (error "[type.analysis] couldn't find defined variant type for tag")
+            $ findVariant k typedefs
+        exvars      = toList $ Ctx.freeExistentialVariables gamma variant
+        (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+        ctx         = Ctx.splice
+          pre
+          (map (`DeclareExistential` Type) exvars <> [SolvedExistential alpha Type variant])
+          post
+    check ctx branches (variant : as, Principal) cp
+
 -- RULE: MatchNeg
 check gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
   | not $ isWith a || isExistentiallyQuantified a = do
@@ -201,6 +225,12 @@ covers = covers'
 
 -- RULE: CoversEmpty
 covers' _ (Term.Branch { patterns = [] } : _) ([], _) = True
+-- RULE: CoversFixT
+covers' gamma branches (typ@(Fix alpha sub) : as, p) =
+  let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+      solution    = SolvedExistential alpha Type typ
+      gamma'      = Ctx.inject pre solution post
+  in  covers gamma' branches (sub : as, p)
 -- RULE: Covers1 (Atom)
 covers' gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers gamma pis' (as, q)
 -- RULE: Covers× (Tuple/Record)
@@ -284,7 +314,7 @@ expandRecord = fst . expandRecord'
  where
   expandRecord' :: [Branch] -> ([Branch], Map Syntax.Keyword Pattern)
   expandRecord' [] = (mempty, mempty)
-  expandRecord' (Term.Branch { patterns = Pattern.Record _ rhoMap : rhos, body = e } : pis) =
+  expandRecord' (Term.Branch { patterns = Pattern.Record _ _ rhoMap : rhos, body = e } : pis) =
     let (pis', wildcards) = expandRecord' pis
         wildcards'        = Map.union (map (const $ Pattern.Wildcard ()) rhoMap) wildcards
     in  ( Term.Branch {patterns = elems (Map.union rhoMap wildcards') <> rhos, body = e} : pis'
@@ -301,7 +331,7 @@ expandRecord = fst . expandRecord'
 
 expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty
-expandVariant (Term.Branch { patterns = Pattern.Variant _ k rho : rhos, body = e } : pis) =
+expandVariant (Term.Branch { patterns = Pattern.Variant _ _ k rho : rhos, body = e } : pis) =
   let pisKs      = expandVariant pis
       subpattern = Term.Branch {patterns = rho : rhos, body = e}
       prepend (Just patterns) = Just $ subpattern : patterns

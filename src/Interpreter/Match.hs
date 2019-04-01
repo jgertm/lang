@@ -23,13 +23,15 @@ match (Pattern.Tuple _ patternMap) (Term.Tuple _ valueMap) = do
       matched        = Map.zipWithAMatched $ \_ pattrn value -> match pattrn value
   resultMap <- Map.mergeA missingValue missingPattern matched patternMap valueMap
   pure $ fold resultMap
-match (Pattern.Record _ patternMap) (Term.Record _ valueMap) = do
-  let missingValue   = Map.traverseMissing $ \_ _ -> Nothing
-      missingPattern = Map.dropMissing
-      matched        = Map.zipWithAMatched $ \_ pattrn value -> match pattrn value
-  resultMap <- Map.mergeA missingValue missingPattern matched patternMap valueMap
-  pure $ fold resultMap
-match (Pattern.Variant _ patternTag patternBody) (Term.Variant _ termTag termBody)
-  | patternTag == termTag = match patternBody termBody
+match (Pattern.Record _ patternExtent patternMap) (Term.Record _ termExtent valueMap)
+  | patternExtent == termExtent = do
+    let missingValue   = Map.traverseMissing $ \_ _ -> Nothing
+        missingPattern = Map.dropMissing
+        matched        = Map.zipWithAMatched $ \_ pattrn value -> match pattrn value
+    resultMap <- Map.mergeA missingValue missingPattern matched patternMap valueMap
+    pure $ fold resultMap
+match (Pattern.Variant _ patternExtent patternTag patternBody) (Term.Variant _ termExtent termTag termBody)
+  | patternTag == termTag && patternExtent == termExtent
+  = match patternBody termBody
 match (Pattern.Atom _ patternAtom) (Term.Atom _ valueAtom) | patternAtom == valueAtom = Just mempty
 match _ _ = Nothing

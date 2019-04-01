@@ -35,8 +35,13 @@ main = do
   putStrLn ""
   let path = "examples/linked-list.lang"
   src <- readFile path
-  let Right modul = App.run $ Module.load path src
-  putStrLn . show . pretty $ modul
+  let Right (modul, result) = App.run $ do
+        modul <- Module.load path src
+        inspect $ Module.typedefs modul
+        result <- Module.run modul
+        pure (modul, result)
+  print . pretty $ modul
+  print . pretty $ result
   pass
 
 

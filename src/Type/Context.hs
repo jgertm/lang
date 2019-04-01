@@ -38,9 +38,20 @@ import           Type.Types
 empty :: Context
 empty = Context mempty
 
-initialize :: Map Syntax.Value Type -> Context
-initialize initialBindings =
-  Context $ Seq.fromList $ map (\(n, t) -> Binding n t Principal) $ Map.toList initialBindings
+initialize :: Map Syntax.Type Type -> Map Syntax.Value Type -> Context
+initialize initialTypedefs initialBindings =
+  let
+    typedefs =
+      concatMap
+          (\(n, t) ->
+            map (\exvar -> DeclareExistential exvar Type) $ Set.toList $ freeExistentialVariables
+              empty
+              t
+          )
+        $ Map.toList initialTypedefs
+    bindings = map (\(n, t) -> Binding n t Principal) $ Map.toList initialBindings
+  in
+    Context $ Seq.fromList $ typedefs <> bindings
 
 add :: Context -> Fact -> Context
 add (Context ctx) elt = Context $ ctx |> elt
@@ -178,6 +189,7 @@ freeExistentialVariables ctx typ = case typ of
   Record _            types   -> foldMap (freeExistentialVariables ctx) types
   Exists _ _ body             -> freeExistentialVariables ctx body
   Forall _ _ body             -> freeExistentialVariables ctx body
+  Fix exvar body              -> Set.singleton exvar <> freeExistentialVariables ctx body
   _                           -> Set.empty
 
 freeUniversalVariables :: Context -> Type -> Set (Variable 'Universal)

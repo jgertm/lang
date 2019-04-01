@@ -16,7 +16,7 @@ ghcid: delete-cabal
 	--test=Dev.main
 
 test: delete-cabal
-	stack test -j 8 --fast
+	stack test -j 8 --fast --test-arguments="--hide-successes"
 
 run: build
 	./lang

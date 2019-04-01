@@ -6,6 +6,7 @@ import           Classes
 import qualified Parser
 import qualified Renaming
 import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Reference              as Reference
 import qualified Syntax.Term                   as Term
 import qualified Type.Types                    as Type
@@ -52,8 +53,8 @@ removeContext = meta (const ())
 
 
 tuple = Term.Tuple noContext . Map.fromList
-record = Term.Record noContext . Map.fromList
-variant tag body = Term.Variant noContext tag body
+record = Term.Record noContext Syntax.Closed . Map.fromList
+variant tag body = Term.Variant noContext Syntax.Closed tag body
 vector = Term.Vector noContext
 
 

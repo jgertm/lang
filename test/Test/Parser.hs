@@ -3,6 +3,7 @@ module Test.Parser
   )
 where
 
+import qualified Data.Map.Strict               as Map
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
@@ -10,6 +11,7 @@ import           Parser
 import qualified Parser.Pattern                as Pattern
 import qualified Parser.Reference              as Reference
 import qualified Syntax.Atom                   as Atom
+import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Reference              as Reference
 import qualified Syntax.Term                   as Term
@@ -111,6 +113,31 @@ tree = testGroup
               , test "unit vector"
                      "[nil]"
                      (Pattern.Vector noContext [Pattern.Atom noContext Atom.Unit])
+              , test
+                "variant (closed )"
+                "[:foo nil]"
+                (Pattern.Variant noContext
+                                 Syntax.Closed
+                                 (kw "foo")
+                                 (Pattern.Atom noContext Atom.Unit)
+                )
+              , test
+                "variant (open )"
+                "#+[:foo nil]"
+                (Pattern.Variant noContext Syntax.Open (kw "foo") (Pattern.Atom noContext Atom.Unit)
+                )
+              , test
+                "record (closed )"
+                "{:foo nil}"
+                ( Pattern.Record noContext Syntax.Closed
+                $ Map.singleton (kw "foo") (Pattern.Atom noContext Atom.Unit)
+                )
+              , test
+                "record (open )"
+                "#+{:foo nil}"
+                ( Pattern.Record noContext Syntax.Open
+                $ Map.singleton (kw "foo") (Pattern.Atom noContext Atom.Unit)
+                )
               ]
         ]
     ]

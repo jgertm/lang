@@ -15,6 +15,7 @@ import           Classes                        ( Context
                                                 , Extra
                                                 )
 import           Parser.Lexer
+import qualified Syntax.Common                 as Syntax
 
 
 data Parsing
@@ -28,4 +29,10 @@ injectContext p = do
   result <- p
   end    <- getPosition
   let extent = (start, end)
+  pure $ result extent
+
+withExtent :: Parser (Syntax.Extent -> ast) -> Parser ast
+withExtent p = do
+  extent <- option Syntax.Closed (reserved "#+" $> Syntax.Open)
+  result <- p
   pure $ result extent
