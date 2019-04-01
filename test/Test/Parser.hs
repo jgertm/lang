@@ -108,8 +108,9 @@ tree = testGroup
           in
             testGroup
               "Patterns"
-              [ test "trivial" "a"   (Pattern.Symbol noContext (Reference.Local "a"))
-              , test "unit"    "nil" (Pattern.Atom noContext Atom.Unit)
+              [ test "wildcard" "_"   (Pattern.Wildcard noContext)
+              , test "trivial"  "a"   (Pattern.Symbol noContext (Reference.Local "a"))
+              , test "unit"     "nil" (Pattern.Atom noContext Atom.Unit)
               , test "unit vector"
                      "[nil]"
                      (Pattern.Vector noContext [Pattern.Atom noContext Atom.Unit])
