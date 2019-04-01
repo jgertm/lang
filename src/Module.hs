@@ -47,6 +47,16 @@ data Module = Module
   , closures    :: Map Ref.Value Interpreter.Closure
   } deriving (Generic, Show)
 
+instance Pretty Module where
+  pretty Module{name, typedefs, bindings} =
+    let intro      = "module" <+> pretty name
+        types'     = lined $ map (\(name, body) -> hsep [pretty name, "=", pretty body]) $ toPairs typedefs
+        longest    = maximum $ map (length . show . pretty) $ keys bindings
+        bindings'  = lined $ map (\(name, typ) -> hsep [fill longest $ pretty name, ":", pretty typ]) $ toPairs bindings
+        content    = braces $ align $ vsep [types', bindings']
+    in parens $ vsep [intro, indent 2 content]
+    where lined = mconcat . punctuate hardline
+
 withinScope :: (Monoid d) => (Module -> d) -> Module -> d
 withinScope acc modul =
   let direct     = acc modul
@@ -101,16 +111,6 @@ run Module { closures } = do
   case Interpreter.evalWith env (Term.Application () main [Term.Atom () Atom.Unit]) of
     Right (Term.Atom _ atom) -> pure atom
     _                        -> throwError $ Error.Interpretation Error.Unknown
-
-instance Pretty Module where
-  pretty Module{name, typedefs, bindings} =
-    let intro      = "module" <+> pretty name
-        types'     = lined $ map (\(name, body) -> hsep [pretty name, "=", pretty body]) $ toPairs typedefs
-        longest    = maximum $ map (length . show . pretty) $ keys bindings
-        bindings'  = lined $ map (\(name, typ) -> hsep [fill longest $ pretty name, ":", pretty typ]) $ toPairs bindings
-        content    = braces $ align $ vsep [types', bindings']
-    in parens $ vsep [intro, indent 2 content]
-    where lined = mconcat . punctuate hardline
 
 
 native :: Module

@@ -44,7 +44,7 @@
 
 (defconst lang-font-lock-keywords
   `(;; strings
-    (,(rx ?\" (* nonl) ?\") . font-lock-string-face)
+    (,(rx ?\" (* anything) ?\") . font-lock-string-face)
     ;; numbers
     (,(rx (+ digit)) . font-lock-constant-face)
     ;; atomic constants
@@ -80,7 +80,7 @@
     (,(rx ?\(
           (group "defn")
           (+ space)
-          (group (+ (| word ?\-))))
+          (group (+ (| word punctuation))))
      (1 font-lock-keyword-face)
      (2 font-lock-function-name-face nil t))
 
