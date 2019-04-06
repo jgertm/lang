@@ -9,10 +9,18 @@
     ([:nil _] true)
     ([:cons _] false)))
 
-; (defn sum [list]
-  ; (match list
-    ; ([:nil _] 0)
-    ; ([:cons {n tl}] (+ n (sum tl)))))
+(defn sum [list]
+  (match list
+    ([:nil _] 0)
+    ([:cons {n tl}] (+ n (sum tl)))))
+
+(defn fold
+  [op init list]
+  (match list
+    ([:nil _] init)
+    ([:cons {n tl}] (op n (fold op init tl)))))
+
+(def sum* (fold + 0))
 
 (defn main []
-  (empty? [:cons {2 [:nil nil]}]))
+  (sum* [:cons {2 [:cons {12 [:nil nil]}]}]))

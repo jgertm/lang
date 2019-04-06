@@ -52,6 +52,7 @@ data Fact
   | SolvedExistential (Variable 'Existential)
                       Kind
                       Type
+  | Definition Ref.Type Kind Type
   | Marker (Variable 'Existential)
   deriving (Show, Ord, Generic)
 
@@ -109,6 +110,7 @@ data Type
   | Record Row (Map Ref.Keyword Type)
   | UniversalVariable (Variable 'Universal)
   | ExistentialVariable (Variable 'Existential)
+  | Named Ref.Type
   | Forall (Variable 'Universal)
            Kind
            Type
@@ -169,6 +171,7 @@ instance Pretty Type where
             pure $ braces $ hsep fields''
           render (UniversalVariable var) = display var
           render (ExistentialVariable var) = display var
+          render (Named name) = pure $ pretty name
           render (Forall var _ typ) = do
             var' <- display var
             typ' <- render typ

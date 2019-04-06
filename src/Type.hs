@@ -3,7 +3,6 @@ module Type
   , Type(..)
   , Context(..)
   , synthesize
-  , run
   )
 where
 
@@ -15,9 +14,7 @@ import qualified Syntax.Reference              as Ref
 import qualified Syntax.Term                   as Term
 import qualified Type.Context                  as Ctx
 import qualified Type.Expression               as Type
-import           Type.Monad                     ( Infer
-                                                , run
-                                                )
+import           Type.Monad                     ( Infer )
 import           Type.Synthesis                 ( synthesize )
 import           Type.Types                     ( Context(..)
                                                 , Type(..)
@@ -34,5 +31,5 @@ inferWith :: Map Ref.Type Type -> Map Ref.Value Type -> Term.Term phase -> Compi
 inferWith typedefs bindings expr = do
   let gamma = Ctx.initialize typedefs bindings
       expr' = meta (const ()) expr
-  ((typ, _), ctx) <- run typedefs $ synthesize gamma expr'
+  ((typ, _), ctx) <- synthesize gamma expr'
   pure $ Ctx.apply ctx typ

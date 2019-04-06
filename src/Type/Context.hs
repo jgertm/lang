@@ -9,8 +9,10 @@ module Type.Context
   , initialize
   , add
   , adds
+  , join
   , drop
   , lookup
+  , definitions
   , apply
   , substitute
   , split
@@ -29,24 +31,24 @@ import qualified Data.Sequence                 as Seq
 import qualified Data.Set                      as Set
 
 import           Error                          ( TypeError(..) )
-import qualified Syntax.Reference              as Syntax
+import qualified Syntax.Definition             as Def
+import qualified Syntax.Reference              as Ref
+import           Type.Expression                ( fromSyntax )
 import qualified Type.Expression               as Type
 import           Type.Monad
 import           Type.Types
 
-
 empty :: Context
 empty = Context mempty
 
-initialize :: Map Syntax.Type Type -> Map Syntax.Value Type -> Context
+initialize :: Map Ref.Type Type -> Map Ref.Value Type -> Context
 initialize initialTypedefs initialBindings =
   let
     typedefs =
       concatMap
           (\(n, t) ->
-            map (\exvar -> DeclareExistential exvar Type) $ Set.toList $ freeExistentialVariables
-              empty
-              t
+            (map (\exvar -> DeclareExistential exvar Type) $ Set.toList $ existentialVariables t)
+              <> [Definition n Type t]
           )
         $ Map.toList initialTypedefs
     bindings = map (\(n, t) -> Binding n t Principal) $ Map.toList initialBindings
@@ -58,6 +60,9 @@ add (Context ctx) elt = Context $ ctx |> elt
 
 adds :: Context -> [Fact] -> Context
 adds (Context ctx) els = Context $ ctx <> Seq.fromList els
+
+join :: Context -> Context -> Context
+join (Context ctx1) (Context ctx2) = Context $ ctx1 <> ctx2
 
 split :: Context -> Fact -> (Context, Context)
 split (Context ctx) fact = case Seq.breakr (fact ==) ctx of
@@ -106,15 +111,19 @@ universalSolutions :: Context -> Map (Variable 'Universal) Type
 universalSolutions gamma =
   Map.fromList [ (tv, typ) | SolvedUniversal tv typ <- toList $ unContext gamma ]
 
-bindings :: Context -> Map Syntax.Value (Type, Principality)
+bindings :: Context -> Map Ref.Value (Type, Principality)
 bindings gamma = Map.fromList
   [ (binding, (typ, principality)) | Binding binding typ principality <- toList $ unContext gamma ]
 
-lookup :: Syntax.Value -> Context -> Infer (Type, Principality)
+lookup :: Ref.Value -> Context -> Infer (Type, Principality)
 lookup binding gamma = do
   case Map.lookup binding $ bindings gamma of
     Nothing     -> typeerror $ UnknownBinding binding
     Just result -> pure result
+
+definitions :: Context -> Map Ref.Type (Type, Kind)
+definitions gamma =
+  Map.fromList [ (name, (kind, typ)) | Definition name typ kind <- toList $ unContext gamma ]
 
 apply :: Context -> Type -> Type
 apply ctx typ = case typ of
@@ -129,6 +138,7 @@ apply ctx typ = case typ of
   ExistentialVariable var -> case Map.lookup var $ existentialSolutions ctx of
     Just (tau, _) -> apply ctx tau
     Nothing       -> typ
+  Named _             -> typ
   Forall var kind t   -> Forall var kind (apply ctx t)
   Exists var kind sub -> Exists var kind (apply ctx sub)
   Implies prop sub    -> Implies prop (apply ctx sub)
@@ -177,20 +187,42 @@ incorporate (Context (omegas :|> l)) (Context (gammas :|> r)) =
 incorporate (Context Empty) (Context _    ) = error "Contexts need to be of identical length"
 incorporate (Context _    ) (Context Empty) = error "Contexts need to be of identical length"
 
+existentialVariables :: Type -> Set (Variable 'Existential)
+existentialVariables typ = case typ of
+  Primitive _                 -> Set.empty
+  Function type1        type2 -> existentialVariables type1 <> existentialVariables type2
+  Variant  (Open alpha) types -> Set.delete alpha $ foldMap existentialVariables types
+  Variant  _            types -> foldMap existentialVariables types
+  Tuple types                 -> foldMap existentialVariables types
+  Record (Open alpha) types   -> Set.delete alpha $ foldMap existentialVariables types
+  Record _            types   -> foldMap existentialVariables types
+  UniversalVariable   _       -> Set.empty
+  ExistentialVariable ev      -> Set.singleton ev
+  Named               _       -> Set.empty
+  Exists _ _ body             -> existentialVariables body
+  Forall _ _ body             -> existentialVariables body
+  Fix     exvar body          -> existentialVariables body
+  Implies _     body          -> existentialVariables body
+  With    body  _             -> existentialVariables body
+
 freeExistentialVariables :: Context -> Type -> Set (Variable 'Existential)
 freeExistentialVariables ctx typ = case typ of
-  ExistentialVariable ev ->
-    if Map.notMember ev (existentialSolutions ctx) then Set.singleton ev else Set.empty
+  Primitive _                 -> Set.empty
   Function type1 type2 -> freeExistentialVariables ctx type1 <> freeExistentialVariables ctx type2
-  Variant  (Open alpha) types -> foldMap (freeExistentialVariables ctx) types <> Set.singleton alpha
+  Variant  (Open alpha) types -> Set.delete alpha $ foldMap (freeExistentialVariables ctx) types
   Variant  _            types -> foldMap (freeExistentialVariables ctx) types
   Tuple types                 -> foldMap (freeExistentialVariables ctx) types
-  Record (Open alpha) types   -> foldMap (freeExistentialVariables ctx) types <> Set.singleton alpha
+  Record (Open alpha) types   -> Set.delete alpha $ foldMap (freeExistentialVariables ctx) types
   Record _            types   -> foldMap (freeExistentialVariables ctx) types
-  Exists _ _ body             -> freeExistentialVariables ctx body
-  Forall _ _ body             -> freeExistentialVariables ctx body
-  Fix exvar body              -> Set.singleton exvar <> freeExistentialVariables ctx body
-  _                           -> Set.empty
+  UniversalVariable _         -> Set.empty
+  ExistentialVariable ev ->
+    if Map.notMember ev (existentialSolutions ctx) then Set.singleton ev else Set.empty
+  Named _            -> Set.empty
+  Exists _ _ body    -> freeExistentialVariables ctx body
+  Forall _ _ body    -> freeExistentialVariables ctx body
+  Fix     exvar body -> Set.delete exvar $ freeExistentialVariables ctx body
+  Implies _     body -> freeExistentialVariables ctx body
+  With    body  _    -> freeExistentialVariables ctx body
 
 freeUniversalVariables :: Context -> Type -> Set (Variable 'Universal)
 freeUniversalVariables ctx typ = case typ of
@@ -202,4 +234,3 @@ freeUniversalVariables ctx typ = case typ of
   Record _ types       -> foldMap (freeUniversalVariables ctx) types
   Exists _ _ body      -> freeUniversalVariables ctx body
   Forall _ _ body      -> freeUniversalVariables ctx body
-  _                    -> Set.empty

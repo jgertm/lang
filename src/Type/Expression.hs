@@ -2,6 +2,7 @@
 
 module Type.Expression
   ( substitute
+  , contains
   , fn
   , unit
   , integer
@@ -15,16 +16,14 @@ module Type.Expression
   , isUniversallyQuantified
   , isExistentiallyQuantified
   , isWith
-  , fromDefinition
+  , fromSyntax
   , findVariant
   , findRecord
   )
 where
 
 import qualified Data.Map.Strict               as Map
-import qualified Data.Sequence                 as Seq
 
-import qualified Syntax.Definition             as Def
 import qualified Syntax.Reference              as Ref
 import qualified Syntax.Type                   as Syntax
 import           Type.Monad
@@ -66,8 +65,27 @@ natives = Map.fromList $ map
   [unit, integer, rational, real, string, boolean]
 
 fn :: [Type] -> Type
-fn []       = error "Cannot construct function type without types"
-fn (t : ts) = foldr Function t ts
+fn [] = error "Cannot construct function type without types"
+fn ts = foldr1 Function ts
+
+contains :: Type -> Type -> Bool
+contains expr match
+  | expr == match
+  = True
+  | otherwise
+  = let cont typ = contains typ match
+    in  case expr of
+          Function type1 type2 -> cont type1 || cont type2
+          Variant  _     types -> any cont types
+          Tuple types          -> any cont types
+          Record _ types       -> any cont types
+          Forall _ _ typ       -> cont typ
+          Exists _ _ typ       -> cont typ
+          Implies _   typ      -> cont typ
+          With    typ _        -> cont typ
+          Succ typ             -> cont typ
+          Vector type1 type2   -> cont type1 || cont type2
+          _                    -> False
 
 substitute :: Type -> Type -> Type -> Type
 substitute expr match replacement
@@ -99,29 +117,16 @@ fromSyntax typedefs (Syntax.Variant _ cases) =
   Variant Closed (map (fromSyntax typedefs) $ Map.fromList cases)
 fromSyntax typedefs (Syntax.Function _ types) = fn $ map (fromSyntax typedefs) types
 
-fromDefinition :: Def.Definition phase -> Infer (Type, Context)
-fromDefinition (Def.Type _ name params body) = do
-  typedefs  <- ask
-  nameVar   <- freshExistential
-  paramVars <- traverse (const freshExistential) params
-  let paramTypes  = Map.fromList $ zip params $ map ExistentialVariable paramVars
-      newTypedefs = Map.insert name (ExistentialVariable nameVar) $ Map.union paramTypes typedefs
-      typ         = Fix nameVar $ fromSyntax (Map.union newTypedefs typedefs) body
-      ctx         = Context $ Seq.fromList $ map (`DeclareExistential` Type) (nameVar : paramVars)
-  pure (typ, ctx)
-fromDefinition _ =
-  error "[type.expression] only type definitions can be converted to type expressions"
-
-findVariant :: Ref.Keyword -> Map Ref.Type Type -> Maybe Type
+findVariant :: Ref.Keyword -> Map Ref.Type Type -> Maybe (Ref.Type, Type)
 findVariant tag =
   let match (Variant Closed tags) = tag `Map.member` tags
       match (Fix     _      body) = match body
       match _                     = False
-  in  find match
+  in  find (match . snd) . toPairs
 
-findRecord :: Set Ref.Keyword -> Map Ref.Type Type -> Maybe Type
+findRecord :: Set Ref.Keyword -> Map Ref.Type Type -> Maybe (Ref.Type, Type)
 findRecord fields =
   let match (Record Closed fieldMap) = fields == Map.keysSet fieldMap
       match (Fix    _      body    ) = match body
       match _                        = False
-  in  find match
+  in  find (match . snd) . toPairs

@@ -29,7 +29,7 @@ import           Type.Types
 
 check, check' :: Context -> Term -> (Type, Principality) -> Infer Context
 
-check = check'
+check gamma term ap = check' gamma term ap
 
 check' gamma term (ExistentialVariable alpha, Nonprincipal)
   | alpha `Map.member` Ctx.existentialSolutions gamma
@@ -37,7 +37,15 @@ check' gamma term (ExistentialVariable alpha, Nonprincipal)
     Just (solution, Type) -> check gamma term (solution, Nonprincipal)
     Just (_       , kind) -> typeerror $ KindMismatch Type kind
     Nothing               -> typeerror $ UnsolvedExistential alpha
+-- RULE: NameT
+check' gamma term (Named name, p) =
+  let (typ, _) =
+        fromMaybe (error "[type.analysis/check] couldn't find named type")
+          $ Map.lookup name
+          $ Ctx.definitions gamma
+  in  check gamma term (typ, p)
 -- TODO: equirecursive vs isorecursive
+-- RULE: FixT
 check' gamma term (typ@(Fix alpha sub), p) = do
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
       solution    = SolvedExistential alpha Type typ
@@ -180,12 +188,11 @@ check' gamma term@(Term.Variant _ Syntax.Open k _) (ExistentialVariable alpha, N
     check ctx term (variant, Nonprincipal)
 check' gamma term@(Term.Variant _ Syntax.Closed k _) (ExistentialVariable alpha, Nonprincipal)
   | alpha `Map.notMember` Ctx.existentialSolutions gamma = do
-    typedefs <- ask
-    let variant =
-          fromMaybe (error "[type.analysis] couldn't find defined variant type for tag")
+    let typedefs = map fst $ Ctx.definitions gamma
+        (_, variant) =
+          fromMaybe (error "[type.analysis/check] couldn't find defined variant type for tag")
             $ findVariant k typedefs
-        gamma' = gamma
-    check gamma' term (variant, Principal)
+    check gamma term (variant, Principal)
 -- RULE: ×I (Product introduction)
 check' gamma (Term.Tuple _ eMap) (Tuple aMap, p) = do
   let missing = Map.traverseMissing $ \_ _ -> typeerror AnalysisError

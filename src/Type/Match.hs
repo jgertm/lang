@@ -11,6 +11,7 @@ import qualified Data.Set                      as Set
 import           Data.Text.Prettyprint.Doc
 
 import           Error                          ( TypeError(..) )
+import qualified Error
 import qualified Syntax.Common                 as Syntax
 import qualified Syntax.Pattern                as Pattern
 import qualified Syntax.Reference              as Syntax
@@ -25,38 +26,51 @@ import qualified Type.Synthesis                as Synth
 import           Type.Types
 
 
-check :: Context -> [Branch] -> ([Type], Principality) -> (Type, Principality) -> Infer Context
+check, check'
+  :: Context -> [Branch] -> ([Type], Principality) -> (Type, Principality) -> Infer Context
+
+check gamma branches asp cq = check' gamma branches asp cq
+
 -- RULE: MatchEmpty
-check gamma [] _ _ = pure gamma
+check' gamma [] _ _ = pure gamma
 -- RULE: MatchBase
-check gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
+check' gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
   Analysis.check gamma e (c, p)
+-- RULE: MatchNameT
+check' gamma term (Named name : as, p) cp =
+  let (typ, _) =
+        fromMaybe (error "[type.match/check] couldn't find named type")
+          $ Map.lookup name
+          $ Ctx.definitions gamma
+  in  check gamma term (typ : as, p) cp
 -- RULE: MatchFixT
-check gamma term (typ@(Fix alpha sub) : as, p) cp =
+check' gamma term (typ@(Fix alpha sub) : as, p) cp =
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
       solution    = SolvedExistential alpha Type typ
       gamma'      = Ctx.inject pre solution post
   in  check gamma' term (sub : as, p) cp
 -- RULE: MatchUnit
-check gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] (primitive : as, q) cp
+check' gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] (primitive : as, q) cp
   = do
     let typ = Synth.atom atom
     gamma' <- if primitive == typ
       then pure gamma
       else catchError (Instantiate.to gamma primitive (typ, Type))
-                      (const $ typeerror $ TypeMismatch primitive typ)
+                      (\case
+                          Error.Type InstantiationError -> typeerror $ TypeMismatch primitive typ
+                          _                             -> error "[type.match/check] could not instantiate primitive type")
     check gamma' [Term.Branch {patterns = rhos, body = e}] (map (Ctx.apply gamma') as, q) cp
 -- RULE: Match∃
-check gamma branches (Exists alpha k a : as, q) cp =
+check' gamma branches (Exists alpha k a : as, q) cp =
   check (Ctx.add gamma (DeclareUniversal alpha k)) branches (a : as, q) cp
 -- RULE: Match∧
-check gamma branches (With a p : as, Principal) cp =
+check' gamma branches (With a p : as, Principal) cp =
   incorporate gamma p branches (a : as, Principal) cp
 -- RULE: Match∧!/ (Nonprincipal)
-check gamma branches (With a _ : as, Nonprincipal) cp =
+check' gamma branches (With a _ : as, Nonprincipal) cp =
   check gamma branches (a : as, Nonprincipal) cp
 -- RULE: Match×
-check gamma [Term.Branch { patterns = Pattern.Tuple _ rhoMap : rhos, body = e }] (Tuple aMap : as, q) cp
+check' gamma [Term.Branch { patterns = Pattern.Tuple _ rhoMap : rhos, body = e }] (Tuple aMap : as, q) cp
   | Map.keysSet rhoMap == Map.keysSet aMap
   = let tuplePatterns = elems rhoMap
         tupleTypes    = elems aMap
@@ -64,7 +78,7 @@ check gamma [Term.Branch { patterns = Pattern.Tuple _ rhoMap : rhos, body = e }]
               [Term.Branch {patterns = tuplePatterns <> rhos, body = e}]
               (tupleTypes <> as, q)
               cp
-check gamma branches@[Term.Branch { patterns = Pattern.Tuple _ rhoMap : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Tuple _ rhoMap : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
   = do
     vMap <- forM rhoMap $ const freshExistential
     let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
@@ -74,7 +88,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Tuple _ rhoMap : _ }] (Ex
           (map (`DeclareExistential` Type) (elems vMap) <> [SolvedExistential alpha Type tuple])
           post
     check ctx branches (tuple : as, Nonprincipal) cp
-check gamma [Term.Branch { patterns = Pattern.Record _ Syntax.Closed rhoMap : rhos, body = e }] (Record Closed aMap : as, q) cp
+check' gamma [Term.Branch { patterns = Pattern.Record _ Syntax.Closed rhoMap : rhos, body = e }] (Record Closed aMap : as, q) cp
   | Map.keysSet rhoMap `Set.isSubsetOf` Map.keysSet aMap
   = let rowAs          = Map.restrictKeys aMap (Map.keysSet rhoMap)
         recordPatterns = elems rhoMap
@@ -83,7 +97,7 @@ check gamma [Term.Branch { patterns = Pattern.Record _ Syntax.Closed rhoMap : rh
               [Term.Branch {patterns = recordPatterns <> rhos, body = e}]
               (recordTypes <> as, q)
               cp
-check gamma branches@[Term.Branch { patterns = Pattern.Record _ Syntax.Open rhoMap : _ }] (record@(Record (Open rowvar) aMap) : as, Nonprincipal) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Record _ Syntax.Open rhoMap : _ }] (record@(Record (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
     newVMap <- forM (Map.difference rhoMap aMap) $ const freshExistential
     let
@@ -95,7 +109,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Record _ Syntax.Open rhoM
         (elems (map (`DeclareExistential` Type) newVMap) <> [SolvedExistential rowvar Type record'])
         post
     check ctx branches (record' : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Record _ extent rhoMap : _ }] (ExistentialVariable alpha : as, _) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Record _ extent rhoMap : _ }] (ExistentialVariable alpha : as, _) cp
   = do
     vMap <- forM rhoMap $ const freshExistential
     let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
@@ -109,13 +123,13 @@ check gamma branches@[Term.Branch { patterns = Pattern.Record _ extent rhoMap : 
           post
     check ctx branches (record : as, Nonprincipal) cp
 -- RULE: Match+ₖ
-check gamma [Term.Branch { patterns = Pattern.Variant _ extent k rho : rhos, body = e }] (Variant row aMap : as, q) cp
+check' gamma [Term.Branch { patterns = Pattern.Variant _ extent k rho : rhos, body = e }] (Variant row aMap : as, q) cp
   | compareExtent extent row && (q == Principal || k `Map.member` aMap)
   = let
       a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
         $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
@@ -124,7 +138,7 @@ check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _
       ctx =
         Ctx.splice pre [DeclareExistential ak Type, SolvedExistential rowvar Type variant'] post
     check ctx branches (variant' : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
   = do
     ak <- freshExistential
     let
@@ -132,38 +146,33 @@ check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _
       variant = Variant (Open alpha) $ Map.singleton k (ExistentialVariable ak)
       ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
     check ctx branches (variant : as, Nonprincipal) cp
-check gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Closed k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Closed k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
   = do
-    typedefs <- ask
-    let variant =
-          fromMaybe (error "[type.analysis] couldn't find defined variant type for tag")
+    let typedefs = map fst $ Ctx.definitions gamma
+        (name, _) =
+          fromMaybe (error "[type.match/check] couldn't find defined variant type for tag")
             $ findVariant k typedefs
-        exvars      = toList $ Ctx.freeExistentialVariables gamma variant
         (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-        ctx         = Ctx.splice
-          pre
-          (map (`DeclareExistential` Type) exvars <> [SolvedExistential alpha Type variant])
-          post
-    check ctx branches (variant : as, Principal) cp
-
+        ctx         = Ctx.inject pre (SolvedExistential alpha Type $ Named name) post
+    check ctx branches (Named name : as, Principal) cp
 -- RULE: MatchNeg
-check gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
-  | not $ isWith a || isExistentiallyQuantified a = do
+check' gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
+  | not (isWith a || isExistentiallyQuantified a) = do
     let binding = Binding z a Principal
     ctx <- check (Ctx.add gamma binding) [Term.Branch {patterns = rhos, body = e}] (as, q) cp
     pure $ Ctx.drop ctx binding
 -- RULE: MatchWild
-check gamma [Term.Branch { patterns = Pattern.Wildcard _ : rhos, body = e }] (a : as, q) cp
-  | not $ isWith a || isExistentiallyQuantified a = check
+check' gamma [Term.Branch { patterns = Pattern.Wildcard _ : rhos, body = e }] (a : as, q) cp
+  | not (isWith a || isExistentiallyQuantified a) = check
     gamma
     [Term.Branch {patterns = rhos, body = e}]
     (as, q)
     cp
 -- RULE: MatchNil
-check gamma [Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e }] (Vector t _ : as, Principal) cp
+check' gamma [Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e }] (Vector t _ : as, Principal) cp
   = incorporate gamma (Equals t Zero) [Term.Branch {patterns = rhos, body = e}] (as, Principal) cp
 -- RULE: MatchCons
-check gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, body = e }] (Vector t a : as, Principal) cp
+check' gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, body = e }] (Vector t a : as, Principal) cp
   = do
     alpha <- freshUniversal
     let alphaType   = UniversalVariable alpha
@@ -176,10 +185,10 @@ check gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, bod
                        cp
     pure $ Ctx.drop ctx declaration
 -- RULE: MatchNil!/ (Nonprincipal)
-check gamma [Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e }] (Vector _ _ : as, Nonprincipal) cp
+check' gamma [Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e }] (Vector _ _ : as, Nonprincipal) cp
   = check gamma [Term.Branch {patterns = rhos, body = e}] (as, Nonprincipal) cp
 -- RULE: MatchCons!/ (Nonprincipal)
-check gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, body = e }] (Vector _ a : as, Nonprincipal) cp
+check' gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, body = e }] (Vector _ a : as, Nonprincipal) cp
   = do
     alpha <- freshUniversal
     let alphaType   = UniversalVariable alpha
@@ -191,11 +200,11 @@ check gamma [Term.Branch { patterns = Pattern.Vector _ (rho1 : rho2) : rhos, bod
                  cp
     pure $ Ctx.drop ctx declaration
 -- RULE: MatchSeq
-check gamma (pi@Term.Branch { patterns } : pi') ([a], p) cp = do
+check' gamma (pi@Term.Branch { patterns } : pi') ([a], p) cp = do
   let as = replicate (length patterns) a
   theta <- check gamma [pi] (as, p) cp
   check theta pi' (map (Ctx.apply theta) [a], p) cp
-check gamma pis (as, q) cp =
+check' gamma pis (as, q) cp =
   foldM (\ctx pi -> check ctx [pi] (map (Ctx.apply ctx) as, q) cp) gamma pis
 
 incorporate
@@ -217,7 +226,7 @@ incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
       pure $ Ctx.drop ctx marker
     )
     (const $ pure gamma)
-incorporate _ _ _ _ _ = error "incorporate fallthrough"
+incorporate _ _ _ _ _ = error "[type.match] incorporate fallthrough"
 
 covers, covers' :: Context -> [Branch] -> ([Type], Principality) -> Bool
 
@@ -225,6 +234,13 @@ covers = covers'
 
 -- RULE: CoversEmpty
 covers' _ (Term.Branch { patterns = [] } : _) ([], _) = True
+-- RULE: CoversNameT
+covers' gamma branches (Named name : as, p) =
+  let (typ, _) =
+        fromMaybe (error "[type.match/covers] couldn't find named type")
+          $ Map.lookup name
+          $ Ctx.definitions gamma
+  in  covers gamma branches (typ : as, p)
 -- RULE: CoversFixT
 covers' gamma branches (typ@(Fix alpha sub) : as, p) =
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)

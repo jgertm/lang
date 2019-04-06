@@ -94,7 +94,9 @@ recoverSpine' gamma s ap@(_, Principal) = do
     (_, Principal) -> pure (cp, delta)
     (c, Nonprincipal) ->
       let fvs = Ctx.freeExistentialVariables gamma c
-      in  if Set.null fvs then pure (cp, delta) else typeerror $ PrincipalityRecoveryFailure fvs
+      in  if Set.null fvs
+            then pure (cp, delta)
+            else error "[type.synthesis] could not recover principality"
 -- RULE: SpinePass
 recoverSpine' gamma s ap@(_, p) = do
   ((c, q), delta) <- spine gamma s ap

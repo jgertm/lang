@@ -4,7 +4,6 @@ module Type.Monad
   , typeerror
   , MonadInfer
   , Infer
-  , run
   )
 where
 
@@ -13,14 +12,12 @@ import           Error                          ( Error
                                                 , TypeError
                                                 )
 import qualified Error
-import qualified Syntax.Reference              as Ref
 import           Type.Types
 
 
 type MonadInfer s q m
   = ( MonadError Error m
-    , MonadState s m, HasType VariableId s, HasType Context s
-    , MonadReader (Map Ref.Type Type) m
+    , MonadState s m, HasType VariableId s
     )
 type Infer a = forall s q m. (MonadInfer s q m) => m a
 
@@ -40,7 +37,3 @@ freshUniversal = Variable <$> freshName
 
 typeerror :: TypeError -> Infer a
 typeerror err = throwError $ Error.Type err
-
-run :: Map Ref.Type Type -> Infer a -> Compile a
-run typedefs infer = do
-  usingReaderT typedefs infer

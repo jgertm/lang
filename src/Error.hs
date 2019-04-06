@@ -40,7 +40,7 @@ data TypeError
   = AnalysisError
   | ContextError
   | UnknownError String
-  | InstantiationError String
+  | InstantiationError
   | SubtypingError
   | UnificationError
   | TypeMismatch Type Type

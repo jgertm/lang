@@ -80,9 +80,12 @@ typecheck mod = foldM process mod $ definitions mod
  where
   process _ Def.Module{} = error "[module] submodule typechecking not yet implemented"
 
-  process modul typedef@(Def.Type _ name _ _) = do
-    (newType, _ctx) <- Type.run (withinScope typedefs modul) $ Type.fromDefinition typedef
-    pure $ modul { typedefs = Map.insert name newType $ typedefs modul }
+  process modul typedef@(Def.Type _ name _ body) = do
+    nameVar <- Type.freshExistential
+    let varType = Type.ExistentialVariable nameVar
+        body'   = Type.fromSyntax (Map.insert name varType $ withinScope typedefs modul) body
+        typ     = if body' `Type.contains` varType then Type.Fix nameVar body' else body'
+    pure $ modul { typedefs = Map.insert name typ $ typedefs modul }
 
   process modul (Def.Constant _ name body) = do
     typ <- Type.inferWith (withinScope typedefs modul) (withinScope bindings modul) body
