@@ -164,7 +164,7 @@ check' gamma (Term.Match _ e pi) (c, p) = do
 check' gamma (Term.Variant _ extent k e) (Variant row aMap, p)
   | compareExtent extent row && (p == Principal || k `Map.member` aMap) = do
     let ak =
-          fromMaybe (error $ show $ "[type.analysis] couldn't find tag: " <> pretty k)
+          fromMaybe (error $ show $ "[type.analysis/check] couldn't find tag: " <> pretty k)
             $ Map.lookup k aMap
     check gamma e (ak, p)
 -- RULE: +Iâₖ (Sum injection introduction existential)

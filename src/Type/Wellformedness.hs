@@ -152,7 +152,7 @@ checkContext (Context (rest :|> SolvedUniversal uv tau)) =
   let gamma = Context rest
       kind  = case find (\(uv', _) -> uv == uv') $ Ctx.universals gamma of
         Just ak -> snd ak
-        Nothing -> error "[type.wellformedness] couldn't find kind of solved universal variable"
+        Nothing -> error "[type.wellformedness/check-context] couldn't find kind of solved universal variable"
   in  and
         [ checkContext gamma
         , not $ any

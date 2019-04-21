@@ -60,12 +60,12 @@ natives :: Map Ref.Type Type
 natives = Map.fromList $ map
   (\case
     typ@(Primitive name) -> (Ref.Type name, typ)
-    _                    -> error "[type.expression] unnamed type in natives"
+    _                    -> error "[type.expression/natives] unnamed type in natives"
   )
   [unit, integer, rational, real, string, boolean]
 
 fn :: [Type] -> Type
-fn [] = error "Cannot construct function type without types"
+fn [] = error "[type.expression/fn] cannot construct function type without types"
 fn ts = foldr1 Function ts
 
 contains :: Type -> Type -> Bool
@@ -108,7 +108,7 @@ substitute expr match replacement
 
 fromSyntax :: Map Ref.Type Type -> Syntax.Type phase -> Type
 fromSyntax typedefs (Syntax.Named _ typ@(Ref.Type name)) =
-  fromMaybe (error $ "[type.expression] unknown named type: " <> name) $ Map.lookup typ typedefs
+  fromMaybe (error $ "[type.expression/from-syntax] unknown named type: " <> name) $ Map.lookup typ typedefs
 fromSyntax typedefs (Syntax.Tuple _ fields) =
   Tuple (map (fromSyntax typedefs) $ Map.fromList $ zip [1 ..] fields)
 fromSyntax typedefs (Syntax.Record _ fields) =

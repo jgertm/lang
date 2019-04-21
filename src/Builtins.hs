@@ -33,7 +33,7 @@ getInteger _                  = Nothing
 
 integerBinOp :: (Traversable t) => (t Integer -> Integer) -> t Syntax.Atom -> Syntax.Atom
 integerBinOp op =
-  fromMaybe (error "[builtins] couldn't evaluate builtin primitive")
+  fromMaybe (error "[builtins/integer-bin-op] couldn't evaluate builtin primitive")
     . map (Syntax.Integer . op)
     . traverse getInteger
 

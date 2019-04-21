@@ -92,7 +92,7 @@ evalWith env term = case find isFinal $ runWith env $ meta (const ()) term of
 evalTrace :: Term.Term phase -> [(Int, CEK)]
 evalTrace term = case break isFinal $ run $ meta (const ()) term of
   (steps, final : _) -> zip [0 ..] $ steps <> [final]
-  _                  -> error "[interpreter] invalid interpretation trace"
+  _                  -> error "[interpreter/eval-trace] invalid interpretation trace"
 
 builtins :: Map Reference.Value Closure
 builtins = map (\builtin -> Closure (Term.Extra () $ Native builtin []) mempty) Builtins.builtins

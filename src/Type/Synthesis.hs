@@ -34,7 +34,7 @@ synthesize' gamma (Term.Annotation _ e a) =
 --   guard $ Wellformed.checkTypeWithPrincipality gamma (a, Principal)
 --   delta <- Analysis.check gamma e (Ctx.apply gamma a) Principal
 --   pure ((Ctx.apply delta a, Principal), delta)
-  error "Synthesis of annotated AST nodes not implemented"
+  error "[type.synthesis/synthesize] synthesis of annotated AST nodes not implemented"
 -- RULE: →E (Function elimination)
 synthesize' gamma (Term.Application _ e s) = do
   (ap, theta) <- synthesize gamma e
@@ -83,7 +83,7 @@ spine' gamma es (ExistentialVariable alpha, p) | (alpha, Type) `Set.member` Ctx.
           ]
           post
     spine gamma' es (function, p)
-spine' _ _ _ = error "No spine typing rule defined"
+spine' _ _ _ = error "[type.synthesis/spine] fallthrough"
 
 recoverSpine gamma s ap = recoverSpine' gamma s ap
 
@@ -96,7 +96,7 @@ recoverSpine' gamma s ap@(_, Principal) = do
       let fvs = Ctx.freeExistentialVariables gamma c
       in  if Set.null fvs
             then pure (cp, delta)
-            else error "[type.synthesis] could not recover principality"
+            else error "[type.synthesis/recover-spine] could not recover principality"
 -- RULE: SpinePass
 recoverSpine' gamma s ap@(_, p) = do
   ((c, q), delta) <- spine gamma s ap

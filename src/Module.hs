@@ -78,7 +78,7 @@ parse path source = do
 typecheck :: Module -> Compile Module
 typecheck mod = foldM process mod $ definitions mod
  where
-  process _ Def.Module{} = error "[module] submodule typechecking not yet implemented"
+  process _ Def.Module{} = error "[module/typecheck] submodule typechecking not yet implemented"
 
   process modul typedef@(Def.Type _ name _ body) = do
     nameVar <- Type.freshExistential
@@ -95,7 +95,7 @@ typecheck mod = foldM process mod $ definitions mod
 interpret :: Module -> Compile Module
 interpret mod = foldM process mod $ definitions mod
  where
-  process _ Def.Module{} = error "[module] submodule interpretation not yet implemented"
+  process _ Def.Module{} = error "[module/interpret] submodule interpretation not yet implemented"
 
   process modul (Def.Constant _ name body) = do
     let body'   = meta (const ()) body
@@ -110,7 +110,8 @@ load path source = parse path source >>= typecheck >>= interpret
 run :: Module -> Compile Atom
 run Module { closures } = do
   let Interpreter.Closure main env =
-        fromMaybe (error "[module] no main function found") $ Map.lookup (Ref.Local "main") closures
+        fromMaybe (error "[module/run] no main function found")
+          $ Map.lookup (Ref.Local "main") closures
   case Interpreter.evalWith env (Term.Application () main [Term.Atom () Atom.Unit]) of
     Right (Term.Atom _ atom) -> pure atom
     _                        -> throwError $ Error.Interpretation Error.Unknown

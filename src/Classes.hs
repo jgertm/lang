@@ -52,4 +52,4 @@ context tree =
           tell $ First (Just ctx)
           pure ctx
         )
-  in  fromMaybe (error "[ast] no context found") . getFirst . evalWriter $ action tree
+  in  fromMaybe (error "[classes/context] no context found") . getFirst . evalWriter $ action tree

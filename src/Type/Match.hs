@@ -126,7 +126,7 @@ check' gamma branches@[Term.Branch { patterns = Pattern.Record _ extent rhoMap :
 check' gamma [Term.Branch { patterns = Pattern.Variant _ extent k rho : rhos, body = e }] (Variant row aMap : as, q) cp
   | compareExtent extent row && (q == Principal || k `Map.member` aMap)
   = let
-      a = fromMaybe (error $ show $ "[type.match] couldn't find tag: " <> pretty k)
+      a = fromMaybe (error $ show $ "[type.match/check] couldn't find tag: " <> pretty k)
         $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
 check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
@@ -226,7 +226,7 @@ incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
       pure $ Ctx.drop ctx marker
     )
     (const $ pure gamma)
-incorporate _ _ _ _ _ = error "[type.match] incorporate fallthrough"
+incorporate _ _ _ _ _ = error "[type.match/incorporate] fallthrough"
 
 covers, covers' :: Context -> [Branch] -> ([Type], Principality) -> Bool
 
@@ -285,7 +285,7 @@ coversAssuming :: Context -> Proposition -> [Branch] -> ([Type], Principality) -
 -- coversAssuming gamma (Equals t1 t2) pis (as, Principal) =
 --   Equation.unify gamma (Ctx.apply gamma t1) (Ctx.apply gamma t2) -- FIXME: where to get kind k?
 -- TODO: CoversEqBot
-coversAssuming = error "[type.match] coversAssuming is not implemented"
+coversAssuming = error "[type.match/covers-assuming] not implemented"
 
 guarded :: [Branch] -> Bool
 guarded (Term.Branch { patterns } : pis) = case patterns of
@@ -313,7 +313,7 @@ expandVector (Term.Branch { patterns = Pattern.Vector _ [] : rhos, body = e } : 
 expandVector (Term.Branch { patterns = Pattern.Vector _ (rho : rho') : rhos, body = e } : pis) =
   let (pisNil, pisCons) = expandVector pis
   in  (pisNil, Term.Branch {patterns = rho : rho' <> rhos, body = e} : pisCons)
-expandVector _ = error "[type.match] can only expand vector pattern"
+expandVector _ = error "[type.match/expand-vector] can only expand vector pattern"
 
 expandTuple :: [Branch] -> [Branch]
 expandTuple [] = []
@@ -323,7 +323,7 @@ expandTuple (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pis' = expandTuple pis
     in  (Term.Branch {patterns = Pattern.Wildcard () : Pattern.Wildcard () : rhos, body = e} : pis')
-expandTuple _ = error "[type.match] can only expand tuple pattern"
+expandTuple _ = error "[type.match/expand-tuple] can only expand tuple pattern"
 
 expandRecord :: [Branch] -> [Branch]
 expandRecord = fst . expandRecord'
@@ -343,7 +343,7 @@ expandRecord = fst . expandRecord'
             : pis'
           , wildcards
           )
-  expandRecord' _ = error "[type.match] can only expand record pattern"
+  expandRecord' _ = error "[type.match/expand-record] can only expand record pattern"
 
 expandVariant :: [Branch] -> Map Syntax.Keyword [Branch]
 expandVariant [] = mempty
@@ -358,21 +358,21 @@ expandVariant (Term.Branch { patterns = rho : rhos, body = e } : pis)
   = let pisKs      = expandVariant pis
         commonHead = Term.Branch {patterns = Pattern.Wildcard () : rhos, body = e}
     in  map (commonHead :) pisKs
-expandVariant _ = error "[type.match] can only expand variant pattern"
+expandVariant _ = error "[type.match/expand-variant] can only expand variant pattern"
 
 expandVariable :: [Branch] -> [Branch]
 expandVariable [] = []
 expandVariable (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pis' = expandVariable pis in Term.Branch {patterns = rhos, body = e} : pis'
-expandVariable _ = error "[type.match] can only expand variable or wildcard pattern"
+expandVariable _ = error "[type.match/expand-variable] can only expand variable or wildcard pattern"
 
 expandAtom :: [Branch] -> [Branch]
 expandAtom [] = []
 expandAtom (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho || isAtom rho
   = let pis' = expandAtom pis in Term.Branch {patterns = rhos, body = e} : pis'
-expandAtom _ = error "[type.match] can only expand variable, wildcard or atom pattern"
+expandAtom _ = error "[type.match/expand-atom] can only expand variable, wildcard or atom pattern"
 
 
 isSymbol, isWildcard, isAtom :: Pattern -> Bool

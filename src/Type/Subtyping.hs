@@ -135,7 +135,7 @@ equivalent' gamma tau alpha@(ExistentialVariable ev)
     &&              ev
     `Set.notMember` Ctx.freeExistentialVariables gamma tau
   = Instantiate.to gamma alpha (tau, Type)
-equivalent' _ _ _ = error "[type.subtyping] equivalent fallthrough"
+equivalent' _ _ _ = error "[type.subtyping/equivalent] fallthrough"
 
 propositionsEquivalent :: Context -> Proposition -> Proposition -> Infer Context
 propositionsEquivalent gamma (Equals t1 t1') (Equals t2 t2') = do
