@@ -55,10 +55,12 @@ check' gamma [Term.Branch { patterns = Pattern.Atom _ atom : rhos, body = e }] (
     let typ = Synth.atom atom
     gamma' <- if primitive == typ
       then pure gamma
-      else catchError (Instantiate.to gamma primitive (typ, Type))
-                      (\case
-                          Error.Type InstantiationError -> typeerror $ TypeMismatch primitive typ
-                          _                             -> error "[type.match/check] could not instantiate primitive type")
+      else catchError
+        (Instantiate.to gamma primitive (typ, Type))
+        (\case
+          Error.Type InstantiationError -> typeerror $ TypeMismatch primitive typ
+          _ -> error "[type.match/check] could not instantiate primitive type"
+        )
     check gamma' [Term.Branch {patterns = rhos, body = e}] (map (Ctx.apply gamma') as, q) cp
 -- RULE: Match∃
 check' gamma branches (Exists alpha k a : as, q) cp =
@@ -125,9 +127,9 @@ check' gamma branches@[Term.Branch { patterns = Pattern.Record _ extent rhoMap :
 -- RULE: Match+ₖ
 check' gamma [Term.Branch { patterns = Pattern.Variant _ extent k rho : rhos, body = e }] (Variant row aMap : as, q) cp
   | compareExtent extent row && (q == Principal || k `Map.member` aMap)
-  = let
-      a = fromMaybe (error $ show $ "[type.match/check] couldn't find tag: " <> pretty k)
-        $ Map.lookup k aMap
+  = let a =
+          fromMaybe (error $ show $ "[type.match/check] couldn't find tag: " <> pretty k)
+            $ Map.lookup k aMap
     in  check gamma [Term.Branch {patterns = rho : rhos, body = e}] (a : as, q) cp
 check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k _ : _ }] (variant@(Variant (Open rowvar) aMap) : as, Nonprincipal) cp
   = do
@@ -365,7 +367,8 @@ expandVariable [] = []
 expandVariable (Term.Branch { patterns = rho : rhos, body = e } : pis)
   | isSymbol rho || isWildcard rho
   = let pis' = expandVariable pis in Term.Branch {patterns = rhos, body = e} : pis'
-expandVariable _ = error "[type.match/expand-variable] can only expand variable or wildcard pattern"
+expandVariable _ =
+  error "[type.match/expand-variable] can only expand variable or wildcard pattern"
 
 expandAtom :: [Branch] -> [Branch]
 expandAtom [] = []

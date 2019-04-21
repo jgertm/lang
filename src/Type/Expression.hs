@@ -108,7 +108,8 @@ substitute expr match replacement
 
 fromSyntax :: Map Ref.Type Type -> Syntax.Type phase -> Type
 fromSyntax typedefs (Syntax.Named _ typ@(Ref.Type name)) =
-  fromMaybe (error $ "[type.expression/from-syntax] unknown named type: " <> name) $ Map.lookup typ typedefs
+  fromMaybe (error $ "[type.expression/from-syntax] unknown named type: " <> name)
+    $ Map.lookup typ typedefs
 fromSyntax typedefs (Syntax.Tuple _ fields) =
   Tuple (map (fromSyntax typedefs) $ Map.fromList $ zip [1 ..] fields)
 fromSyntax typedefs (Syntax.Record _ fields) =
