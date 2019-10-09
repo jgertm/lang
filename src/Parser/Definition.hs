@@ -26,10 +26,17 @@ definition = injectContext
     pure $ \ctx -> Module ctx modulename forms
   typeDefinition = sexp $ do
     reserved "deftype"
-    typename  <- typeName
-    params    <- many typeName
+    (typename, params) <- concrete <|> abstract
     structure <- Type.expr
     pure $ \ctx -> Type ctx typename params structure
+      where
+        concrete = do
+          name <- typeName
+          pure (name, mempty)
+        abstract = sexp $ do
+          name <- typeName
+          params <- many1 typeName
+          pure (name, params)
   constantDefinition = sexp $ do
     reserved "def"
     constname <- variableName

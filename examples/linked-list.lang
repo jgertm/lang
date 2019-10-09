@@ -4,6 +4,10 @@
   (| [:nil Unit]
      [:cons {Integer IntList}]))
 
+(deftype (List T)
+  (| [:nil Unit]
+     [:cons {T (List T)}]))
+
 (defn empty? [list]
   (match list
     ([:nil _] true)
