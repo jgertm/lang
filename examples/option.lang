@@ -1,5 +1,5 @@
 (defmodule examples.option)
 
 (deftype Option T
-  (| [:none nil]
+  (| [:none Unit]
      [:some T]))
