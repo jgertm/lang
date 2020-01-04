@@ -7,6 +7,7 @@ module Type.Equation
 where
 
 import qualified Data.Set                      as Set
+import qualified Data.Map.Strict as Map
 
 import           Error                          ( TypeError(..) )
 import qualified Type.Context                  as Ctx
@@ -39,14 +40,14 @@ equals gamma (Succ t1) (Succ t2, Natural) = equals gamma t1 (t2, Natural)
 -- RULE: CheckeqInstL
 equals gamma alpha@(ExistentialVariable ev) (t, kind)
   | (ev, kind)
-    `Set.member`    Ctx.existentials gamma
+    `Map.member`    Ctx.existentials gamma
     &&              ev
     `Set.notMember` Ctx.freeExistentialVariables gamma t
   = Instantiate.to gamma alpha (t, kind)
 -- RULE: CheckeqInstR
 equals gamma t (alpha@(ExistentialVariable ev), kind)
   | (ev, kind)
-    `Set.member`    Ctx.existentials gamma
+    `Map.member`    Ctx.existentials gamma
     &&              ev
     `Set.notMember` Ctx.freeExistentialVariables gamma t
   = Instantiate.to gamma t (alpha, kind)

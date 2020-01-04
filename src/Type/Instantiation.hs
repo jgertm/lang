@@ -3,7 +3,8 @@ module Type.Instantiation
   )
 where
 
-import qualified Data.Set                      as Set
+import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 
 import           Error                          ( TypeError(..) )
 import qualified Type.Context                  as Ctx
@@ -18,12 +19,21 @@ to gamma a tk = to' gamma a tk
 
 -- RULE: InstReach
 to' gamma alphaTyp@(ExistentialVariable alpha) (ExistentialVariable beta, k)
-  | Ctx.isUnsolved beta gamma && Ctx.before gamma alpha beta = do
+  | isUnsolved (beta, k) gamma && before gamma alpha beta = do
     let (pre, post) = Ctx.split gamma (DeclareExistential beta k)
     pure $ Ctx.inject pre (SolvedExistential beta k alphaTyp) post
+  where isUnsolved exvar gamma = isJust $ Map.lookup exvar $ Ctx.existentials gamma
+        before (Context ctx) predecessor succecessor =
+          let matchExvar exvar = \case
+                DeclareExistential exvar' _  -> exvar == exvar'
+                SolvedExistential exvar' _ _ -> exvar == exvar'
+                _                            -> False
+              predIndex = Seq.findIndexL (matchExvar predecessor) ctx
+              succIndex = Seq.findIndexL (matchExvar succecessor) ctx
+          in  predIndex < succIndex
 -- RULE: InstBin
 to' gamma (ExistentialVariable alpha) (Function tau1 tau2, Type)
-  | (alpha, Type) `Set.member` Ctx.existentials gamma = do
+  | isJust $ (alpha, Type) `Map.lookup` Ctx.existentials gamma = do
     alpha1 <- freshExistential
     alpha2 <- freshExistential
     let alphaType1  = ExistentialVariable alpha1

@@ -6,4 +6,4 @@ import Type.Types
 
 check :: Context -> [Branch] -> ([Type], Principality) -> (Type, Principality) -> Infer Context
 
-covers :: Context -> [Branch] -> ([Type], Principality) -> Bool
+covers :: Context -> [Branch] -> ([Type], Principality) -> Infer Bool

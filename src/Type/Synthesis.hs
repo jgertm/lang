@@ -27,7 +27,7 @@ synthesize gamma e = synthesize' gamma e
 
 -- RULE: Var
 synthesize' gamma (Term.Symbol _ binding) = do
-  (a, p) <- Ctx.lookup binding gamma
+  (a, p) <- lookup binding gamma
   pure ((Ctx.apply gamma a, p), gamma)
 -- TODO: Anno
 synthesize' gamma (Term.Annotation _ e a) =
@@ -69,7 +69,7 @@ spine' gamma (e : s) (Function a b, p) = do
   theta <- Analysis.check gamma e (a, p)
   spine theta s (Ctx.apply theta b, p)
 -- RULE: α̂Spine
-spine' gamma es (ExistentialVariable alpha, p) | (alpha, Type) `Set.member` Ctx.existentials gamma =
+spine' gamma es (ExistentialVariable alpha, p) | (alpha, Type) `Map.member` Ctx.existentials gamma =
   do
     alpha1 <- freshExistential
     alpha2 <- freshExistential

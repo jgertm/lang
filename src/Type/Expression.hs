@@ -26,7 +26,6 @@ import qualified Data.Map.Strict               as Map
 
 import qualified Syntax.Reference              as Ref
 import qualified Syntax.Type                   as Syntax
-import           Type.Monad
 import           Type.Types
 
 
@@ -110,6 +109,10 @@ fromSyntax :: Map Ref.Type Type -> Syntax.Type phase -> Type
 fromSyntax typedefs (Syntax.Named _ typ@(Ref.Type name)) =
   fromMaybe (error $ "[type.expression/from-syntax] unknown named type: " <> name)
     $ Map.lookup typ typedefs
+fromSyntax typedefs (Syntax.Application _ typ@(Ref.Type name) params) =
+  let typ' = fromMaybe (error $ "[type.expression/from-syntax] unknown named type in application: " <> name) $ Map.lookup typ typedefs
+      params' = map (fromSyntax typedefs) params
+  in Application typ' params'
 fromSyntax typedefs (Syntax.Tuple _ fields) =
   Tuple (map (fromSyntax typedefs) $ Map.fromList $ zip [1 ..] fields)
 fromSyntax typedefs (Syntax.Record _ fields) =
@@ -122,6 +125,8 @@ findVariant :: Ref.Keyword -> Map Ref.Type Type -> Maybe (Ref.Type, Type)
 findVariant tag =
   let match (Variant Closed tags) = tag `Map.member` tags
       match (Fix     _      body) = match body
+      match (Abstraction _ body)  = match body
+      match (Forall _ _ body)     = match body
       match _                     = False
   in  find (match . snd) . toPairs
 

@@ -5,7 +5,7 @@ module Type.Types
   , Kind(..)
   , Variable(..)
   , VariableId(..)
-  , Quantification(..)
+  , Mode(..)
   , Row(..)
   , compareExtent
   , Principality(..)
@@ -53,7 +53,7 @@ data Fact
                       Kind
                       Type
   | Definition Ref.Type Kind Type
-  | Marker (Variable 'Existential)
+  | Marker (Variable 'Mark)
   deriving (Show, Ord, Generic)
 
 instance Eq Fact where
@@ -76,6 +76,9 @@ instance Eq Fact where
   (==) (Binding name _ _) = \case
     Binding name' _ _ -> name == name'
     _ -> False
+  (==) (Definition name kind _) = \case
+    Definition name' kind' _ -> name == name' && kind == kind'
+    _ -> False
   (==) (Marker name) = \case
     Marker name' -> name == name'
     _ -> False
@@ -85,13 +88,14 @@ data Principality
   | Nonprincipal
   deriving (Show, Eq, Ord, Generic)
 
-newtype Variable (quantification :: Quantification) =
+newtype Variable (mode :: Mode) =
   Variable VariableId
   deriving (Show, Eq, Ord, Generic)
 
-data Quantification
+data Mode
   = Existential
   | Universal
+  | Mark
 
 newtype VariableId =
   VariableId Int
@@ -110,7 +114,6 @@ data Type
   | Record Row (Map Ref.Keyword Type)
   | UniversalVariable (Variable 'Universal)
   | ExistentialVariable (Variable 'Existential)
-  | Named Ref.Type
   | Forall (Variable 'Universal)
            Kind
            Type
@@ -127,6 +130,8 @@ data Type
            Type
   | Fix (Variable 'Existential)
         Type
+  | Abstraction [(Variable 'Universal, Kind)] Type
+  | Application Type [Type]
   deriving (Show, Eq, Ord, Generic)
 
 instance Pretty Type where
@@ -171,15 +176,21 @@ instance Pretty Type where
             pure $ braces $ hsep fields''
           render (UniversalVariable var) = display var
           render (ExistentialVariable var) = display var
-          render (Named name) = pure $ pretty name
           render (Forall var _ typ) = do
             var' <- display var
             typ' <- render typ
-            pure $ parens $ hsep ["forall", var' <> ".", typ']
+            pure $ parens $ hsep ["∀", var' <> ".", typ']
           render (Fix var typ) = do
             var' <- display var
             typ' <- render typ
-            pure $ parens $ hsep ["fix", var' <> ".", typ']
+            pure $ parens $ hsep ["μ", var' <> ".", typ']
+          render (Abstraction params body) = do
+            params' <- fmap (brackets . hsep) $ traverse (display . fst) params
+            pure $ parens $ hsep ["Λ" , params']
+          render (Application operator args) = do
+            operator' <- render operator
+            args' <- traverse render args
+            pure $ parens $ hsep $ operator' : args'
           render t = pure $ show t
 
 data Row = Closed | Open (Variable 'Existential) deriving (Generic, Show, Eq, Ord)
@@ -203,28 +214,28 @@ data Polarity
 
 greekAlphabet :: IsString s => [s]
 greekAlphabet =
-  [ "alpha"
-  , "beta"
-  , "gamma"
-  , "delta"
-  , "epsilon"
-  , "zeta"
-  , "eta"
-  , "theta"
-  , "iota"
-  , "kappa"
-  , "lambda"
-  , "mu"
-  , "nu"
-  , "xi"
-  , "omicron"
-  , "pi"
-  , "rho"
-  , "sigma"
-  , "tau"
-  , "upsilon"
-  , "phi"
-  , "chi"
-  , "psi"
-  , "omega"
+  [ "α"
+  , "β"
+  , "γ"
+  , "δ"
+  , "ε"
+  , "ζ"
+  , "η"
+  , "θ"
+  , "ι"
+  , "κ"
+  , "λ"
+  , "μ"
+  , "ν"
+  , "ξ"
+  , "ο"
+  , "π"
+  , "ρ"
+  , "σ"
+  , "τ"
+  , "υ"
+  , "ϕ"
+  , "χ"
+  , "ψ"
+  , "ω"
   ]

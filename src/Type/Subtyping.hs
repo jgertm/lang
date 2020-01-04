@@ -8,6 +8,7 @@ module Type.Subtyping
   )
 where
 
+import qualified Data.Map.Strict as Map
 import qualified Data.Map.Merge.Strict         as Map
 import qualified Data.Set                      as Set
 
@@ -28,9 +29,9 @@ subtype = subtype'
 subtype' gamma _ a b | not (isQuantified a) && not (isQuantified b) = equivalent gamma a b
 -- RULE: <:∀L
 subtype' gamma Negative (Forall alpha kind a) b | not $ isUniversallyQuantified b = do
+  marker <- Marker <$> freshMark
   alphaEx <- freshExistential
-  let marker = Marker alphaEx
-      gamma' = Ctx.adds gamma [marker, DeclareExistential alphaEx kind]
+  let gamma' = Ctx.adds gamma [marker, DeclareExistential alphaEx kind]
   ctx <- subtype gamma'
                  Negative
                  (substitute a (UniversalVariable alpha) (ExistentialVariable alphaEx))
@@ -50,9 +51,9 @@ subtype' gamma Positive (Exists alpha kind a) b = do
   pure $ Ctx.drop ctx declaration
 -- RULE: <:∃R
 subtype' gamma Positive a (Exists beta kind b) | not $ isExistentiallyQuantified a = do
+  marker <- Marker <$> freshMark
   betaEx <- freshExistential
-  let marker = Marker betaEx
-      gamma' = Ctx.adds gamma [marker, DeclareExistential betaEx kind]
+  let gamma' = Ctx.adds gamma [marker, DeclareExistential betaEx kind]
   ctx <- subtype gamma'
                  Positive
                  a
@@ -124,14 +125,14 @@ equivalent' gamma (With a p) (With b q) = do
 -- RULE: ≡InstantiateL
 equivalent' gamma alpha@(ExistentialVariable ev) tau
   | (ev, Type)
-    `Set.member`    Ctx.existentials gamma
+    `Map.member`    Ctx.existentials gamma
     &&              ev
     `Set.notMember` Ctx.freeExistentialVariables gamma tau
   = Instantiate.to gamma alpha (tau, Type)
 -- RULE: ≡InstantiateR
 equivalent' gamma tau alpha@(ExistentialVariable ev)
   | (ev, Type)
-    `Set.member`    Ctx.existentials gamma
+    `Map.member`    Ctx.existentials gamma
     &&              ev
     `Set.notMember` Ctx.freeExistentialVariables gamma tau
   = Instantiate.to gamma alpha (tau, Type)

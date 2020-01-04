@@ -6,6 +6,7 @@ import qualified Data.Map.Strict               as Map
 import           Data.Text.Prettyprint.Doc
 import           Text.Pretty.Simple
 import qualified Universum.Unsafe              as Unsafe
+import qualified System.IO
 
 import qualified Application                   as App
 import           Classes
@@ -32,6 +33,7 @@ import           Type.Types                     ( Principality(..) )
 
 main :: IO ()
 main = do
+  System.IO.hSetEncoding System.IO.stdout System.IO.utf8
   putStrLn ""
   let path = "examples/linked-list.lang"
   src <- readFile path

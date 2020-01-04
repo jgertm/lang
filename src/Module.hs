@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
+
 module Module
   ( Module(..)
   , load
@@ -8,18 +10,13 @@ module Module
 where
 
 import qualified Data.Map.Strict               as Map
-import           Data.Sequence                  ( (|>) )
 import           Data.Text.Prettyprint.Doc
 
 import           Application                    ( Compile )
 import qualified Builtins
-import           Classes                        ( Empty
-                                                , meta
-                                                )
-import           Error                          ( Error )
+import           Classes                        (meta)
 import qualified Error
 import qualified Interpreter
-import           Interpreter.Types              ( Evaluation )
 import qualified Interpreter.Types             as Interpreter
 import qualified Parser
 import           Parser.Common                  ( Parsing )
@@ -28,11 +25,9 @@ import qualified Syntax.Atom                   as Atom
 import           Syntax.Definition              ( Definition )
 import qualified Syntax.Definition             as Def
 import qualified Syntax.Reference              as Ref
-import           Syntax.Term                    ( Term )
 import qualified Syntax.Term                   as Term
 import           Type                           ( Type )
 import qualified Type
-import qualified Type.Context                  as Ctx
 import qualified Type.Expression               as Type
 import qualified Type.Monad                    as Type
 import qualified Type.Types                    as Type
@@ -65,7 +60,7 @@ withinScope acc modul =
 
 parse :: FilePath -> Text -> Compile Module
 parse path source = do
-  ast@(Def.Module _ name definitions) <- Parser.parse Parser.file path source
+  (Def.Module _ name definitions) <- Parser.parse Parser.file path source
   pure $ Module
     { name
     , imports     = [native]
@@ -80,12 +75,30 @@ typecheck mod = foldM process mod $ definitions mod
  where
   process _ Def.Module{} = error "[module/typecheck] submodule typechecking not yet implemented"
 
-  process modul typedef@(Def.Type _ name _ body) = do
-    nameVar <- Type.freshExistential
-    let varType = Type.ExistentialVariable nameVar
-        body'   = Type.fromSyntax (Map.insert name varType $ withinScope typedefs modul) body
-        typ     = if body' `Type.contains` varType then Type.Fix nameVar body' else body'
+  process modul (Def.Type _ name params body) = do
+    typ <- buildType (withinScope typedefs modul) name params
     pure $ modul { typedefs = Map.insert name typ $ typedefs modul }
+      where
+        instantiateName :: Ref.Type -> Compile Type
+        instantiateName _ = Type.ExistentialVariable <$> Type.freshExistential
+        instantiateParameters :: [Ref.Type] -> Compile [(Ref.Type, (Type.Variable 'Type.Universal, Type.Kind))]
+        instantiateParameters refs =
+          traverse (\ref -> do
+                       uvar <- Type.freshUniversal
+                       pure (ref, (uvar, Type.Type))) refs
+        buildType typedefs name params = do
+          nameType@(Type.ExistentialVariable nameVar) <- instantiateName name
+          paramVars <- instantiateParameters params
+          let env =
+                Map.insert name nameType
+                $ Map.union (map Type.UniversalVariable $ map fst $ Map.fromList paramVars) typedefs
+              body' = Type.fromSyntax env body
+              inner =
+                if body' `Type.contains` nameType
+                then Type.Fix nameVar body'
+                else body'
+              typ = foldr (\(uv, k) t -> Type.Forall uv k t) inner $ map snd paramVars
+          pure typ
 
   process modul (Def.Constant _ name body) = do
     typ <- Type.inferWith (withinScope typedefs modul) (withinScope bindings modul) body

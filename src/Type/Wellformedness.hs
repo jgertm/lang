@@ -13,7 +13,7 @@ import           Type.Types
 checkKind :: Context -> Type -> Kind -> Bool
 -- RULE: VarSort
 checkKind gamma (UniversalVariable uv) kind | (uv, kind) `Set.member` Ctx.universals gamma = True
-checkKind gamma (ExistentialVariable ev) kind | (ev, kind) `Set.member` Ctx.existentials gamma =
+checkKind gamma (ExistentialVariable ev) kind | (ev, kind) `Map.member` Ctx.existentials gamma =
   True
 -- RULE: SolvedVarSort
 checkKind gamma (ExistentialVariable ev) kind
@@ -40,8 +40,7 @@ checkType :: Context -> Type -> Bool
 -- RULE: VarWF
 checkType gamma (UniversalVariable uv) = uv `Set.member` (Set.map fst $ Ctx.universals gamma)
 checkType gamma (ExistentialVariable ev)
-  | ev `Set.member` (Set.map fst $ Ctx.existentials gamma) = True
-  | Map.member ev (Ctx.existentialSolutions gamma) = True
+  | Map.member ev (Map.mapKeys fst (Ctx.existentials gamma)) = True
   | otherwise = False
 -- RULE: SolvedVarWF
 -- RULE: UnitWF

@@ -36,13 +36,6 @@ check' gamma [] _ _ = pure gamma
 -- RULE: MatchBase
 check' gamma [Term.Branch { patterns = [], body = e }] ([], _) (c, p) =
   Analysis.check gamma e (c, p)
--- RULE: MatchNameT
-check' gamma term (Named name : as, p) cp =
-  let (typ, _) =
-        fromMaybe (error "[type.match/check] couldn't find named type")
-          $ Map.lookup name
-          $ Ctx.definitions gamma
-  in  check gamma term (typ : as, p) cp
 -- RULE: MatchFixT
 check' gamma term (typ@(Fix alpha sub) : as, p) cp =
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
@@ -148,21 +141,29 @@ check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Open k 
       variant = Variant (Open alpha) $ Map.singleton k (ExistentialVariable ak)
       ctx = Ctx.splice pre [DeclareExistential ak Type, SolvedExistential alpha Type variant] post
     check ctx branches (variant : as, Nonprincipal) cp
-check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Closed k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp
-  = do
-    let typedefs = map fst $ Ctx.definitions gamma
-        (name, _) =
-          fromMaybe (error "[type.match/check] couldn't find defined variant type for tag")
-            $ findVariant k typedefs
-        (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
-        ctx         = Ctx.inject pre (SolvedExistential alpha Type $ Named name) post
-    check ctx branches (Named name : as, Principal) cp
+check' gamma branches@[Term.Branch { patterns = Pattern.Variant _ Syntax.Closed k _ : _ }] (ExistentialVariable alpha : as, Nonprincipal) cp = do
+  let typedefs = map fst $ Ctx.definitions gamma
+      (_, typ) =
+        fromMaybe (error "[type.match/check] couldn't find defined variant type for tag")
+          $ findVariant k typedefs
+  (typ', gamma') <- case typ of
+    Forall uvar kind body -> do
+      evar <- freshExistential
+      let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
+          gamma' = Ctx.splice pre [DeclareExistential evar kind, DeclareExistential alpha Type] post
+          typ'   = substitute body (UniversalVariable uvar) (ExistentialVariable evar)
+      pure (typ', gamma')
+    _ -> pure (typ, gamma)
+  let ctx = Ctx.solve gamma' (alpha, Type) typ'
+  check ctx branches (typ' : as, Principal) cp
 -- RULE: MatchNeg
 check' gamma [Term.Branch { patterns = Pattern.Symbol _ z : rhos, body = e }] (a : as, q) cp
   | not (isWith a || isExistentiallyQuantified a) = do
+    marker <- Marker <$> freshMark
     let binding = Binding z a Principal
-    ctx <- check (Ctx.add gamma binding) [Term.Branch {patterns = rhos, body = e}] (as, q) cp
-    pure $ Ctx.drop ctx binding
+        gamma' = Ctx.adds gamma [marker, binding]
+    theta <- check gamma' [Term.Branch {patterns = rhos, body = e}] (as, q) cp
+    pure $ Ctx.drop theta marker
 -- RULE: MatchWild
 check' gamma [Term.Branch { patterns = Pattern.Wildcard _ : rhos, body = e }] (a : as, q) cp
   | not (isWith a || isExistentiallyQuantified a) = check
@@ -219,8 +220,7 @@ incorporate
 -- RULE: Match⊥
 -- RULE: MatchUnify
 incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
-  p <- freshExistential
-  let marker = Marker p
+  marker <- Marker <$> freshMark
   catchError
     (do
       theta <- Equation.unify (Ctx.add gamma marker) sigma (tau, Type) -- FIXME: kind is unspecified
@@ -230,32 +230,25 @@ incorporate gamma (Equals sigma tau) branches (as, Principal) cp = do
     (const $ pure gamma)
 incorporate _ _ _ _ _ = error "[type.match/incorporate] fallthrough"
 
-covers, covers' :: Context -> [Branch] -> ([Type], Principality) -> Bool
+covers :: Context -> [Branch] -> ([Type], Principality) -> Infer Bool
+covers gamma bs tsp = pure $ covers' gamma bs tsp
 
-covers = covers'
-
+covers' :: Context -> [Branch] -> ([Type], Principality) -> Bool
 -- RULE: CoversEmpty
 covers' _ (Term.Branch { patterns = [] } : _) ([], _) = True
--- RULE: CoversNameT
-covers' gamma branches (Named name : as, p) =
-  let (typ, _) =
-        fromMaybe (error "[type.match/covers] couldn't find named type")
-          $ Map.lookup name
-          $ Ctx.definitions gamma
-  in  covers gamma branches (typ : as, p)
 -- RULE: CoversFixT
 covers' gamma branches (typ@(Fix alpha sub) : as, p) =
   let (pre, post) = Ctx.split gamma (DeclareExistential alpha Type)
       solution    = SolvedExistential alpha Type typ
       gamma'      = Ctx.inject pre solution post
-  in  covers gamma' branches (sub : as, p)
+  in  covers' gamma' branches (sub : as, p)
 -- RULE: Covers1 (Atom)
-covers' gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers gamma pis' (as, q)
+covers' gamma pis (Primitive _ : as, q) = let pis' = expandAtom pis in covers' gamma pis' (as, q)
 -- RULE: Covers× (Tuple/Record)
 covers' gamma pis (Tuple aMap : as, q) =
-  let pis' = expandTuple pis in covers gamma pis' (elems aMap <> as, q)
+  let pis' = expandTuple pis in covers' gamma pis' (elems aMap <> as, q)
 covers' gamma pis (Record _ aMap : as, q) =
-  let pis' = expandRecord pis in covers gamma pis' (elems aMap <> as, q)
+  let pis' = expandRecord pis in covers' gamma pis' (elems aMap <> as, q)
 -- RULE: Covers+ (Variant)
 covers' gamma pis (Variant _ aMap : as, q) =
   let pisMap  = expandVariant pis
@@ -263,22 +256,24 @@ covers' gamma pis (Variant _ aMap : as, q) =
       tuple   = Map.zipWithAMatched $ \_ branches a -> Just (branches, a)
   in  case Map.mergeA missing missing tuple pisMap aMap of
         Nothing      -> False
-        Just pisAMap -> all (\(pisK, aK) -> covers gamma pisK (aK : as, q)) pisAMap
+        Just pisAMap -> all (\(pisK, aK) -> covers' gamma pisK (aK : as, q)) pisAMap
 -- RULE: Covers∃
 covers' gamma pis (Exists alpha k _ : as, q) =
-  let gamma' = Ctx.add gamma $ DeclareUniversal alpha k in covers gamma' pis (as, q)
+  let gamma' = Ctx.add gamma $ DeclareUniversal alpha k in covers' gamma' pis (as, q)
+-- RULE: Covers∀
+covers' gamma pis (Forall alpha k a' : as, q) = covers' gamma pis (a' : as, q)
 -- RULE: Covers∧
 covers' gamma pis (With a0 prop : as, Principal) =
   coversAssuming gamma prop pis (a0 : as, Principal)
 -- RULE: Covers∧!/ (Nonprincipal)
-covers' gamma pis (With a0 _ : as, Nonprincipal) = covers gamma pis (a0 : as, Nonprincipal) -- FIXME: I think there's a typo regarding this rule in the paper
+covers' gamma pis (With a0 _ : as, Nonprincipal) = covers' gamma pis (a0 : as, Nonprincipal) -- FIXME: I think there's a typo regarding this rule in the paper
 -- TODO: CoversVec
--- covers gamma pis (Vector t a : as, Principal) =
+-- covers' gamma pis (Vector t a : as, Principal) =
 --   let (pisNil, pisCons) = expandVector pis
 --   in  guarded pi && coversAssuming gamma (Equals t Zero) pisNil (as, Principal)
 -- TODO: CoversVec!/ (Nonprincipal)
 -- RULE: CoversVar
-covers' gamma pis (_ : as, q) = let pis' = expandVariable pis in covers gamma pis' (as, q)
+covers' gamma pis (_ : as, q) = let pis' = expandVariable pis in covers' gamma pis' (as, q)
 covers' _ _ _ = False
 
 -- TODO

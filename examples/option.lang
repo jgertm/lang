@@ -3,3 +3,24 @@
 (deftype (Option T)
   (| [:none Unit]
      [:some T]))
+
+(defn foo
+  [option]
+  (match option
+         ([:none _] "foo")
+         ([:some n] n)))
+
+(defn default
+  [option fallback]
+  (match option
+    ([:none _] fallback)
+    ([:some value] value)))
+
+(defn flip-default
+  [fallback option]
+  (match option
+    ([:none _] fallback)
+    ([:some value] value)))
+
+(defn main []
+  (default [:some 2] 3))
