@@ -6,6 +6,10 @@
             [lang.zip :as zip]
             [clojure.walk :as walk]))
 
+(def builtins
+  {{:ast/type :named :name {:reference :type, :name "Unit"}}
+   {:ast/type :primitive :primitive :unit}})
+
 (defn undefined []
   (throw (Exception. "not implemented yet")))
 
@@ -16,11 +20,15 @@
 (declare subtyping:polarity)
 (declare subtype)
 
+(defn- next-variable-id
+  [module]
+  (swap! (:type-checker/current-variable module) inc))
+
 (defn- fresh-existential
   ([module]
    (fresh-existential module :kind/type))
   ([module kind]
-   (let [variable-id (swap! (:type-checker/current-variable module) inc)
+   (let [variable-id (next-variable-id module)
          type    {:ast/type :existential-variable
                   :id       variable-id}]
      (swap! (:type-checker/facts module)
@@ -33,7 +41,7 @@
   ([module]
    (fresh-universal module :kind/type))
   ([module kind]
-   (let [variable-id (swap! (:type-checker/current-variable module) inc)
+   (let [variable-id (next-variable-id module)
          type        {:ast/type :universal-variable
                       :id       variable-id}]
      (swap! (:type-checker/facts module)
@@ -44,19 +52,20 @@
 
 (defn- fresh-mark
   [module]
-  (let [marker {:fact/marker (swap! (:type-checker/current-variable module) inc)}]
+  (let [marker {:fact/marker (next-variable-id module)}]
     (swap! (:type-checker/facts module) zip/insert-left marker)
     marker))
 
 (defn- drop
   [module fact]
-  (swap! (:type-checker/facts module)
-    #(-> %
-       (zip/->end)
-       (zip/focus-left fact)
-       (zip/left)
-       (zip/truncate-right)))
-  nil)
+  (let [zipper
+        (swap! (:type-checker/facts module)
+          #(-> %
+             (zip/->end)
+             (zip/focus-left fact)
+             (zip/left)))]
+    (reset! (:type-checker/facts module) (update zipper 1 dissoc :right))
+    (next (:right (second zipper)))))
 
 (defn- solve-existential
   ([module existential solution]
@@ -88,7 +97,7 @@
     (zip/left-seq)
     (keep (fn [fact]
             (when-let [existential (:fact/solve-existential fact)]
-              [existential fact])))
+              [existential (:type fact)])))
     (into {})))
 
 (defn- bindings
@@ -104,71 +113,121 @@
 
 (defn- apply
   [module type]
-  (match type ; TODO
-    _ type))
+  (match type
+    {:ast/type :existential-variable :id id}
+    (or
+      (some->> id
+        (get (existential-solutions module))
+        (apply module))
+      type)
+
+    {:ast/type :universal-variable :id id}
+    (or
+      (some->> id
+        (get (universal-solutions module))
+        (apply module))
+      type)
+
+    {:ast/type :function :domain domain :return return}
+    (-> type
+      (update :domain (partial apply module))
+      (update :return (partial apply module)))
+
+    {:ast/type :variant}
+    (update type :variants
+      #(->> %
+         (map (fn [[keyword type]] [keyword (apply module type)]))
+         (into {})))
+
+    {:ast/type :primitive}
+    type
+
+    {:ast/type :named :name name}
+    (or
+      (get (:types module) name)
+      (break! :apply/named.unknown))
+
+    _
+    (break! :apply/fallthrough)))
 
 (defn- analysis:check
-  [module term [type principality]]
-  (match [term type principality]
-    [{:ast/term :atom :atom atom}
-     {:ast/type :existential-variable :id alpha}
-     :non-principal]
-    (let [type {:ast/type :primitive :primitive (:atom atom)}]
-      (solve-existential module alpha type))
+  [module term type-principality]
+  (let [[type principality] (if-let [[type principality] (not-empty type-principality)]
+                              [(apply module type) principality]
+                              type-principality)]
+    (match [term type principality]
+      [{:ast/term :atom :atom atom}
+       {:ast/type :existential-variable :id alpha}
+       :non-principal]
+      (let [type {:ast/type :primitive :primitive (:atom atom)}]
+        (solve-existential module alpha type))
 
-    [{:ast/term :lambda :argument argument :body body}
-     {:ast/type :existential-variable :id alpha}
-     :non-principal] ; TODO: guard that `alpha` is declared
-    (let [_        (swap! (:type-checker/facts module) zip/focus-left {:fact/declare-existential alpha :kind :kind/type})
-          mark     (fresh-mark module)
-          alpha-1  (fresh-existential module)
-          alpha-2  (fresh-existential module)
-          function {:ast/type :function
-                    :domain   alpha-1
-                    :return   alpha-2}]
-      (solve-existential module alpha function)
-      (bind-symbol module argument alpha-1 :non-principal)
-      (analysis:check module body [alpha-2 :non-principal])
+      [{:ast/term :lambda :argument argument :body body}
+       {:ast/type :existential-variable :id alpha}
+       :non-principal]          ; TODO: guard that `alpha` is declared
+      (let [_        (swap! (:type-checker/facts module)
+                       zip/focus-left
+                       {:fact/declare-existential alpha :kind :kind/type})
+            mark     (fresh-mark module)
+            alpha-1  (fresh-existential module)
+            alpha-2  (fresh-existential module)
+            function {:ast/type :function
+                      :domain   alpha-1
+                      :return   alpha-2}]
+        (solve-existential module alpha function)
+        (bind-symbol module argument alpha-1 :non-principal)
+        (analysis:check module body [alpha-2 :non-principal])
+        (let [discard (drop module mark)
+              universal-variables
+              (reduce
+                (fn [universal-variables fact]
+                  (match fact
+                    {:fact/declare-existential existential-variable-id :kind kind}
+                    (let [existential-variable  {:ast/type :existential-variable
+                                                 :id       existential-variable-id}
+                          universal-variable-id (next-variable-id module)
+                          universal-variable    {:ast/type :universal-variable
+                                                 :id       universal-variable-id}]
+                      (swap! (:type-checker/facts module) 
+                        zip/insert-right
+                        {:facts/declare-universal universal-variable-id
+                         :kind                    kind}
+                        {:fact/solve-existential existential-variable-id
+                         :kind                   kind
+                         :type                   universal-variable})
+                      (swap! (:type-checker/facts module) zip/->end)
+                      (conj universal-variables universal-variable))
 
-      (break! :analysis.check/function-introduction-existential)
-      (-> module
-        :type-checker/facts
-        (deref)
-        #_(zip/focus-left mark)
-        #_(second)
-        #_:right)
-      alpha
+                    fact
+                    (do (swap! (:type-checker/facts module) zip/insert-right fact)
+                        (swap! (:type-checker/facts module) zip/->end)
+                        universal-variables)))
+                []
+                discard)
+              generalized-function
+              (reduce
+                (fn [type universal-variable]
+                  {:ast/type :forall
+                   :variable universal-variable
+                   :body     type})
+                (apply module function)
+                universal-variables)]
+          (solve-existential module alpha generalized-function :kind/type)))
 
-      ;; TODO: shit
-      (undefined))
+      [{:ast/term :match :body body :branches branches} _ _]
+      (let [[pattern-type pattern-principality] (synthesize module body)]
+        (match:check module
+          branches
+          [(apply module pattern-type) pattern-principality]
+          [(apply module type) principality])
+        nil)
 
-    [{:ast/term :match :body body :branches branches} _ _]
-    (let [[pattern-type pattern-principality] (synthesize module body)]
-      (match:check module
-        branches
-        [(apply module pattern-type) pattern-principality]
-        [(apply module type) principality])
-      nil)
-
-    [_ _ _]
-    (let [[synth-type] (synthesize module term)
-          polarity (subtyping:join
-                     (subtyping:polarity type)
-                     (subtyping:polarity synth-type))]
-      (subtype module polarity synth-type type))))
-
-(comment
-  (lang.compiler/run "../lang/examples/option.lang")
-
-  (unbreak!!)
-
-  [#_module type-a type-b]
-
-  @(:type-checker/facts module)
-
-  (unbreak!)
-
-  )
+      [_ _ _]
+      (let [[synth-type] (synthesize module term)
+            polarity     (subtyping:join
+                           (subtyping:polarity type)
+                           (subtyping:polarity synth-type))]
+        (subtype module polarity synth-type type)))))
 
 (defn- subtyping:join
   [type-a type-b]
@@ -206,18 +265,22 @@
 (defn- instantiate-to
   [module type [solution kind]]
   (match [type [solution kind]]
-    [{:ast/type :existential-variable} _]
+    [{:ast/type :existential-variable :id alpha} _]
     (let [solution (apply module solution)]
       ;; TODO: check for wellformedness
-      (solve-existential module type solution))))
+      (solve-existential module alpha solution kind))))
 
 (defn- subtyping:equivalent
   [module type-a type-b]
   (match [type-a type-b]
+    [{:ast/type :existential-variable} _]
+    (instantiate-to module type-a [type-b :kind/type])
+
     [_ {:ast/type :existential-variable}]
     (instantiate-to module type-b [type-a :kind/type])
 
-    [_ _] (undefined)))
+    [_ _]
+    (break! :subtyping.equivalent/fallthrough)))
 
 (defn subtype
   [module polarity type-a type-b]
@@ -235,55 +298,83 @@
               (contains? variants tag)
 
               {:ast/type :forall :body body}
-              (check body)))]
+              (check body)
+
+              {:ast/type :primitive}
+              nil
+
+              _
+              (break! :find-variant/fallthrough)))]
     (->> module
       :types
       (vals)
-      (some #(when (check (:body %)) %)))))
+      (some #(when (check %) %)))))
 
-(defn- instantiate-typedef
-  [type module]
-  (match (:body type)
+(defn- instantiate-universal
+  [module type]
+  (match type
     {:ast/type :forall :variable universal-variable :body body}
     (let [existential-variable (fresh-existential module)]
-      [(walk/prewalk-replace {universal-variable existential-variable} body) :non-principal])
+      [(->> body
+         (instantiate-universal module)
+         (first)
+         (walk/prewalk-replace {universal-variable existential-variable}))
+       :non-principal])
 
     _
     [type :principal]))
 
 (defn- match:check
-  [module branches [pattern-type pattern-principality :as pattern] return]
-  (match [branches pattern]
-    [[{:pattern {:ast/pattern :variant :variant [tag sub-pattern]} :action action}] [{:ast/type :variant :variants variants} principality]]
-    (match:check module [{:pattern sub-pattern :action action}] [(get variants tag) principality] return)
+  [module branches pattern return]
+  (let [apply*
+        #(if-let [[type principality] (not-empty %)]
+           [(apply module type) principality]
+           %) 
+        [pattern-type pattern-principality :as pattern] (apply* pattern)
+        [return-type return-principality :as return] (apply* return)]
+    (match [branches pattern]
+      [[{:pattern {:ast/pattern :variant :variant [tag sub-pattern]} :action action}]
+       [{:ast/type :variant :variants variants} principality]]
+      (match:check module [{:pattern sub-pattern :action action}] [(get variants tag) principality] return)
 
-    [[{:pattern {:ast/pattern :variant :variant [tag _]}}] [{:ast/type :existential-variable :id alpha} :non-principal]]
-    (let [[type principality]
-          (-> module
-            (find-variant tag)
-            (instantiate-typedef module))]
-      (solve-existential module alpha type)
-      (match:check module branches [type principality] return))
+      [[{:pattern {:ast/pattern :variant :variant [tag _]}}]
+       [{:ast/type :existential-variable :id alpha} :non-principal]]
+      (let [[type principality]
+            (->> tag
+              (find-variant module)
+              (instantiate-universal module))]
+        (solve-existential module alpha type)
+        (match:check module branches [type principality] return))
 
-    [[({:action action} :only [:action])] _]
-    (analysis:check module action return)
+      [[({:action action} :only [:action])]
+       _]
+      (analysis:check module action return)
 
-    [([] :guard empty?) _]
-    nil
+      [([] :guard empty?)
+       _]
+      nil
 
-    [[{:pattern {:ast/pattern :symbol :symbol symbol} :action action}] [type principality]]
-    (let [mark (fresh-mark module)]
-      (bind-symbol module symbol type principality)
+      [[{:pattern {:ast/pattern :symbol :symbol symbol} :action action}]
+       [type principality]]
+      (let [mark (fresh-mark module)]
+        (bind-symbol module symbol type principality)
+        (match:check module [{:action action}] [] return)
+        (drop module mark)
+        nil)
+
+      [[{:pattern {:ast/pattern :wildcard} :action action}]
+       _]
       (match:check module [{:action action}] [] return)
-      (drop module mark))
 
-    [[{:pattern {:ast/pattern :wildcard} :action action}] _]
-    (match:check module [{:action action}] [] return)
+      [[first-pattern & more-patterns]
+       [pattern-type pattern-principality]]
+      (do
+        (match:check module [first-pattern] pattern return)
+        (match:check module
+          more-patterns
+          [(apply module pattern-type) pattern-principality]
+          [(apply module return-type) return-principality])))))
 
-    [[first-pattern & more-patterns] [pattern-type pattern-principality]]
-    (do
-      (match:check module [first-pattern] pattern return)
-      (match:check module more-patterns [(apply module pattern-type) pattern-principality] return))))
 
 
 (defn- synthesize
@@ -293,12 +384,12 @@
     (get (bindings module) symbol)
 
     {:ast/term :application}
-    (undefined)
+    (break! :synthesize/application)
 
     {:ast/term _}
     (let [alpha (fresh-existential module)
           _     (analysis:check module term [alpha :non-principal])]
-      [(get (existential-solutions module) alpha alpha) :non-principal])))
+      [(apply module (get (existential-solutions module) alpha alpha)) :non-principal])))
 
 (defn- abstract-type
   [module {:keys [params body] :as definition}]
@@ -311,10 +402,11 @@
       (reduce
         (fn [type param]
           {:ast/type :forall
-           :variable (get param-type->universal-variable param)
+           :variable (get param-type->universal-variable {:ast/type :named :name param})
            :body     type})
-        (walk/prewalk-replace param-type->universal-variable body))
-      (assoc definition :body))))
+        (walk/prewalk-replace
+          (merge (:types module) param-type->universal-variable)
+          body)))))
 
 (defn run
   [module]
@@ -332,5 +424,6 @@
           (let [[type principality] (synthesize module expr)]
             (assoc-in module [:values name] type))))
       (assoc module
+        :types builtins 
         :type-checker/current-variable (atom 0)
         :type-checker/facts (atom zip/empty)))))

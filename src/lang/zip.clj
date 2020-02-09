@@ -29,7 +29,7 @@
 
 (defn left
   [[current state :as zipper]]
-  (if (and (some? current) (not (start? zipper)))
+  (if (not (start? zipper))
     [(peek (:left state))
      (-> state
        (update :left pop)
@@ -38,7 +38,7 @@
 
 (defn right
   [[current state :as zipper]]
-  (if (and (some? current) (not (end? zipper)))
+  (if (not (end? zipper))
     [(peek (:right state))
      (-> state
        (update :left (fnil conj []) current)
@@ -88,38 +88,44 @@
   [(f current) state])
 
 (defn insert-left
-  [[current state :as zipper] element]
+  [[current state :as zipper] & elements]
   (cond
     (start? zipper)
-    (insert-right zipper element)
+    (apply insert-right zipper elements)
 
     (some? current)
-    [current (update state :left (fnil conj []) element)]
+    [current (update state :left (fnil into []) elements)]
 
     :default
-    [element state]))
+    [(last elements)
+     (update state :left (fnil into []) (reverse (butlast elements)))]))
 
 (defn insert-right
-  [[current state :as zipper] element]
+  [[current state :as zipper] & elements]
   (cond
     (end? zipper)
-    (insert-left zipper element)
+    (apply insert-left zipper elements)
     
     (some? current)
-    [current (update state :right (fnil conj '()) element)]
+    [current (update state :right (fnil into '()) (reverse elements))]
 
     :default
-    [element state]))
+    [(last elements)
+     (update state :right (fnil into '()) (reverse (butlast elements)))]))
 
 (defn focus-left
   ([zipper target]
    (focus-left zipper target =))
   ([[current _ :as zipper] target eq-fn]
-   (if-not (some #(eq-fn % target) (left-seq zipper))
+   (cond
+     (start? zipper)
      (throw (Exception. "target not found"))
-     (if (or (eq-fn current target) (start? zipper))
-       zipper
-       (focus-left (left zipper) target)))))
+
+     (eq-fn current target)
+     zipper
+
+     :else
+     (focus-left (left zipper) target eq-fn))))
 
 (defn focus-right
   ([zipper target]
