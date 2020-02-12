@@ -63,9 +63,10 @@
           #(-> %
              (zip/->end)
              (zip/focus-left fact)
-             (zip/left)))]
-    (reset! (:type-checker/facts module) (update zipper 1 dissoc :right))
-    (next (:right (second zipper)))))
+             (zip/left)))
+        [remainder discard] (zip/split zipper)]
+    (reset! (:type-checker/facts module) remainder)
+    discard))
 
 (defn- solve-existential
   ([module existential solution]
@@ -175,6 +176,7 @@
                       :domain   alpha-1
                       :return   alpha-2}]
         (solve-existential module alpha function)
+        (swap! (:type-checker/facts module) zip/->end)
         (bind-symbol module argument alpha-1 :non-principal)
         (analysis:check module body [alpha-2 :non-principal])
         (let [discard (drop module mark)
@@ -212,7 +214,8 @@
                    :body     type})
                 (apply module function)
                 universal-variables)]
-          (solve-existential module alpha generalized-function :kind/type)))
+          (solve-existential module alpha generalized-function :kind/type)
+          nil))
 
       [{:ast/term :match :body body :branches branches} _ _]
       (let [[pattern-type pattern-principality] (synthesize module body)]
@@ -412,7 +415,7 @@
   [module]
   (->> module
     :definitions
-    (take 2) ; TODO: rm
+    (take 3) ; TODO: rm
     (reduce
       (fn [module definition]
         (match definition

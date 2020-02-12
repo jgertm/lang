@@ -11,8 +11,20 @@
 (defonce ^:private end-element
   (gensym "end"))
 
+(defn left-f
+  [f]
+  (fnil f [start-element]))
+
+(defn right-f
+  [f]
+  (fnil f `(~end-element)))
+
 (def empty
-  [end-element {:left [start-element]}])
+  [end-element {:left [start-element] :right '()}])
+
+(defn make
+  [coll]
+  [(last coll) {:left (vec (butlast coll))}])
 
 (defn node
   [[current _]]
@@ -29,11 +41,11 @@
 
 (defn left
   [[current state :as zipper]]
-  (if (not (start? zipper))
+  (if-not (start? zipper)
     [(peek (:left state))
      (-> state
        (update :left pop)
-       (update :right (fnil conj '()) current))]
+       (update :right (right-f conj) current))]
     zipper))
 
 (defn right
@@ -41,7 +53,7 @@
   (if (not (end? zipper))
     [(peek (:right state))
      (-> state
-       (update :left (fnil conj []) current)
+       (update :left (left-f conj) current)
        (update :right pop))]
     zipper))
 
@@ -51,7 +63,7 @@
     zipper
     [(first (:left state))
      (-> state
-       (dissoc :left)
+       (assoc :left [])
        (assoc :right (concat (rest (:left state)) [current] (:right state))))]))
 
 (defn ->end
@@ -60,7 +72,7 @@
     zipper
     [(last (:right state))
      (-> state
-       (dissoc :right)
+       (assoc :right '())
        (assoc :left (vec (concat (:left state) [current] (butlast (:right state))))))]))
 
 (defn left-seq
@@ -94,11 +106,11 @@
     (apply insert-right zipper elements)
 
     (some? current)
-    [current (update state :left (fnil into []) elements)]
+    [current (update state :left (left-f into) elements)]
 
     :default
     [(last elements)
-     (update state :left (fnil into []) (reverse (butlast elements)))]))
+     (update state :left (left-f into) (reverse (butlast elements)))]))
 
 (defn insert-right
   [[current state :as zipper] & elements]
@@ -107,11 +119,11 @@
     (apply insert-left zipper elements)
     
     (some? current)
-    [current (update state :right (fnil into '()) (reverse elements))]
+    [current (update state :right (right-f into) (reverse elements))]
 
     :default
     [(last elements)
-     (update state :right (fnil into '()) (reverse (butlast elements)))]))
+     (update state :right (right-f into) (reverse (butlast elements)))]))
 
 (defn focus-left
   ([zipper target]
@@ -135,10 +147,7 @@
      zipper
      (focus-right (right zipper) target))))
 
-(defn truncate-left
+(defn split
   [[current state]]
-  [current (dissoc state :left)])
-
-(defn truncate-right
-  [[current state]]
-  [current (dissoc state :right)])
+  [[current (assoc state :right `(~end-element))]
+   (butlast (:right state))])
