@@ -28,8 +28,7 @@
 
 (defn node
   [[current _]]
-  (when-not (#{start-element end-element} current)
-    current))
+  current)
 
 (defn start?
   [[current state]]

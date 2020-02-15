@@ -68,26 +68,13 @@
     (reset! (:type-checker/facts module) remainder)
     discard))
 
-(defn- solve-existential
-  ([module existential solution]
-   (solve-existential module existential solution :kind/type))
-  ([module existential solution kind]
-   (swap! (:type-checker/facts module)
-     #(-> %
-        (zip/focus-left {:fact/declare-existential existential :kind kind})
-        (zip/replace {:fact/solve-existential existential
-                      :kind                   kind
-                      :type                   solution})))
-   nil))
-
 (defn- bind-symbol
   [module symbol type principality]
   (swap! (:type-checker/facts module)
-    #(-> %
-       (zip/insert-right {:fact/bind-symbol symbol
-                          :type type
-                          :principality     principality})
-       (zip/right)))
+    zip/insert-left
+    {:fact/bind-symbol symbol
+     :type             type
+     :principality     principality})
   nil)
 
 (defn- existential-solutions
@@ -100,6 +87,25 @@
             (when-let [existential (:fact/solve-existential fact)]
               [existential (:type fact)])))
     (into {})))
+
+(defn- solve-existential
+  ([module existential solution]
+   (solve-existential module existential solution :kind/type))
+  ([module existential solution kind]
+   (let [existing-solution {:fact/solve-existential existential
+                            :kind                   kind
+                            :type                   (get (existential-solutions module) existential)}
+         new-solution      {:fact/solve-existential existential
+                            :kind                   kind
+                            :type                   solution}]
+     (when (some #{existing-solution} @(:type-checker/facts module))
+       (break! :existing-solution))
+     (swap! (:type-checker/facts module)
+       #(walk/prewalk-replace ; FIXME
+          {{:fact/declare-existential existential :kind kind} new-solution
+           existing-solution                                  new-solution}
+          %)))
+   nil))
 
 (defn- bindings
   [module]
@@ -129,7 +135,10 @@
         (apply module))
       type)
 
-    {:ast/type :function :domain domain :return return}
+    {:ast/type :forall}
+    (update type :body (partial apply module))
+
+    {:ast/type :function}
     (-> type
       (update :domain (partial apply module))
       (update :return (partial apply module)))
@@ -187,33 +196,32 @@
                     {:fact/declare-existential existential-variable-id :kind kind}
                     (let [existential-variable  {:ast/type :existential-variable
                                                  :id       existential-variable-id}
-                          universal-variable-id (next-variable-id module)
-                          universal-variable    {:ast/type :universal-variable
-                                                 :id       universal-variable-id}]
-                      (swap! (:type-checker/facts module) 
-                        zip/insert-right
-                        {:facts/declare-universal universal-variable-id
-                         :kind                    kind}
-                        {:fact/solve-existential existential-variable-id
-                         :kind                   kind
-                         :type                   universal-variable})
-                      (swap! (:type-checker/facts module) zip/->end)
+                          universal-variable    (fresh-universal module)]
+                      (swap! (:type-checker/facts module)
+                        #(-> %
+                           (zip/insert-right {:fact/solve-existential existential-variable-id
+                                              :kind kind
+                                              :type universal-variable})
+                           (zip/right)))
                       (conj universal-variables universal-variable))
 
                     fact
-                    (do (swap! (:type-checker/facts module) zip/insert-right fact)
-                        (swap! (:type-checker/facts module) zip/->end)
+                    (do (swap! (:type-checker/facts module)
+                          #(-> %
+                             (zip/insert-right fact)
+                             (zip/right)))
                         universal-variables)))
                 []
                 discard)
               generalized-function
-              (reduce
-                (fn [type universal-variable]
-                  {:ast/type :forall
-                   :variable universal-variable
-                   :body     type})
-                (apply module function)
-                universal-variables)]
+              (->> universal-variables
+                (reduce
+                  (fn [type universal-variable]
+                    {:ast/type :forall
+                     :variable universal-variable
+                     :body     type})
+                  function)
+                (apply module))]
           (solve-existential module alpha generalized-function :kind/type)
           nil))
 
@@ -247,31 +255,49 @@
     {:ast/type :exists} :positive
     _ :neutral))
 
-(defn- is-universally-quantified?
+(defn- universally-quantified?
   [type]
   (match type
     {:ast/type :forall} true
     _ false))
 
-(defn- is-existentially-quantified?
+(defn- existentially-quantified?
   [type]
   (match type
     {:ast/type :exists} true
     _ false))
 
-(defn- is-quantified?
+(defn- quantified?
   [type]
   (or
-    (is-universally-quantified? type)
-    (is-existentially-quantified? type)))
+    (universally-quantified? type)
+    (existentially-quantified? type)))
+
+(defn- unsolved?
+  [module existential-variable]
+  (not (contains? (existential-solutions module) existential-variable)))
+
+(defn- before?
+  [module & vars]
+  (->> @(:type-checker/facts module)
+    (zip/left-seq)
+    (reverse)
+    (keep (fn [fact] ((set vars) (:fact/declare-existential fact))))
+    (= vars)))
 
 (defn- instantiate-to
   [module type [solution kind]]
   (match [type [solution kind]]
+    [({:ast/type :existential-variable :id alpha} :as alpha-type)
+     [({:ast/type :existential-variable :id beta} :as beta-type) _]]
+    (if (and (unsolved? module beta) (before? module alpha beta))
+      (solve-existential module beta alpha-type kind) ; InstReach
+      (solve-existential module alpha beta-type kind)) ; InstSolve
+
     [{:ast/type :existential-variable :id alpha} _]
     (let [solution (apply module solution)]
       ;; TODO: check for wellformedness
-      (solve-existential module alpha solution kind))))
+      (solve-existential module alpha solution kind)))) ; InstSolve
 
 (defn- subtyping:equivalent
   [module type-a type-b]
@@ -285,10 +311,10 @@
     [_ _]
     (break! :subtyping.equivalent/fallthrough)))
 
-(defn subtype
+(defn- subtype
   [module polarity type-a type-b]
   (match [polarity type-a type-b]
-    [_ (_ :guard (complement is-quantified?)) (_ :guard (complement is-quantified?))]
+    [_ (_ :guard (complement quantified?)) (_ :guard (complement quantified?))]
     (subtyping:equivalent module type-a type-b)
 
     [_ _ _] (undefined)))
@@ -334,7 +360,7 @@
            [(apply module type) principality]
            %) 
         [pattern-type pattern-principality :as pattern] (apply* pattern)
-        [return-type return-principality :as return] (apply* return)]
+        [return-type return-principality :as return]    (apply* return)]
     (match [branches pattern]
       [[{:pattern {:ast/pattern :variant :variant [tag sub-pattern]} :action action}]
        [{:ast/type :variant :variants variants} principality]]
@@ -342,10 +368,16 @@
 
       [[{:pattern {:ast/pattern :variant :variant [tag _]}}]
        [{:ast/type :existential-variable :id alpha} :non-principal]]
-      (let [[type principality]
+      (let [current (zip/node @(:type-checker/facts module))
+            _       (swap! (:type-checker/facts module)
+                      zip/focus-left
+                      {:fact/declare-existential alpha
+                       :kind                     :kind/type})
+            [type principality]
             (->> tag
               (find-variant module)
               (instantiate-universal module))]
+        (swap! (:type-checker/facts module) zip/focus-right current)
         (solve-existential module alpha type)
         (match:check module branches [type principality] return))
 
@@ -378,21 +410,21 @@
           [(apply module pattern-type) pattern-principality]
           [(apply module return-type) return-principality])))))
 
-
-
 (defn- synthesize
   [module term]
-  (match term
-    {:ast/term :symbol :symbol symbol}
-    (get (bindings module) symbol)
+  (let [[type principality]
+        (match term
+          {:ast/term :symbol :symbol symbol}
+          (get (bindings module) symbol)
 
-    {:ast/term :application}
-    (break! :synthesize/application)
+          {:ast/term :application}
+          (break! :synthesize/application)
 
-    {:ast/term _}
-    (let [alpha (fresh-existential module)
-          _     (analysis:check module term [alpha :non-principal])]
-      [(apply module (get (existential-solutions module) alpha alpha)) :non-principal])))
+          {:ast/term _}
+          (let [alpha (fresh-existential module)
+                _     (analysis:check module term [alpha :non-principal])]
+            [(get (existential-solutions module) alpha alpha) :non-principal]))]
+    [(apply module type) principality]))
 
 (defn- abstract-type
   [module {:keys [params body] :as definition}]
@@ -415,7 +447,7 @@
   [module]
   (->> module
     :definitions
-    (take 3) ; TODO: rm
+    (take 4) ; TODO: rm
     (reduce
       (fn [module definition]
         (match definition
@@ -424,7 +456,10 @@
             (abstract-type module definition))
 
           {:ast/definition :constant :name name :body expr}
-          (let [[type principality] (synthesize module expr)]
+          (let [mark                (fresh-mark module)
+                [type principality] (synthesize module expr)]
+            (drop module mark)
+            (swap! (:type-checker/facts module) zip/->end)
             (assoc-in module [:values name] type))))
       (assoc module
         :types builtins 
