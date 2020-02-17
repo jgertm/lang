@@ -11,6 +11,7 @@
 
 (defn run
   [path]
-  (->> path
-    (kern/parse-file file)
-    :value))
+  (let [result (kern/parse-file file path)]
+    (if (:ok result)
+      (:value result)
+      (throw (ex-info "Parsing error" (:error result))))))

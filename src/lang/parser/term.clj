@@ -8,6 +8,20 @@
 
 (declare expr)
 
+(def ^:private lambda
+  (parens
+    (bind [_ (word "fn")
+           args (brackets (many reference/variable))
+           body (fwd expr)]
+      (return (->> args
+                rseq
+                (reduce
+                  (fn [expr arg]
+                    {:ast/term :lambda
+                     :argument arg
+                     :body     expr})
+                  body))))))
+
 (def ^:private match
   (let [branch (parens
                  (bind [pattern pattern/expr
@@ -26,23 +40,29 @@
   (parens
     (bind [function (fwd expr)
            arguments (many (fwd expr))]
-      (return {:ast/term :application :function function :arguments arguments}))))
+      (return {:ast/term  :application
+               :function  function
+               :arguments arguments}))))
 
 (def ^:private variant
   (brackets
     (bind [variant (<*> reference/keyword (fwd expr))]
-      (return {:ast/term :variant :variant variant}))))
+      (return {:ast/term :variant
+               :variant  variant}))))
 
 (def ^:private atom
   (bind [atom atom/expr]
-    (return {:ast/term :atom :atom atom})))
+    (return {:ast/term :atom
+             :atom     atom})))
 
 (def ^:private symbol
   (bind [symbol reference/variable]
-    (return {:ast/term :symbol :symbol symbol})))
+    (return {:ast/term :symbol
+             :symbol   symbol})))
 
 (def expr
   (<|>
+    (<:> lambda)
     (<:> match)
     application
     variant

@@ -410,6 +410,35 @@
           [(apply module pattern-type) pattern-principality]
           [(apply module return-type) return-principality])))))
 
+(defn- recover-spine
+  [module arguments [type principality]]
+  (pprint [arguments type])
+  (match [arguments type]
+    [[] _]
+    [type principality]
+
+    [[e & s] {:ast/type :function :domain domain :return return}]
+    (do (analysis:check module e [domain principality])
+        (recover-spine module s [(apply module return) principality]))
+
+    [_ {:ast/type :existential-variable :id alpha}]
+    (let [current (zip/node @(:type-checker/facts module))
+          _        (swap! (:type-checker/facts module)
+                     zip/focus-left
+                     {:fact/declare-existential alpha
+                      :kind                     :kind/type})
+          alpha-1  (fresh-existential module)
+          alpha-2  (fresh-existential module)
+          function {:ast/type :function
+                    :domain  alpha-1
+                    :return  alpha-2}]
+      (solve-existential module alpha function :kind/type)
+      (swap! (:type-checker/facts module) zip/focus-right current)
+      (recover-spine module arguments [function principality]))
+
+    [_ _]
+    (break! :recover-spine/fallthrough)))
+
 (defn- synthesize
   [module term]
   (let [[type principality]
@@ -417,8 +446,9 @@
           {:ast/term :symbol :symbol symbol}
           (get (bindings module) symbol)
 
-          {:ast/term :application}
-          (break! :synthesize/application)
+          {:ast/term :application :function function :arguments arguments}
+          (let [[function-type function-principality] (synthesize module function)]
+            (recover-spine module arguments [function-type function-principality]))
 
           {:ast/term _}
           (let [alpha (fresh-existential module)
@@ -447,7 +477,7 @@
   [module]
   (->> module
     :definitions
-    (take 4) ; TODO: rm
+    (take 5) ; TODO: rm
     (reduce
       (fn [module definition]
         (match definition
