@@ -29,6 +29,15 @@
                   signature
                   {:body body}))))))
 
+(def constant
+  (parens
+    (bind [_ (word "def")
+           name reference/variable
+           body term/expr]
+      (return {:ast/definition :constant
+               :name           name
+               :body           body}))))
+
 (def function
   (parens
     (bind [_ (word "defn")
@@ -51,4 +60,5 @@
   (<|>
     (<:> module)
     (<:> type)
-    function))
+    (<:> constant)
+    (<:> function)))
