@@ -18,9 +18,6 @@
        :domain   string
        :return   unit}}}))
 
-(defn undefined []
-  (throw (Exception. "not implemented yet")))
-
 (declare analysis:check)
 (declare match:check)
 (declare synthesize)
@@ -150,10 +147,10 @@
     {:ast/type :named :name name}
     (or
       (get (:types module) name)
-      (break! :apply/named.unknown))
+      (undefined :apply/named.unknown))
 
     _
-    (break! :apply/fallthrough)))
+    (undefined :apply/fallthrough)))
 
 (defn- solve-existential
   ([module existential solution]
@@ -324,7 +321,7 @@
 
     [{:ast/type :existential-variable :id alpha}
      [{:ast/type :function} _]] ; InstBin
-    (break! :instantiate-to/inst-bin.function)
+    (undefined :instantiate-to/inst-bin.function)
 
     [{:ast/type :existential-variable :id alpha} _]
     (let [solution (apply module solution)]
@@ -352,7 +349,7 @@
       nil)
 
     [_ _]
-    (break! :subtyping.equivalent/fallthrough)))
+    (undefined :subtyping.equivalent/fallthrough)))
 
 (defn- subtype
   [module polarity type-a type-b]
@@ -369,7 +366,7 @@
       (drop module mark)
       nil)
 
-    [_ _ _] (break! :subtype/fallthrough)))
+    [_ _ _] (undefined :subtype/fallthrough)))
 
 (defn- find-variant
   [module tag]
@@ -384,8 +381,7 @@
               {:ast/type :primitive}
               nil
 
-              _
-              (break! :find-variant/fallthrough)))]
+              _ (undefined :find-variant/fallthrough)))]
     (->> module
       :types
       (vals)
@@ -493,8 +489,7 @@
       (swap! (:type-checker/facts module) zip/focus-right current)
       (recover-spine module arguments [function principality]))
 
-    [_ _]
-    (break! :recover-spine/fallthrough)))
+    [_ _] (undefined :recover-spine/fallthrough)))
 
 (defn- synthesize
   [module term]
