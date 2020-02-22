@@ -82,7 +82,7 @@
 (defn run
   [module]
   (let [bytecode [(->class module)]]
-    (clojure.pprint/pprint bytecode)
+    ;; (clojure.pprint/pprint bytecode)
     (run!
       #(-> %
          (insn/visit)

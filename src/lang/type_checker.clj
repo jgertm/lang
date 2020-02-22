@@ -1,10 +1,10 @@
 (ns lang.type-checker
   (:refer-clojure :exclude [apply drop])
   (:require [clojure.core.match :refer [match]]
-            [clojure.pprint :refer [pprint]] ; TODO: rm
-            [com.gfredericks.debug-repl :refer [break! unbreak! unbreak!!]]
-            [lang.zip :as zip]
-            [clojure.walk :as walk]))
+            [clojure.string :as str]
+            [clojure.walk :as walk]
+            [lang.utils :as utils :refer [undefined]]
+            [lang.zip :as zip]))
 
 (def builtins
   (let [unit   {:ast/type :primitive :primitive :unit}
@@ -503,10 +503,15 @@
             (recover-spine module arguments [function-type function-principality]))
 
           {:ast/term _}
-          (let [alpha (fresh-existential module)
-                _     (analysis:check module term [alpha :non-principal])]
-            [(get (existential-solutions module) alpha alpha) :non-principal]))]
-    [(apply module type) principality]))
+          (let [alpha (fresh-existential module)]
+            (analysis:check module term [alpha :non-principal])
+            [(get (existential-solutions module) alpha alpha) :non-principal]))
+
+        _ (when (not (map? type)) (undefined :messed-up-type))
+
+        type* (apply module type)]
+    (deliver (:type-checker/type term) type*)
+    [type* principality]))
 
 (defn- abstract-type
   [module {:keys [params body] :as definition}]
@@ -525,24 +530,51 @@
           (merge (:types module) param-type->universal-variable)
           body)))))
 
+(defn- annotate-nodes
+  [definition]
+  (walk/prewalk
+    (fn [node]
+      (if (:ast/term node)
+        (assoc node :type-checker/type (promise))
+        node))
+    definition))
+
+(defn- resolve-nodes
+  [definition]
+  (walk/prewalk
+    (fn [node]
+      (cond
+        (some-> node :type-checker/type (realized?))
+        (update node :type-checker/type deref)
+
+        (:type-checker/type node)
+        (undefined :resolve-nodes/unrealized-type-promise)
+
+        :else node))
+    definition))
+
 (defn run
   [module]
-  (->> module
-    :definitions
-    (reduce
-      (fn [module definition]
-        (match definition
+  (reduce
+    (fn [module definition]
+      (let [definition* (annotate-nodes definition)]
+        (match definition*
           {:ast/definition :type :name name}
-          (assoc-in module [:types name] 
-            (abstract-type module definition))
+          (-> module
+            (assoc-in [:types name] (abstract-type module definition*))
+            (update :definitions conj definition*))
 
           {:ast/definition :constant :name name :body expr}
           (let [mark                (fresh-mark module)
-                [type principality] (synthesize module expr)]
-            (drop module mark)
+                [type principality] (synthesize module expr)
+                discard             (drop module mark)] ; TODO: probably ok to throw away all facts
             (swap! (:type-checker/facts module) zip/->end)
-            (assoc-in module [:values name] type))))
-      (merge module
-        builtins
-        {:type-checker/current-variable (atom 0)
-         :type-checker/facts (atom zip/empty)}))))
+            (-> module
+              (assoc-in [:values name] type)
+              (update :definitions conj (resolve-nodes definition*)))))))
+    (merge module
+      builtins
+      {:definitions                   []
+       :type-checker/current-variable (atom 0)
+       :type-checker/facts            (atom zip/empty)})
+    (:definitions module)))
