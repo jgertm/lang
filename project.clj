@@ -6,6 +6,8 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.blancas/kern "1.1.0"]
                  [org.clojure/core.match "0.3.0"]
+                 [insn "0.4.0"]
                  [com.gfredericks/debug-repl "0.0.11"]]
+  :main ^:skip-aot lang.core
   :repl-options {:init-ns lang.core
                  :nrepl-middleware [com.gfredericks.debug-repl/wrap-debug-repl]})

@@ -7,8 +7,16 @@
             [clojure.walk :as walk]))
 
 (def builtins
-  {{:ast/type :named :name {:reference :type, :name "Unit"}}
-   {:ast/type :primitive :primitive :unit}})
+  (let [unit   {:ast/type :primitive :primitive :unit}
+        string {:ast/type :primitive :primitive :string}]
+    {:types
+     {{:ast/type :named :name {:reference :type, :name "Unit"}}
+      unit}
+     :values
+     {{:reference :variable :name "println"}
+      {:ast/type :function
+       :domain   string
+       :return   unit}}}))
 
 (defn undefined []
   (throw (Exception. "not implemented yet")))
@@ -337,6 +345,12 @@
     [_ {:ast/type :existential-variable}] ; ≡InstantiateR
     (instantiate-to module type-b [type-a :kind/type])
 
+    [{:ast/type :primitive :primitive primitive-1}
+     {:ast/type :primitive :primitive primitive-2}]
+    (if (not= primitive-1 primitive-2)
+      (throw (ex-info "Type mismatch" {:left primitive-1 :right primitive-2}))
+      nil)
+
     [_ _]
     (break! :subtyping.equivalent/fallthrough)))
 
@@ -520,7 +534,6 @@
   [module]
   (->> module
     :definitions
-    (take 5) ; TODO: rm
     (reduce
       (fn [module definition]
         (match definition
@@ -534,7 +547,7 @@
             (drop module mark)
             (swap! (:type-checker/facts module) zip/->end)
             (assoc-in module [:values name] type))))
-      (assoc module
-        :types builtins 
-        :type-checker/current-variable (atom 0)
-        :type-checker/facts (atom zip/empty)))))
+      (merge module
+        builtins
+        {:type-checker/current-variable (atom 0)
+         :type-checker/facts (atom zip/empty)}))))
