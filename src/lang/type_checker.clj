@@ -120,11 +120,7 @@
       type)
 
     {:ast/type :universal-variable :id id}
-    (or
-      (some->> id
-        (get (universal-solutions module))
-        (apply module))
-      type)
+    type
 
     {:ast/type :forall}
     (update type :body (partial apply module))
