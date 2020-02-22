@@ -1,0 +1,9 @@
+(defmodule examples.factorial)
+
+(defn fac [n]
+  (match n
+    (0 1)
+    (n (* n (fac (- n 1))))))
+
+(defn main []
+  (fac 100))

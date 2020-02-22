@@ -1,0 +1,9 @@
+(defmodule examples.medium)
+
+(def quux 10)
+
+(defn foo [x]
+  (+ x 2))
+
+(let [[bar 2]]
+  (+ (foo bar) quux))

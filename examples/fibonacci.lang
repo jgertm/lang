@@ -1,0 +1,10 @@
+(defmodule examples.fibonacci)
+
+(defn fibonacci [n]
+  (match n
+    ((| 0 1) 1)
+    (n (+ (fibonacci (- n 1))
+          (fibonacci (- n 2))))))
+
+(defn main []
+  (fibonacci 20))

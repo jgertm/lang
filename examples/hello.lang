@@ -1,0 +1,6 @@
+(defmodule lang.hello)
+
+(def greeting "Hello world! This is a separate def.")
+
+(defn main [_]
+  (println greeting))
