@@ -9,5 +9,7 @@
                  [insn "0.4.0"]
                  [com.gfredericks/debug-repl "0.0.11"]]
   :main ^:skip-aot lang.core
-  :repl-options {:init-ns lang.core
+  :target-path "target/%s/"
+  :profiles {:uberjar {:aot :all}} 
+  :repl-options {:init-ns          lang.core
                  :nrepl-middleware [com.gfredericks.debug-repl/wrap-debug-repl]})
