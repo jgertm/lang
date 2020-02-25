@@ -6,14 +6,14 @@
             [lang.parser.term :as term]
             [lang.parser.type :as type]))
 
-(def module
+(def ^:private module
   (parens
     (bind [_ (word "defmodule")
            name reference/module]
       (return {:ast/definition :module
                :name       name}))))
 
-(def type
+(def ^:private type
   (let [concrete (bind [name reference/type]
                    (return {:name name}))
         abstract (parens
@@ -29,7 +29,7 @@
                   signature
                   {:body body}))))))
 
-(def constant
+(def ^:private constant
   (parens
     (bind [_ (word "def")
            name reference/variable
@@ -38,7 +38,7 @@
                :name           name
                :body           body}))))
 
-(def function
+(def ^:private function
   (parens
     (bind [_ (word "defn")
            name reference/variable
@@ -56,9 +56,22 @@
                       :body     term})
                    body))}))))
 
+(def ^:private native
+  (parens
+    (bind [_ (word "defnative")
+           name reference/variable
+           _ (sym \:)
+           type type/expr
+           body term/expr]
+      (return {:ast/definition :native
+               :name           name
+               :type           type
+               :body           body}))))
+
 (def expr
   (<|>
     (<:> module)
     (<:> type)
     (<:> constant)
-    (<:> function)))
+    (<:> function)
+    (<:> native)))

@@ -4,16 +4,6 @@
             [insn.core :as insn]
             [lang.utils :as utils]))
 
-(def ^:private builtins
-  {:code-generator/methods
-   {{:reference :variable :name "println"}
-    (fn [args]
-      (utils/concatv
-        [[:getstatic System "out"]]
-        args
-        [[:invokevirtual java.io.PrintStream "println" [String 'void]]]))}
-   :code-generator/fields {}})
-
 (defn- class-name
   [module]
   (symbol (str/join "." (:name (:name module)))))
@@ -27,11 +17,16 @@
               :boolean 'boolean}
           (map (fn [[k v]] [{:ast/type :primitive :primitive k} v]))
           (into {}))]
-    (get primitives type)))
+    (match type
+      {:ast/type :primitive}
+      (get primitives type)
 
-(defn- lookup-method
-  [module symbol]
-  (get (:code-generator/methods builtins) symbol))
+      {:ast/type :function :domain domain :return return}
+      (let [domain* (translate-type module domain)
+            return* (translate-type module return)]
+        (if (vector? return*)
+          (into [domain*] return*)
+          (conj [domain*] return*))))))
 
 (defn- lookup-binding
   [module symbol]
@@ -47,7 +42,7 @@
           (->> arguments
             (rseq)
             (mapcat (partial ->instructions module)))
-          function* (lookup-method module (:symbol function))]
+          function* (lookup-binding module (:symbol function))]
       (conj
         (function* arguments*)
         [:return]))
@@ -89,16 +84,37 @@
        :desc  [[String] :void]
        :emit  instructions})))
 
+(defn- register-native
+  [module definition]
+  (swap! (:code-generator/bindings module) assoc
+    (:name definition)
+    (match definition
+      {:body {:function method :arguments [object]} :type type}
+      (fn [args]
+        (utils/concatv
+          [[:getstatic
+            (->> object :symbol :in :name (str/join "."))
+            (-> object :symbol :name)]]
+          args
+          [[:invokevirtual
+            (->> method :symbol :in :name (str/join "."))
+            (-> method :symbol :name)
+            (translate-type module type)]])))))
+
 (defn- ->class
   [module]
   (reduce
     (fn [class definition]
       (match definition
         {:ast/definition :constant :body {:ast/term :lambda}}
-        (update class :methods conj (->method module definition))
+        (update class :methods utils/conjv (->method module definition))
 
         {:ast/definition :constant}
-        (update class :fields conj (->field module definition))))
+        (update class :fields utils/conjv (->field module definition))
+
+        {:ast/definition :native}
+        (do (register-native module definition )
+            class)))
     {:name (class-name module)}
     (:definitions module)))
 
@@ -116,7 +132,7 @@
 
 (comment
 
-  (-> "../lang/examples/hello.lang"
+  (-> "examples/hello.lang"
     (lang.compiler/run)
     :bytecode)
 

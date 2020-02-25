@@ -15,7 +15,18 @@
            variants (many1 (brackets (<*> reference/keyword (fwd expr))))]
       (return {:ast/type :variant :variants (into (array-map) variants)}))))
 
+(def ^:private function
+  (parens
+    (bind [_ (word "->")
+           domains (many1 (fwd expr))]
+      (return (reduce (fn [inner type]
+                        {:ast/type :function
+                         :domain   type
+                         :return   inner})
+                (rseq domains))))))
+
 (def expr
   (<|>
     named
-    variant))
+    (<:> variant)
+    (<:> function)))

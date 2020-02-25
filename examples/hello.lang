@@ -1,6 +1,9 @@
 (defmodule lang.hello)
 
-(def greeting "Hello world! This is a separate def.")
+(defnative println : (-> String Unit)
+  (java.io.PrintStream/println java.lang.System/out))
+
+(def greeting "Hello world! This is in a completely separate def.")
 
 (defn main [_]
   (println greeting))

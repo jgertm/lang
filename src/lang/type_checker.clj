@@ -9,14 +9,10 @@
 (def ^:private builtins
   (let [unit   {:ast/type :primitive :primitive :unit}
         string {:ast/type :primitive :primitive :string}]
-    {:type-checker.types
-     {{:ast/type :named :name {:reference :type, :name "Unit"}}
-      unit}
-     :type-checker.values
-     {{:reference :variable :name "println"}
-      {:ast/type :function
-       :domain   string
-       :return   unit}}}))
+    {:type-checker/types
+     {{:reference :type, :name "Unit"} unit
+      {:reference :type, :name "String"} string}
+     :type-checker/values {}}))
 
 (declare analysis:check)
 (declare match:check)
@@ -96,7 +92,7 @@
 (defn- lookup-binding
   [module symbol]
   (let [definitions (->> module
-                      :type-checker.values
+                      :type-checker/values
                       (map (fn [[name type]] [name [type :principal]]))
                       (into {}))
         locals (->> module
@@ -108,6 +104,10 @@
                            [symbol ((juxt :type :principality) fact)])))
                  (into {}))]
     (get (merge definitions locals) symbol)))
+
+(defn- lookup-type
+  [module name]
+  (get (:type-checker/types module) name))
 
 (defn- apply
   [module type]
@@ -141,7 +141,7 @@
 
     {:ast/type :named :name name}
     (or
-      (get (:type-checker.types module) name)
+      (lookup-type module name)
       (undefined :apply/named.unknown))
 
     _
@@ -378,7 +378,7 @@
 
               _ (undefined :find-variant/fallthrough)))]
     (->> module
-      :type-checker.types
+      :type-checker/types
       (vals)
       (some #(when (check %) %)))))
 
@@ -522,7 +522,7 @@
            :variable (get param-type->universal-variable {:ast/type :named :name param})
            :body     type})
         (walk/prewalk-replace
-          (merge (:type-checker.types module) param-type->universal-variable)
+          (merge (:type-checker/types module) param-type->universal-variable)
           body)))))
 
 (defn- annotate-nodes
@@ -556,7 +556,7 @@
         (match definition*
           {:ast/definition :type :name name}
           (-> module
-            (assoc-in [:type-checker.types name] (abstract-type module definition*))
+            (assoc-in [:type-checker/types name] (abstract-type module definition*))
             (update :definitions conj definition*))
 
           {:ast/definition :constant :name name :body expr}
@@ -565,8 +565,14 @@
                 discard             (drop module mark)] ; TODO: probably ok to throw away all facts
             (swap! (:type-checker/facts module) zip/->end)
             (-> module
-              (assoc-in [:type-checker.values name] type)
-              (update :definitions conj (resolve-nodes definition*)))))))
+              (assoc-in [:type-checker/values name] type)
+              (update :definitions conj (resolve-nodes definition*))))
+
+          {:ast/definition :native :name name :type type}
+          (let [type* (apply module type)]
+            (-> module
+              (assoc-in [:type-checker/values name] type*)
+              (update :definitions conj (assoc definition :type type*)))))))
     (merge module
       builtins
       {:definitions                   []

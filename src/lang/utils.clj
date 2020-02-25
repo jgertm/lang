@@ -9,3 +9,6 @@
 (defn concatv
   [& collections]
   (vec (apply concat collections)))
+
+(def conjv
+  (fnil conj []))
