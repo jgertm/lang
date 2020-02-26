@@ -164,6 +164,39 @@
           %)))
    nil))
 
+(defn- find-variant
+  [module tag]
+  (letfn [(check [type]
+            (match type
+              {:ast/type :variant :variants variants}
+              (contains? variants tag)
+
+              {:ast/type :forall :body body}
+              (check body)
+
+              {:ast/type :primitive}
+              nil
+
+              _ (undefined :find-variant/fallthrough)))]
+    (->> module
+      :type-checker/types
+      (vals)
+      (some #(when (check %) %)))))
+
+(defn- instantiate-universal
+  [module type]
+  (match type
+    {:ast/type :forall :variable universal-variable :body body}
+    (let [existential-variable (fresh-existential module)]
+      [(->> body
+         (instantiate-universal module)
+         (first)
+         (walk/prewalk-replace {universal-variable existential-variable}))
+       :non-principal])
+
+    _
+    [type :principal]))
+
 (defn- analysis:check
   [module term type-principality]
   (let [[type principality] (if-let [[type principality] (not-empty type-principality)]
@@ -175,6 +208,27 @@
        :non-principal]
       (let [type {:ast/type :primitive :primitive (:atom atom)}]
         (solve-existential module alpha type))
+
+      [{:ast/term :variant :variant [tag body]}
+       {:ast/type :variant :variants variants}
+       _]
+      (analysis:check module body [(get variants tag) principality])
+
+      [{:ast/term :variant :variant [tag _]}
+       {:ast/type :existential-variable :id alpha}
+       _]
+      (let [;current (zip/node @(:type-checker/facts module))
+            _       (swap! (:type-checker/facts module)
+                      zip/focus-left
+                      {:fact/declare-existential alpha
+                       :kind                     :kind/type})
+            [type principality]
+            (->> tag
+              (find-variant module)
+              (instantiate-universal module))]
+                                        ;(swap! (:type-checker/facts module) zip/focus-right current)
+        (solve-existential module alpha type)
+        (analysis:check module term [type principality]))
 
       [{:ast/term :lambda :argument argument :body body}
        {:ast/type :existential-variable :id alpha}
@@ -363,39 +417,6 @@
 
     [_ _ _] (undefined :subtype/fallthrough)))
 
-(defn- find-variant
-  [module tag]
-  (letfn [(check [type]
-            (match type
-              {:ast/type :variant :variants variants}
-              (contains? variants tag)
-
-              {:ast/type :forall :body body}
-              (check body)
-
-              {:ast/type :primitive}
-              nil
-
-              _ (undefined :find-variant/fallthrough)))]
-    (->> module
-      :type-checker/types
-      (vals)
-      (some #(when (check %) %)))))
-
-(defn- instantiate-universal
-  [module type]
-  (match type
-    {:ast/type :forall :variable universal-variable :body body}
-    (let [existential-variable (fresh-existential module)]
-      [(->> body
-         (instantiate-universal module)
-         (first)
-         (walk/prewalk-replace {universal-variable existential-variable}))
-       :non-principal])
-
-    _
-    [type :principal]))
-
 (defn- match:check
   [module branches pattern return]
   (let [apply*
@@ -510,20 +531,23 @@
 
 (defn- abstract-type
   [module {:keys [params body] :as definition}]
-  (let [param-type->universal-variable
-        (->> #(fresh-universal module)
-          (repeatedly (count params))
-          (zipmap (map (fn [param] {:ast/type :named :name param}) params)))]
-    (->> params
-      (rseq)
-      (reduce
-        (fn [type param]
-          {:ast/type :forall
-           :variable (get param-type->universal-variable {:ast/type :named :name param})
-           :body     type})
-        (walk/prewalk-replace
-          (merge (:type-checker/types module) param-type->universal-variable)
-          body)))))
+  (apply module
+    (if (empty? params)
+      body
+      (let [param-type->universal-variable
+            (->> #(fresh-universal module)
+              (repeatedly (count params))
+              (zipmap (map (fn [param] {:ast/type :named :name param}) params)))]
+        (->> params
+          (rseq)
+          (reduce
+            (fn [type param]
+              {:ast/type :forall
+               :variable (get param-type->universal-variable {:ast/type :named :name param})
+               :body     type})
+            (walk/prewalk-replace
+              (merge (:type-checker/types module) param-type->universal-variable)
+              body)))))))
 
 (defn- annotate-nodes
   [definition]
@@ -555,9 +579,11 @@
       (let [definition* (annotate-nodes definition)]
         (match definition*
           {:ast/definition :type :name name}
-          (-> module
-            (assoc-in [:type-checker/types name] (abstract-type module definition*))
-            (update :definitions conj definition*))
+          (let [type*       (abstract-type module definition*)
+                definition* (assoc definition* :body type*)]
+            (-> module
+              (assoc-in [:type-checker/types name] type*)
+              (update :definitions conj definition*)))
 
           {:ast/definition :constant :name name :body expr}
           (let [mark                (fresh-mark module)

@@ -3,7 +3,11 @@
 (defnative println : (-> String Unit)
   (java.io.PrintStream/println java.lang.System/out))
 
-(def greeting "Hello world! This is in a completely separate def.")
+(deftype StringWrapper
+  (| [:wrap String]))
+
+(def greeting
+     [:wrap "Hello world! This is in a completely separate def."])
 
 (defn main [_]
   (println greeting))
