@@ -8,10 +8,14 @@
 
 (def ^:private builtins
   (let [unit   {:ast/type :primitive :primitive :unit}
-        string {:ast/type :primitive :primitive :string}]
+        string {:ast/type :primitive :primitive :string}
+        integer {:ast/type :primitive :primitive :integer}
+        boolean {:ast/type :primitive :primitive :boolean}]
     {:type-checker/types
-     {{:reference :type, :name "Unit"} unit
-      {:reference :type, :name "String"} string}
+     {{:reference :type :name "Unit"} unit
+      {:reference :type :name "String"} string
+      {:reference :type :name "Int"} integer
+      {:reference :type :name "Bool"} boolean}
      :type-checker/values {}}))
 
 (declare analysis:check)
@@ -280,6 +284,7 @@
                      :body     type})
                   function)
                 (apply module))]
+          (deliver (:type-checker/type body) (apply module alpha-2))
           (solve-existential module alpha generalized-function :kind/type)
           nil))
 

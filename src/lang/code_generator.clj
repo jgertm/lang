@@ -5,6 +5,8 @@
             [insn.core :as insn]
             [lang.utils :as utils]))
 
+(declare ->instructions)
+
 (defn- class-name
   [module]
   (str/join "." (:name (:name module))))
@@ -19,12 +21,16 @@
   [type]
   (get {:int :iload} type :aload))
 
+(defn- store
+  [type]
+  (get {:int :istore} type :astore))
+
 (defn- lookup-type
   [module type]
   (let [primitives
         (->> {:string  String ; TODO: complete
               :unit    :void
-              :int     :int
+              :integer :int
               :boolean 'boolean}
           (map (fn [[k v]] [{:ast/type :primitive :primitive k} v]))
           (into {}))]
@@ -42,13 +48,68 @@
       _
       (get @(:code-generator/types module) type))))
 
+(defn- add-type
+  [module type class]
+  (swap! (:code-generator/types module)
+    assoc type class))
+
 (defn- lookup-binding
   [module symbol]
   (get @(:code-generator/bindings module) symbol))
 
+(defn- add-binding
+  [module symbol instructions]
+  (swap! (:code-generator/bindings module)
+    assoc symbol instructions))
+
+(defn- lookup-function
+  [module symbol]
+  (get @(:code-generator/functions module) symbol))
+
+(defn- add-function
+  [module symbol fn]
+  (swap! (:code-generator/functions module)
+    assoc symbol fn))
+
 (defn- lookup-variant
   [module injector]
   (get @(:code-generator/variants module) injector))
+
+(defn- add-variant
+  [module injector {:keys [class super type] :as variant}]
+  (swap! (:code-generator/variants module)
+    assoc injector variant))
+
+(defn- pattern->instructions
+  [module pattern index]
+  (match pattern
+    {:ast/pattern :variant :variant [injector sub-pattern]}
+    (let [{:keys [class type]} (lookup-variant module injector)]
+      (utils/concatv
+        [[:aload 0]
+         [:instanceof class]
+         [:ifeq (inc index)]
+         [:aload 0]
+         [:checkcast class]
+         [:getfield class :value type]
+         [(store type) 0]]
+        (pattern->instructions module sub-pattern index)))
+
+    {:ast/pattern :symbol :symbol symbol}
+    (let [register 1] ; TODO: register allocation
+      (add-binding module symbol [[:aload register]])
+      [[:aload 0]
+       [:astore register]])
+
+    {:ast/pattern :wildcard}
+    []))
+
+(defn- branch->instructions
+  [module {:keys [pattern action]} index]
+  (utils/concatv
+    [[:mark index]]
+    (pattern->instructions module pattern index)
+    (->instructions module action)))
 
 (defn- ->instructions
   [module term]
@@ -60,10 +121,21 @@
           (->> arguments
             (rseq)
             (mapcat (partial ->instructions module)))
-          function* (lookup-binding module (:symbol function))]
+          function* (lookup-function module (:symbol function))]
       (conj
         (function* arguments*)
         [:return]))
+
+    {:ast/term :match :body body :branches branches}
+    (utils/concatv
+      (->instructions module body)
+      [[:astore 0]] ; TODO: register allocation
+      (mapcat
+        (partial branch->instructions module)
+        branches
+        (range))
+      [[:mark (count branches)]
+       [:return]])
 
     {:ast/term :symbol :symbol symbol}
     (lookup-binding module symbol)
@@ -97,7 +169,7 @@
             {:flags #{:public :static}
              :name  (:name name)
              :type  type}))]
-    (swap! (:code-generator/bindings module) assoc
+    (add-binding module
       name
       [[:getstatic class (:name field) (:type field)]])
     field))
@@ -116,7 +188,7 @@
 
 (defn- register-native
   [module definition]
-  (swap! (:code-generator/bindings module) assoc
+  (add-function module
     (:name definition)
     (match definition
       {:body {:function method :arguments [object]} :type type}
@@ -135,8 +207,7 @@
   [module super [injector type]]
   (let [type (lookup-type module type)
         name (format "%s$%s" super (:name injector))]
-    (swap! (:code-generator/variants module)
-      assoc injector {:class name :super super :type type})
+    (add-variant module injector {:class name :super super :type type})
     {:name    name
      :super   super
      :methods [{:flags #{:public}
@@ -166,8 +237,7 @@
                                       :emit [[:aload 0]
                                              [:invokespecial :super :init [:void]]
                                              [:return]]}]}]
-            (swap! (:code-generator/types module)
-              assoc body (:name super))
+            (add-type module body (:name super))
             (conj
               (map (partial variant->class module (:name super)) variants)
               super)))]
@@ -227,9 +297,10 @@
 (defn run
   [module]
   (let [module (->bytecode (merge module
-                             {:code-generator/bindings (atom {})
-                              :code-generator/types    (atom {})
-                              :code-generator/variants (atom {})}))]
+                             #:code-generator{:bindings  (atom {})
+                                              :functions (atom {})
+                                              :types     (atom {})
+                                              :variants  (atom {})}))]
     (->> module
       :bytecode
       (vals)

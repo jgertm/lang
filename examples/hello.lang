@@ -4,10 +4,13 @@
   (java.io.PrintStream/println java.lang.System/out))
 
 (deftype StringWrapper
-  (| [:wrap String]))
+  (| [:wrap String]
+     [:crap Int]))
 
 (def greeting
      [:wrap "Hello world! This is in a completely separate def."])
 
 (defn main [_]
-  (println greeting))
+  (match greeting
+         [:crap _] (println "crap")
+         [:wrap text] (println text)))

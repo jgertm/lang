@@ -23,11 +23,10 @@
                   body))))))
 
 (def ^:private match
-  (let [branch (parens
-                 (bind [pattern pattern/expr
-                        action (fwd expr)]
-                   (return {:pattern pattern
-                            :action  action})))]
+  (let [branch (bind [pattern pattern/expr
+                      action (fwd expr)]
+                 (return {:pattern pattern
+                          :action  action}))]
     (parens
       (bind [_ (word "match")
              body (fwd expr)
@@ -68,3 +67,12 @@
     variant
     atom
     symbol))
+
+(comment
+
+  (blancas.kern.core/run*
+    match
+    "(match greeting [:wrap text] (println text))")
+
+
+  )
