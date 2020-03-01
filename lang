@@ -1,0 +1,5 @@
+#! /usr/bin/env bash
+
+set -xeu
+
+java -jar target/uberjar/lang-0.1.0-SNAPSHOT-standalone.jar $@
