@@ -25,6 +25,27 @@
   [type]
   (get {:int :istore} type :astore))
 
+(defn- return
+  [type]
+  (get {:void :return
+        :int  :ireturn} type :areturn))
+
+(defn- wide?
+  [type]
+  (contains? #{:double :long} type))
+
+(defn- next-register
+  [module type]
+  (let [fn (if (wide? type)
+             (comp inc inc)
+             inc)]
+    {:register (swap! (:code-generator/next-register module) fn)
+     :width    (fn 0)}))
+
+(defn- next-mark
+  [module]
+  {:mark (swap! (:code-generator/next-mark module) inc)})
+
 (defn- lookup-type
   [module type]
   (let [primitives
@@ -81,34 +102,39 @@
     assoc injector variant))
 
 (defn- pattern->instructions
-  [module pattern index]
-  (match pattern
-    {:ast/pattern :variant :variant [injector sub-pattern]}
-    (let [{:keys [class type]} (lookup-variant module injector)]
-      (utils/concatv
-        [[:aload 0]
-         [:instanceof class]
-         [:ifeq (inc index)]
-         [:aload 0]
-         [:checkcast class]
-         [:getfield class :value type]
-         [(store type) 0]]
-        (pattern->instructions module sub-pattern index)))
+  [module body-info pattern next]
+  (let [load-body [(load (:type body-info)) (:register body-info)]]
+    (match pattern
+      {:ast/pattern :variant :variant [injector sub-pattern]}
+      (let [{:keys [class type]} (lookup-variant module injector)
+            sub-register         (next-register module type)]
+        (utils/concatv
+          [load-body
+           [:instanceof class]
+           [:ifeq next]
+           load-body
+           [:checkcast class]
+           [:getfield class :value type]
+           [(store type) sub-register]]
+          (pattern->instructions module {:register sub-register :type type} sub-pattern next)))
 
-    {:ast/pattern :symbol :symbol symbol}
-    (let [register 1] ; TODO: register allocation
-      (add-binding module symbol [[:aload register]])
-      [[:aload 0]
-       [:astore register]])
+      {:ast/pattern :symbol :symbol symbol}
+      (let [type     (:type body-info)
+            register (next-register module type)]
+        (add-binding module symbol [[(load type) register]])
+        [load-body
+         [(store type) register]])
 
-    {:ast/pattern :wildcard}
-    []))
+      {:ast/pattern :wildcard}
+      [])))
+
+(partition 2 1 (range 5))
 
 (defn- branch->instructions
-  [module {:keys [pattern action]} index]
+  [module body-info {:keys [pattern action]} [current next]]
   (utils/concatv
-    [[:mark index]]
-    (pattern->instructions module pattern index)
+    [[:mark current]]
+    (pattern->instructions module body-info pattern next)
     (->instructions module action)))
 
 (defn- ->instructions
@@ -124,18 +150,22 @@
           function* (lookup-function module (:symbol function))]
       (conj
         (function* arguments*)
-        [:return]))
+        [(return (lookup-type module (:type-checker/type term)))]))
 
     {:ast/term :match :body body :branches branches}
-    (utils/concatv
-      (->instructions module body)
-      [[:astore 0]] ; TODO: register allocation
-      (mapcat
-        (partial branch->instructions module)
-        branches
-        (range))
-      [[:mark (count branches)]
-       [:return]])
+    (let [type      (lookup-type module (:type-checker/type body))
+          body-info {:register (next-register module type) :type type}
+          marks     (repeatedly (inc (count branches)) #(next-mark module))]
+      (utils/concatv
+        (->instructions module body)
+        [[(store type) (:register body-info)]]
+        (mapcat
+          (partial branch->instructions module body-info)
+          branches
+          (partition 2 1 marks))
+        [[:mark (last marks)]
+         [(return (lookup-type module (:type-checker/type term)))] ; TODO: throw exception
+         ]))
 
     {:ast/term :symbol :symbol symbol}
     (lookup-binding module symbol)
@@ -174,17 +204,66 @@
       [[:getstatic class (:name field) (:type field)]])
     field))
 
+(defn- allocate-registers
+  [method]
+  (let [argument-registers (->> method
+                             :desc
+                             (butlast)
+                             (map #(if (wide? %) 2 1))
+                             (reduce +))]
+    (update method :emit
+      #(->> %
+         (reduce
+           (fn [{:keys [allocated next] :as state} instruction]
+             (match instruction
+               [opcode {:register i :width w}]
+               (if-let [register (get allocated i)]
+                 (update state :instructions conj [opcode register])
+                 (recur
+                   (-> state
+                     (update :allocated assoc i next)
+                     (update :next + w))
+                   instruction))
+
+               _ (update state :instructions conj instruction)))
+           {:instructions [] :allocated {} :next argument-registers})
+         :instructions))))
+
+(defn- assign-marks
+  [method]
+  (update method :emit
+    #(->> %
+       (reduce
+         (fn [{:keys [assigned next] :as state} instruction]
+           (match instruction
+             [opcode {:mark i}]
+             (do
+               (if-let [mark (get assigned i)]
+                 (update state :instructions conj [opcode mark])
+                 (recur
+                   (-> state
+                     (update :assigned assoc i next)
+                     (update :next inc))
+                   instruction)))
+
+             _ (update state :instructions conj instruction)))
+         {:instructions [] :assigned {} :next 0})
+       :instructions)))
+
 (defn- ->method
   [module definition]
-  (match definition
-    {:ast/definition :constant
-     :name           {:reference :variable :name "main"}
-     :body           {:ast/term :lambda :body body}}
-    (let [instructions (->instructions module body)]
-      {:flags #{:public :static}
-       :name  "main"
-       :desc  [[String] :void]
-       :emit  instructions})))
+  (-> definition
+    (match
+      {:ast/definition :constant
+       :name           {:reference :variable :name "main"}
+       :body           {:ast/term :lambda :body body}}
+      (let [instructions (->instructions module body)]
+        {:flags #{:public :static}
+         :name  "main"
+         :desc  [[String] :void]
+         :emit  instructions}))
+    (allocate-registers)
+    (assign-marks)))
 
 (defn- register-native
   [module definition]
@@ -250,7 +329,7 @@
   (let [class (class-name module)]
     (match definition
       {:ast/definition :type}
-      (update module :bytecode merge (type->classes module definition)) ; TODO
+      (update module :bytecode merge (type->classes module definition))
 
       {:ast/definition :constant :body {:ast/term :lambda}}
       (update-in module [:bytecode class :methods] utils/conjv (->method module definition))
@@ -267,40 +346,46 @@
   (let [name (class-name module)]
     (update-in module [:bytecode name]
       (fn [class]
-        (let [instructions @(:code-generator/static-initializer-instructions class)]
+        (let [instructions @(:code-generator/static-initializer-instructions class)
+              method
+              (-> {:flags #{:public :static}
+                   :name  :clinit
+                   :desc  [:void]
+                   :emit  (utils/concatv
+                            [[:new name]
+                             [:dup]
+                             [:invokespecial name :init [:void]]]
+                            instructions
+                            [[:return]])}
+                (allocate-registers)
+                (assign-marks))]
           (-> class
             (dissoc :code-generator/static-initializer-instructions)
-            (update :methods conj {:flags #{:public :static}
-                                   :name  :clinit
-                                   :desc  [:void]
-                                   :emit  (utils/concatv
-                                            [[:new name]
-                                             [:dup]
-                                             [:invokespecial name :init [:void]]]
-                                            instructions
-                                            [[:return]])})))))))
+            (update :methods conj method)))))))
 
-(defn- ->bytecode
+(defn- module->bytecode
   [module]
   (let [name    (class-name module)
-        module* (assoc-in module [:bytecode name]
-                  {:name name
-                   :code-generator/static-initializer-instructions
-                   (atom [])})]
+        module* (-> module
+                  (assoc-in [:bytecode name]
+                    {:name name
+                     :code-generator/static-initializer-instructions
+                     (atom [])})
+                  (merge #:code-generator{:next-register (atom 0)
+                                          :next-mark     (atom 0)
+                                          :bindings      (atom {})
+                                          :functions     (atom {})
+                                          :types         (atom {})
+                                          :variants      (atom {})}))]
     (->
-      (reduce
-        definition->bytecode
+      (reduce definition->bytecode
         module*
         (:definitions module))
       (add-static-initializer))))
 
 (defn run
   [module]
-  (let [module (->bytecode (merge module
-                             #:code-generator{:bindings  (atom {})
-                                              :functions (atom {})
-                                              :types     (atom {})
-                                              :variants  (atom {})}))]
+  (let [module (module->bytecode module)]
     (->> module
       :bytecode
       (vals)
