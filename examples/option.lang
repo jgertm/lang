@@ -1,29 +1,29 @@
 (defmodule examples.option)
 
 (deftype (Option T)
-  (| [:none Unit]
+  (| [:none]
      [:some T]))
 
 ; (-> (Option String) String)
-; (defn foo
-;   [option]
-;   (match option
-;     ([:none _] "foo")
-;     ([:some n] n)))
+(defn foo
+  [option]
+  (match option
+    [:none] "foo"
+    [:some n] n))
 
 ; (∀ T (-> (Option T) T T))
 (defn default
   [option fallback]
   (match option
-    ([:none _] fallback)
-    ([:some value] value)))
+    [:none] fallback
+    [:some value] value))
 
 ; (∀ T (-> T (Option T) T))
 (defn flip-default
   [fallback option]
   (match option
-    ([:none _] fallback)
-    ([:some value] value)))
+    [:none] fallback
+    [:some value] value))
 
 ; TODO: implement `flip-default` using `flip`
 ; (∀ X Y Z (-> (-> X Y Z) (-> Y X Z)))
@@ -33,6 +33,9 @@
 
 (def flip-default*
   (flip default))
+
+(defnative println : (-> String Unit)
+  (java.io.PrintStream/println java.lang.System/out))
 
 (defn main []
   (println (flip-default* "foo" [:some "bar"])))

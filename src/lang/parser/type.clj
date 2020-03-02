@@ -12,7 +12,7 @@
 (def ^:private variant
   (parens
     (bind [_ (sym \|)
-           variants (many1 (brackets (<*> reference/keyword (fwd expr))))]
+           variants (many1 (brackets (<*> reference/keyword (optional (fwd expr)))))]
       (return {:ast/type :variant :variants (into (array-map) variants)}))))
 
 (def ^:private function

@@ -137,7 +137,7 @@
     {:ast/type :variant}
     (update type :variants
       #(->> %
-         (map (fn [[keyword type]] [keyword (apply module type)]))
+         (map (fn [[injector value]] [injector (some->> value (apply module))]))
          (into {})))
 
     {:ast/type :primitive}
@@ -169,11 +169,11 @@
    nil))
 
 (defn- find-variant
-  [module tag]
+  [module injector]
   (letfn [(check [type]
             (match type
               {:ast/type :variant :variants variants}
-              (contains? variants tag)
+              (contains? variants injector)
 
               {:ast/type :forall :body body}
               (check body)
@@ -213,12 +213,20 @@
       (let [type {:ast/type :primitive :primitive (:atom atom)}]
         (solve-existential module alpha type))
 
-      [{:ast/term :variant :variant [tag body]}
+      [{:ast/term :variant :variant {:injector injector :value value}}
        {:ast/type :variant :variants variants}
        _]
-      (analysis:check module body [(get variants tag) principality])
+      (cond
+        (and (some? value) (some? (get variants injector))) ; variant wraps value
+        (analysis:check module value [(get variants injector) principality])
 
-      [{:ast/term :variant :variant [tag _]}
+        (and (nil? value) (contains? variants injector)) ; variant is enum
+        nil
+
+        :default ; injector isn't defined
+        (throw (ex-info "Unknown injector" {:injector injector})))
+
+      [{:ast/term :variant :variant {:injector injector}}
        {:ast/type :existential-variable :id alpha}
        _]
       (let [;current (zip/node @(:type-checker/facts module))
@@ -227,7 +235,7 @@
                       {:fact/declare-existential alpha
                        :kind                     :kind/type})
             [type principality]
-            (->> tag
+            (->> injector
               (find-variant module)
               (instantiate-universal module))]
                                         ;(swap! (:type-checker/facts module) zip/focus-right current)
@@ -362,14 +370,17 @@
     (let [_ (swap! (:type-checker/facts module)
               zip/focus-left
               {:fact/declare-existential alpha :kind :kind/type})
-          variants* (->> #(fresh-existential module)
-                      (repeatedly (count variants))
-                      (zipmap (keys variants)))]
+          variants*
+          (->> variants
+            (map (fn [[injector value]]
+                   [injector (when (some? value) (fresh-existential module))]))
+            (into {}))]
       (solve-existential module alpha {:ast/type :variant :variants variants*})
       (swap! (:type-checker/facts module) zip/->end)
       (dorun (map
                (fn [alpha-n tau-n]
-                 (instantiate-to module alpha-n [(apply module tau-n) :kind/type]))
+                 (when (some? alpha-n)
+                   (instantiate-to module alpha-n [(apply module tau-n) :kind/type])))
                (vals variants*)
                (vals variants))))
 
@@ -431,11 +442,20 @@
         [pattern-type pattern-principality :as pattern] (apply* pattern)
         [return-type return-principality :as return]    (apply* return)]
     (match [branches pattern]
-      [[{:pattern {:ast/pattern :variant :variant [tag sub-pattern]} :action action}]
+      [[{:pattern {:ast/pattern :variant :variant {:injector injector :value value}}
+         :action  action}]
        [{:ast/type :variant :variants variants} principality]]
-      (match:check module [{:pattern sub-pattern :action action}] [(get variants tag) principality] return)
+      (cond
+        (and (some? value) (some? (get variants injector)))
+        (match:check module [{:pattern value :action action}] [(get variants injector) principality] return)
 
-      [[{:pattern {:ast/pattern :variant :variant [tag _]}}]
+        (and (nil? value) (contains? variants injector))
+        (match:check module [{:action action}] [] return)
+
+        :default
+        (throw (ex-info "Unknown injector" {:injector injector})))
+
+      [[{:pattern {:ast/pattern :variant :variant {:injector injector}}}]
        [{:ast/type :existential-variable :id alpha} :non-principal]]
       (let [current (zip/node @(:type-checker/facts module))
             _       (swap! (:type-checker/facts module)
@@ -443,7 +463,7 @@
                       {:fact/declare-existential alpha
                        :kind                     :kind/type})
             [type principality]
-            (->> tag
+            (->> injector
               (find-variant module)
               (instantiate-universal module))]
         (swap! (:type-checker/facts module) zip/focus-right current)

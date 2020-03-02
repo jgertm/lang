@@ -105,18 +105,20 @@
   [module body-info pattern next]
   (let [load-body [(load (:type body-info)) (:register body-info)]]
     (match pattern
-      {:ast/pattern :variant :variant [injector sub-pattern]}
-      (let [{:keys [class type]} (lookup-variant module injector)
-            sub-register         (next-register module type)]
+      {:ast/pattern :variant :variant {:injector injector :value value}}
+      (let [{:keys [class type]} (lookup-variant module injector)]
         (utils/concatv
           [load-body
            [:instanceof class]
-           [:ifeq next]
-           load-body
-           [:checkcast class]
-           [:getfield class :value type]
-           [(store type) sub-register]]
-          (pattern->instructions module {:register sub-register :type type} sub-pattern next)))
+           [:ifeq next]]
+          (when (and (some? value) (some? type)) ; distinguish between true variant and enum
+            (let [sub-register (next-register module type)]
+              (utils/concatv
+                [load-body
+                 [:checkcast class]
+                 [:getfield class :value type]
+                 [(store type) sub-register]]
+                (pattern->instructions module {:register sub-register :type type} value next))))))
 
       {:ast/pattern :symbol :symbol symbol}
       (let [type     (:type body-info)
@@ -170,13 +172,13 @@
     {:ast/term :symbol :symbol symbol}
     (lookup-binding module symbol)
 
-    {:ast/term :variant :variant [injector value]}
+    {:ast/term :variant :variant {:injector injector :value value}}
     (let [{:keys [class type]} (lookup-variant module injector)]
       (utils/concatv
         [[:new class]
          [:dup]]
         (->instructions module value)
-        [[:invokespecial class :init [type :void]]]))
+        [[:invokespecial class :init (filterv some? [type :void])]]))
 
     {:ast/term :atom :atom {:value value}}
     [[:ldc value]]))
@@ -287,20 +289,29 @@
   (let [type (lookup-type module type)
         name (format "%s$%s" super (:name injector))]
     (add-variant module injector {:class name :super super :type type})
-    {:name    name
-     :super   super
-     :methods [{:flags #{:public}
-                :name  :init
-                :desc  [type :void]
-                :emit  [[:aload 0]
-                        [:invokespecial :super :init [:void]]
-                        [:aload 0]
-                        [(load type) 1]
-                        [:putfield :this :value type]
-                        [:return]]}]
-     :fields  [{:flags #{:public :final}
-                :name  :value
-                :type  type}]}))
+    (->
+      (if (nil? type) ; distinguish between true variant and enum
+        {:methods [{:flags #{:public}
+                    :name  :init
+                    :desc  [:void]
+                    :emit  [[:aload 0]
+                            [:invokespecial :super :init [:void]]
+                            [:return]]}]}
+
+        {:methods [{:flags #{:public}
+                    :name  :init
+                    :desc  [type :void]
+                    :emit  [[:aload 0]
+                            [:invokespecial :super :init [:void]]
+                            [:aload 0]
+                            [(load type) 1]
+                            [:putfield :this :value type]
+                            [:return]]}]
+         :fields  [{:flags #{:public :final}
+                    :name  :value
+                    :type  type}]})
+      (merge {:name  name
+              :super super}))))
 
 (defn- type->classes
   [module {:keys [name body]}]

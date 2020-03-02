@@ -45,9 +45,10 @@
 
 (def ^:private variant
   (brackets
-    (bind [variant (<*> reference/keyword (fwd expr))]
+    (bind [injector reference/keyword
+           value (optional (fwd expr))]
       (return {:ast/term :variant
-               :variant  variant}))))
+               :variant  {:injector injector :value value}}))))
 
 (def ^:private atom
   (bind [atom atom/expr]
