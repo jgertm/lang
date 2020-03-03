@@ -380,6 +380,7 @@
         module* (-> module
                   (assoc-in [:bytecode name]
                     {:name name
+                     :flags #{:public :final :super}
                      :code-generator/static-initializer-instructions
                      (atom [])})
                   (merge #:code-generator{:next-register (atom 0)
