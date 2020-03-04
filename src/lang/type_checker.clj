@@ -201,6 +201,72 @@
     _
     [type :principal]))
 
+(defn- setup-annotations
+  [definition]
+  (walk/prewalk
+    (fn [node]
+      (if (:ast/term node)
+        (assoc node :type-checker/type (promise))
+        node))
+    definition))
+
+(defn- resolve-annotations
+  [definition]
+  (walk/prewalk
+    (fn [node]
+      (cond
+        (some-> node :type-checker/type (realized?))
+        (update node :type-checker/type deref)
+
+        (:type-checker/type node)
+        (do #_(undefined :resolve-nodes/unrealized-type-promise)
+            node)
+
+        :else node))
+    definition))
+
+(defn- annotate-type
+  [term type]
+  (deliver (:type-checker/type term) type))
+
+(defn- generalize
+  [module mark type]
+  (let [discard (drop module mark)
+        universal-variables
+        (reduce
+          (fn [universal-variables fact]
+            (match fact
+              {:fact/declare-existential existential-variable-id :kind kind}
+              (let [existential-variable  {:ast/type :existential-variable
+                                           :id       existential-variable-id}
+                    universal-variable    (fresh-universal module)]
+                (swap! (:type-checker/facts module)
+                  #(-> %
+                     (zip/insert-right {:fact/solve-existential existential-variable-id
+                                        :kind kind
+                                        :type universal-variable})
+                     (zip/right)))
+                (conj universal-variables universal-variable))
+
+              fact
+              (do (swap! (:type-checker/facts module)
+                    #(-> %
+                       (zip/insert-right fact)
+                       (zip/right)))
+                  universal-variables)))
+          []
+          discard)
+        generalized-type
+        (->> universal-variables
+          (reduce
+            (fn [type universal-variable]
+              {:ast/type :forall
+               :variable universal-variable
+               :body     type})
+            type)
+          (apply module))]
+    generalized-type))
+
 (defn- analysis:check
   [module term type-principality]
   (let [[type principality] (if-let [[type principality] (not-empty type-principality)]
@@ -211,20 +277,23 @@
        {:ast/type :existential-variable :id alpha}
        :non-principal]
       (let [type {:ast/type :primitive :primitive (:atom atom)}]
+        (annotate-type term type)
         (solve-existential module alpha type))
 
       [{:ast/term :variant :variant {:injector injector :value value}}
        {:ast/type :variant :variants variants}
        _]
-      (cond
-        (and (some? value) (some? (get variants injector))) ; variant wraps value
-        (analysis:check module value [(get variants injector) principality])
+      (do
+        (cond
+          (and (some? value) (some? (get variants injector))) ; variant wraps value
+          (analysis:check module value [(get variants injector) principality])
 
-        (and (nil? value) (contains? variants injector)) ; variant is enum
-        nil
+          (and (nil? value) (contains? variants injector)) ; variant is enum
+          nil
 
-        :default ; injector isn't defined
-        (throw (ex-info "Unknown injector" {:injector injector})))
+          :default ; injector isn't defined
+          (throw (ex-info "Unknown injector" {:injector injector})))
+        (annotate-type term (apply module type)))
 
       [{:ast/term :variant :variant {:injector injector}}
        {:ast/type :existential-variable :id alpha}
@@ -258,43 +327,8 @@
         (swap! (:type-checker/facts module) zip/->end)
         (bind-symbol module argument alpha-1 :non-principal)
         (analysis:check module body [alpha-2 :non-principal])
-        (let [discard (drop module mark)
-              universal-variables
-              (reduce
-                (fn [universal-variables fact]
-                  (match fact
-                    {:fact/declare-existential existential-variable-id :kind kind}
-                    (let [existential-variable  {:ast/type :existential-variable
-                                                 :id       existential-variable-id}
-                          universal-variable    (fresh-universal module)]
-                      (swap! (:type-checker/facts module)
-                        #(-> %
-                           (zip/insert-right {:fact/solve-existential existential-variable-id
-                                              :kind kind
-                                              :type universal-variable})
-                           (zip/right)))
-                      (conj universal-variables universal-variable))
-
-                    fact
-                    (do (swap! (:type-checker/facts module)
-                          #(-> %
-                             (zip/insert-right fact)
-                             (zip/right)))
-                        universal-variables)))
-                []
-                discard)
-              generalized-function
-              (->> universal-variables
-                (reduce
-                  (fn [type universal-variable]
-                    {:ast/type :forall
-                     :variable universal-variable
-                     :body     type})
-                  function)
-                (apply module))]
-          (deliver (:type-checker/type body) (apply module alpha-2))
-          (solve-existential module alpha generalized-function :kind/type)
-          nil))
+        (solve-existential module alpha (generalize module mark function) :kind/type)
+        (annotate-type body (apply module alpha-2)))
 
       [{:ast/term :match :body body :branches branches} _ _]
       (let [[pattern-type pattern-principality] (synthesize module body)]
@@ -540,8 +574,12 @@
           (lookup-binding module symbol)
 
           {:ast/term :application :function function :arguments arguments}
-          (let [[function-type function-principality] (synthesize module function)]
-            (recover-spine module arguments [function-type function-principality]))
+          (let [mark (fresh-mark module)
+                [result-type result-principality]
+                (->> function
+                  (synthesize module)
+                  (recover-spine module arguments))]
+            [(generalize module mark result-type) result-principality])
 
           {:ast/term _}
           (let [alpha (fresh-existential module)]
@@ -551,7 +589,7 @@
         _ (when (not (map? type)) (undefined :messed-up-type))
 
         type* (apply module type)]
-    (deliver (:type-checker/type term) type*)
+    (annotate-type term type*)
     [type* principality]))
 
 (defn- abstract-type
@@ -574,34 +612,11 @@
               (merge (:type-checker/types module) param-type->universal-variable)
               body)))))))
 
-(defn- annotate-nodes
-  [definition]
-  (walk/prewalk
-    (fn [node]
-      (if (:ast/term node)
-        (assoc node :type-checker/type (promise))
-        node))
-    definition))
-
-(defn- resolve-nodes
-  [definition]
-  (walk/prewalk
-    (fn [node]
-      (cond
-        (some-> node :type-checker/type (realized?))
-        (update node :type-checker/type deref)
-
-        (:type-checker/type node)
-        (undefined :resolve-nodes/unrealized-type-promise)
-
-        :else node))
-    definition))
-
 (defn run
   [module]
   (reduce
     (fn [module definition]
-      (let [definition* (annotate-nodes definition)]
+      (let [definition* (setup-annotations definition)]
         (match definition*
           {:ast/definition :type :name name}
           (let [type*       (abstract-type module definition*)
@@ -617,7 +632,7 @@
             (swap! (:type-checker/facts module) zip/->end)
             (-> module
               (assoc-in [:type-checker/values name] type)
-              (update :definitions conj (resolve-nodes definition*))))
+              (update :definitions conj (resolve-annotations definition*))))
 
           {:ast/definition :native :name name :type type}
           (let [type* (apply module type)]
