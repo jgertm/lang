@@ -1,6 +1,7 @@
 (ns lang.utils
   (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [clojure.set :as set]))
 
 (def dev?
   (= :dev (:profile (edn/read-string (slurp (io/resource "config.edn"))))))
@@ -25,3 +26,7 @@
 
 (def conjv
   (fnil conj []))
+
+(defn symmetric-difference
+  [a b]
+  (set/difference (set/union a b) (set/intersection a b)))

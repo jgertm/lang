@@ -188,18 +188,20 @@
       (some #(when (check %) %)))))
 
 (defn- instantiate-universal
-  [module type]
-  (match type
-    {:ast/type :forall :variable universal-variable :body body}
-    (let [existential-variable (fresh-existential module)]
-      [(->> body
-         (instantiate-universal module)
-         (first)
-         (walk/prewalk-replace {universal-variable existential-variable}))
-       :non-principal])
+  ([module type]
+   (instantiate-universal module type true))
+  ([module type annotate?]
+   (match type
+     {:ast/type :forall :variable universal-variable :body body}
+     (let [existential-variable (fresh-existential module)
+           instance-type (->> (instantiate-universal module body false)
+                           (first)
+                           (walk/prewalk-replace {universal-variable existential-variable}))]
+       [(cond-> instance-type annotate? (assoc :type-checker/instance-of type))
+        :non-principal])
 
-    _
-    [type :principal]))
+     _
+     [type :principal])))
 
 (defn- setup-annotations
   [definition]
@@ -378,6 +380,21 @@
     (universally-quantified? type)
     (existentially-quantified? type)))
 
+(defn- polarity
+  [type]
+  (case (:ast/type type)
+    :forall :negative
+    :exists :positive
+    :neutral))
+
+(defn- negative?
+  [type]
+  (= :negative (polarity type)))
+
+(defn- positive?
+  [type]
+  (= :positive (polarity type)))
+
 (defn- unsolved?
   [module existential-variable]
   (not (contains? (existential-solutions module) existential-variable)))
@@ -435,20 +452,28 @@
     (do (subtyping:equivalent module a-1 b-1)
         (subtyping:equivalent module (apply module a-2) (apply module b-2)))
 
+    [{:ast/type :variant :variants variants-1}
+     {:ast/type :variant :variants variants-2}] ; ≡⊕
+    (do (when-let [diff (not-empty (utils/symmetric-difference (set (keys variants-1)) (set (keys variants-2))))]
+          (throw (ex-info "Different variant types" {:left type-a :right type-b :diff diff})))
+        (merge-with
+          (fn [type-1 type-2]
+            (when (and (some? type-1) (some? type-2))
+              (subtyping:equivalent module (apply module type-1) (apply module type-2))))
+          variants-1
+          variants-2)
+        nil)
+
     [{:ast/type :existential-variable} _] ; ≡InstantiateL
     (instantiate-to module type-a [type-b :kind/type])
  
     [_ {:ast/type :existential-variable}] ; ≡InstantiateR
     (instantiate-to module type-b [type-a :kind/type])
 
-    [{:ast/type :primitive :primitive primitive-1}
-     {:ast/type :primitive :primitive primitive-2}]
-    (if (not= primitive-1 primitive-2)
-      (throw (ex-info "Type mismatch" {:left primitive-1 :right primitive-2}))
-      nil)
-
     [_ _]
-    (undefined :subtyping.equivalent/fallthrough)))
+    (if (not= type-a type-b)
+      (undefined :subtyping.equivalent/fallthrough)
+      nil)))
 
 (defn- subtype
   [module polarity type-a type-b]
@@ -464,6 +489,24 @@
         b)
       (drop module mark)
       nil)
+
+    [:negative a {:ast/type :forall :variable universal-beta :body b}] ; <:∀R
+    (let [mark (fresh-mark module)]
+      (subtype module :negative a b)
+      (drop module mark)
+      nil)
+
+    [:positive (a :guard negative?) (b :guard (complement positive?))]
+    (subtype module :negative a b)
+
+    [:positive (a :guard (complement positive?)) (b :guard negative?)]
+    (subtype module :negative a b)
+
+    [:negative (a :guard positive?) (b :guard (complement negative?))]
+    (subtype module :positive a b)
+
+    [:negative (a :guard (complement negative?)) (b :guard positive?)]
+    (subtype module :positive a b)
 
     [_ _ _] (undefined :subtype/fallthrough)))
 
@@ -550,7 +593,7 @@
         [(walk/prewalk-replace {universal-variable existential-variable} body) principality]))
 
     [_ {:ast/type :existential-variable :id alpha}]
-    (let [current (zip/node @(:type-checker/facts module))
+    (let [current  (zip/node @(:type-checker/facts module))
           _        (swap! (:type-checker/facts module)
                      zip/focus-left
                      {:fact/declare-existential alpha
@@ -558,8 +601,8 @@
           alpha-1  (fresh-existential module)
           alpha-2  (fresh-existential module)
           function {:ast/type :function
-                    :domain  alpha-1
-                    :return  alpha-2}]
+                    :domain   alpha-1
+                    :return   alpha-2}]
       (solve-existential module alpha function :kind/type)
       (swap! (:type-checker/facts module) zip/focus-right current)
       (recover-spine module arguments [function principality]))
