@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [load])
   (:require [clojure.core.match :refer [match]]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [insn.core :as insn]
             [lang.utils :as utils]))
 
@@ -30,6 +31,14 @@
   (get {:void :return
         :int  :ireturn} type :areturn))
 
+(defn- primitive?
+  [type]
+  (contains? #{:byte :short :int :long :char :float :double :void} type))
+
+(defn- reference?
+  [type]
+  (not (primitive? type)))
+
 (defn- wide?
   [type]
   (contains? #{:double :long} type))
@@ -46,28 +55,46 @@
   [module]
   {:mark (swap! (:code-generator/next-mark module) inc)})
 
+(defn- specialize-type
+  [type]
+  (match type
+    {:ast/type :forall :variable variable :body body}
+    (->> body
+      (walk/prewalk-replace {variable {:ast/type :primitive :primitive :object}})
+      (recur))
+
+    _ type))
+
 (defn- lookup-type
   [module type]
   (let [primitives
         (->> {:string  String ; TODO: complete
               :unit    :void
               :integer :int
-              :boolean 'boolean}
+              :boolean 'boolean
+              :object  Object}
           (map (fn [[k v]] [{:ast/type :primitive :primitive k} v]))
           (into {}))]
-    (match type
-      {:ast/type :primitive}
-      (get primitives type)
+    (-> type
+      (specialize-type)
+      (match
+        {:ast/type :primitive}
+        (get primitives type)
 
-      {:ast/type :function :domain domain :return return}
-      (let [domain* (lookup-type module domain)
-            return* (lookup-type module return)]
-        (if (vector? return*)
-          (into [domain*] return*)
-          (conj [domain*] return*)))
+        {:ast/type :existential-variable} ; TODO: FIXME?
+        Object
 
-      _
-      (get @(:code-generator/types module) type))))
+        {:ast/type :function :domain domain :return return}
+        (let [domain* (lookup-type module domain)
+              return* (lookup-type module return)]
+          (if (vector? return*)
+            (into [domain*] return*)
+            (conj [domain*] return*)))
+
+        _
+        (or
+          (get @(:code-generator/types module) type)
+          (get @(:code-generator/types module) (:type-checker/instance-of type)))))))
 
 (defn- add-type
   [module type class]
@@ -130,14 +157,13 @@
       {:ast/pattern :wildcard}
       [])))
 
-(partition 2 1 (range 5))
-
 (defn- branch->instructions
-  [module body-info {:keys [pattern action]} [current next]]
+  [module body-info {:keys [pattern action]} {:keys [current next success]}]
   (utils/concatv
     [[:mark current]]
     (pattern->instructions module body-info pattern next)
-    (->instructions module action)))
+    (->instructions module action)
+    [[:goto success]]))
 
 (defn- ->instructions
   [module term]
@@ -145,29 +171,38 @@
     {:ast/term  :application
      :function  function
      :arguments arguments}
-    (let [arguments*
+    (let [return-type (lookup-type module (:type-checker/type term))
+          arguments*
           (->> arguments
-            (rseq)
             (mapcat (partial ->instructions module)))
           function* (lookup-function module (:symbol function))]
-      (conj
+      (utils/concatv
         (function* arguments*)
-        [(return (lookup-type module (:type-checker/type term)))]))
+        (when (reference? return-type) [[:checkcast return-type]])))
 
     {:ast/term :match :body body :branches branches}
-    (let [type      (lookup-type module (:type-checker/type body))
-          body-info {:register (next-register module type) :type type}
-          marks     (repeatedly (inc (count branches)) #(next-mark module))]
+    (let [body-type         (lookup-type module (:type-checker/type body))
+          return-type       (lookup-type module (:type-checker/type term))
+          body-info         {:register (next-register module body-type) :type body-type}
+          [success & marks] (repeatedly (+ 2 (count branches)) #(next-mark module))
+          failure           (last marks)
+          mark-seq          (->> marks
+                              (partition 2 1)
+                              (map #(assoc (zipmap [:current :next] %) :success success)))]
       (utils/concatv
         (->instructions module body)
-        [[(store type) (:register body-info)]]
+        [[(store body-type) (:register body-info)]]
         (mapcat
           (partial branch->instructions module body-info)
           branches
-          (partition 2 1 marks))
-        [[:mark (last marks)]
-         [(return (lookup-type module (:type-checker/type term)))] ; TODO: throw exception
-         ]))
+          mark-seq)
+        [[:mark failure]
+         [:new Exception] ; TODO: IllegalArgumentException
+         [:dup]
+         [:invokespecial Exception :init [:void]]
+         [:athrow]
+         [:mark success]]
+        (when (reference? return-type) [[:checkcast return-type]])))
 
     {:ast/term :symbol :symbol symbol}
     (lookup-binding module symbol)
@@ -177,7 +212,7 @@
       (utils/concatv
         [[:new class]
          [:dup]]
-        (->instructions module value)
+        (some->> value (->instructions module))
         [[:invokespecial class :init (filterv some? [type :void])]]))
 
     {:ast/term :atom :atom {:value value}}
@@ -198,7 +233,7 @@
                   utils/concatv (conj (->instructions module body) [:putstatic class (:name name) type]))
                 {}))
           (merge
-            {:flags #{:public :static}
+            {:flags #{:public :static :final}
              :name  (:name name)
              :type  type}))]
     (add-binding module
@@ -208,28 +243,29 @@
 
 (defn- allocate-registers
   [method]
-  (let [argument-registers (->> method
-                             :desc
-                             (butlast)
-                             (map #(if (wide? %) 2 1))
-                             (reduce +))]
-    (update method :emit
-      #(->> %
-         (reduce
-           (fn [{:keys [allocated next] :as state} instruction]
-             (match instruction
-               [opcode {:register i :width w}]
-               (if-let [register (get allocated i)]
-                 (update state :instructions conj [opcode register])
-                 (recur
-                   (-> state
-                     (update :allocated assoc i next)
-                     (update :next + w))
-                   instruction))
+  (update method :emit
+    #(->> %
+       (reduce
+         (fn [{:keys [allocated next] :as state} instruction]
+           (match instruction
+             [opcode {:register i :width w}]
+             (if-let [register (get allocated i)]
+               (update state :instructions conj [opcode register])
+               (recur
+                 (-> state
+                   (update :allocated assoc i next)
+                   (update :next + w))
+                 instruction))
 
-               _ (update state :instructions conj instruction)))
-           {:instructions [] :allocated {} :next argument-registers})
-         :instructions))))
+             _ (update state :instructions conj instruction)))
+         {:instructions []
+          :allocated    {}
+          :next         (->> method
+                          :desc
+                          (butlast)
+                          (map (fn [type] (if-not (wide? type) 1 2)))
+                          (reduce +))})
+       :instructions)))
 
 (defn- assign-marks
   [method]
@@ -252,6 +288,21 @@
          {:instructions [] :assigned {} :next 0})
        :instructions)))
 
+(defn- push-arguments
+  ([module term]
+   (push-arguments module term 0))
+  ([module term register]
+   (match term
+     {:ast/term :lambda :argument argument :body body}
+     (let [argument-type (lookup-type module (:domain (:type-checker/type module)))]
+       (add-binding module argument [[(load argument-type) register]])
+       (recur
+         module
+         body
+         (cond-> (inc register) (wide? argument-type) inc)))
+
+     _ term)))
+
 (defn- ->method
   [module definition]
   (-> definition
@@ -263,7 +314,28 @@
         {:flags #{:public :static}
          :name  "main"
          :desc  [[String] :void]
-         :emit  instructions}))
+         :emit  (utils/concatv instructions
+                  [[(return :void)]])})
+
+      {:ast/definition :constant
+       :name           name
+       :body           body}
+      (let [instructions
+            (->> body
+              (push-arguments module)
+              (->instructions module))
+            type   (lookup-type module (:type-checker/type body))
+            method {:flags #{:public :static}
+                    :name  (:name name)
+                    :desc  type
+                    :emit  (utils/concatv instructions
+                             [[(return (last type))]]) }]
+        (add-function module name
+          (fn [args]
+            (utils/concatv
+              args
+              [[:invokestatic (class-name module) (:name method) (:desc method)]])))
+        method))
     (allocate-registers)
     (assign-marks)))
 
@@ -297,7 +369,6 @@
                     :emit  [[:aload 0]
                             [:invokespecial :super :init [:void]]
                             [:return]]}]}
-
         {:methods [{:flags #{:public}
                     :name  :init
                     :desc  [type :void]
@@ -310,30 +381,28 @@
          :fields  [{:flags #{:public :final}
                     :name  :value
                     :type  type}]})
-      (merge {:name  name
+      (merge {:flags #{:public :final}
+              :name  name
               :super super}))))
 
 (defn- type->classes
   [module {:keys [name body]}]
-  (let [classes
-        (match body
-          {:ast/type :variant :variants variants}
-          (let [super {:flags       #{:public :abstract}
-                       :name        (subclass module name)
-                       :annotations {} ; TODO: generics
-                       :methods     [{:flags #{:protected}
-                                      :name  :init
-                                      :desc  [:void]
-                                      :emit [[:aload 0]
-                                             [:invokespecial :super :init [:void]]
-                                             [:return]]}]}]
-            (add-type module body (:name super))
-            (conj
-              (map (partial variant->class module (:name super)) variants)
-              super)))]
-    (->> classes
-      (map (fn [class] [(:name class) class]))
-      (into {}))))
+  (let [class (subclass module name)]
+    (add-type module body class)
+    (match (specialize-type body)
+      {:ast/type :variant :variants variants}
+      (let [super {:flags   #{:public :abstract}
+                   :name    class
+                   :methods [{:flags #{:protected}
+                              :name  :init
+                              :desc  [:void]
+                              :emit  [[:aload 0]
+                                      [:invokespecial :super :init [:void]]
+                                      [:return]]}]}]
+        (->> super
+          (conj (map (partial variant->class module (:name super)) variants))
+          (map (fn [class] [(:name class) class]))
+          (into {}))))))
 
 (defn- definition->bytecode
   [module definition]
