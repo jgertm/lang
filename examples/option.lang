@@ -37,7 +37,7 @@
 (defnative println : (-> String Unit)
   (java.io.PrintStream/println java.lang.System/out))
 
-(def val [:none])
+(def val [:some "shit"])
 
 (defn main [argv]
-  (println (flip-default "fuck" val)))
+  (println (default ((fn [x] x) val) "fuck")))

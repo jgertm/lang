@@ -426,7 +426,7 @@
             (map (fn [[injector value]]
                    [injector (when (some? value) (fresh-existential module))]))
             (into {}))]
-      (solve-existential module alpha {:ast/type :variant :variants variants*})
+      (solve-existential module alpha (assoc solution :variants variants*))
       (swap! (:type-checker/facts module) zip/->end)
       (dorun (map
                (fn [alpha-n tau-n]

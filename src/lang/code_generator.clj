@@ -87,7 +87,7 @@
         {:ast/type :function :domain domain :return return}
         (let [domain* (lookup-type module domain)
               return* (lookup-type module return)]
-          (if (vector? return*)
+          (if (vector? return*) ; FIXME: returns array
             (into [domain*] return*)
             (conj [domain*] return*)))
 
@@ -303,41 +303,78 @@
 
      _ term)))
 
-(defn- ->method
+(defn- promote-lambdas
+  [module parent term]
+  (let [lambdas (atom [])
+        term*   (walk/prewalk
+                  (fn [node]
+                    (match node
+                      {:ast/term :lambda} ; TODO: captured variables
+                      (let [reference {:reference :variable
+                                       :name      (format "%s$fn%d" parent (count @lambdas))}
+                            type      (lookup-type module (:type-checker/type node))
+                            method    {:flags #{:private :static}
+                                       :name  (:name reference)
+                                       :desc  type
+                                       :emit  (utils/concatv
+                                                (->> node
+                                                  (push-arguments module)
+                                                  (->instructions module)) ; TODO: nested lambdas
+                                                [[(return (last type))]])}] 
+                        (swap! lambdas conj method)
+                        (add-function module reference
+                          (fn [args]
+                            (utils/concatv
+                              args
+                              [[:invokestatic (class-name module) (:name method) (:desc method)]])))
+                        (merge
+                          (select-keys node [:type-checker/type])
+                          {:ast/term :symbol
+                           :symbol   reference}))
+
+                      _ node))
+                  term)]
+    {:lambdas @lambdas :term term*}))
+
+(defn- ->methods
   [module definition]
-  (-> definition
-    (match
+  (->>
+    (match definition
       {:ast/definition :constant
        :name           {:reference :variable :name "main"}
        :body           {:ast/term :lambda :body body}}
-      (let [instructions (->instructions module body)]
-        {:flags #{:public :static}
-         :name  "main"
-         :desc  [[String] :void]
-         :emit  (utils/concatv instructions
-                  [[(return :void)]])})
+      (let [{:keys [term lambdas]}
+            (promote-lambdas module "main" body)
+            method {:flags #{:public :static}
+                    :name  "main"
+                    :desc  [[String] :void]
+                    :emit  (utils/concatv
+                             (->instructions module term)
+                             [[(return :void)]])}]
+        (conj lambdas method))
 
       {:ast/definition :constant
        :name           name
        :body           body}
-      (let [instructions
-            (->> body
-              (push-arguments module)
-              (->instructions module))
+      (let [{:keys [term lambdas]}
+            (promote-lambdas module (:name name) (push-arguments module body))
             type   (lookup-type module (:type-checker/type body))
             method {:flags #{:public :static}
                     :name  (:name name)
                     :desc  type
-                    :emit  (utils/concatv instructions
+                    :emit  (utils/concatv
+                             (->instructions module term)
                              [[(return (last type))]]) }]
         (add-function module name
           (fn [args]
             (utils/concatv
               args
               [[:invokestatic (class-name module) (:name method) (:desc method)]])))
-        method))
-    (allocate-registers)
-    (assign-marks)))
+        (conj lambdas method)))
+    (mapv
+      #(-> %
+         (allocate-registers)
+         (assign-marks)))))
 
 (defn- register-native
   [module definition]
@@ -409,13 +446,19 @@
   (let [class (class-name module)]
     (match definition
       {:ast/definition :type}
-      (update module :bytecode merge (type->classes module definition))
+      (->> definition
+        (type->classes module)
+        (update module :bytecode merge))
 
       {:ast/definition :constant :body {:ast/term :lambda}}
-      (update-in module [:bytecode class :methods] utils/conjv (->method module definition))
+      (->> definition
+        (->methods module)
+        (update-in module [:bytecode class :methods] utils/concatv))
 
       {:ast/definition :constant}
-      (update-in module [:bytecode class :fields] utils/conjv (->field module definition))
+      (->> definition
+        (->field module)
+        (update-in module [:bytecode class :fields] utils/conjv))
 
       {:ast/definition :native}
       (do (register-native module definition )
