@@ -420,6 +420,7 @@
                     :type  type}]})
       (merge {:flags #{:public :final}
               :name  name
+              :version 11
               :super super}))))
 
 (defn- type->classes
@@ -430,6 +431,7 @@
       {:ast/type :variant :variants variants}
       (let [super {:flags   #{:public :abstract}
                    :name    class
+                   :version 11
                    :methods [{:flags #{:protected}
                               :name  :init
                               :desc  [:void]
@@ -492,6 +494,7 @@
         module* (-> module
                   (assoc-in [:bytecode name]
                     {:name name
+                     :version 11
                      :flags #{:public :final :super}
                      :code-generator/static-initializer-instructions
                      (atom [])})
