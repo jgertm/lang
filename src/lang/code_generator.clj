@@ -4,7 +4,9 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [insn.core :as insn]
-            [lang.utils :as utils]))
+            insn.util
+            [lang.utils :as utils :refer [undefined]])
+  (:import [java.lang.invoke CallSite LambdaMetafactory MethodHandle MethodHandles$Lookup MethodType]))
 
 (declare ->instructions)
 
@@ -112,7 +114,9 @@
 
 (defn- lookup-function
   [module symbol]
-  (get @(:code-generator/functions module) symbol))
+  (or
+    (get @(:code-generator/functions module) symbol)
+    (get @(:code-generator/bindings module) symbol)))
 
 (defn- add-function
   [module symbol fn]
@@ -305,36 +309,67 @@
 
 (defn- promote-lambdas
   [module parent term]
-  (let [lambdas (atom [])
-        term*   (walk/prewalk
-                  (fn [node]
-                    (match node
-                      {:ast/term :lambda} ; TODO: captured variables
-                      (let [reference {:reference :variable
-                                       :name      (format "%s$fn%d" parent (count @lambdas))}
-                            type      (lookup-type module (:type-checker/type node))
-                            method    {:flags #{:private :static}
-                                       :name  (:name reference)
-                                       :desc  type
-                                       :emit  (utils/concatv
-                                                (->> node
-                                                  (push-arguments module)
-                                                  (->instructions module)) ; TODO: nested lambdas
-                                                [[(return (last type))]])}] 
-                        (swap! lambdas conj method)
-                        (add-function module reference
-                          (fn [args]
-                            (utils/concatv
-                              args
-                              [[:invokestatic (class-name module) (:name method) (:desc method)]])))
-                        (merge
-                          (select-keys node [:type-checker/type])
-                          {:ast/term :symbol
-                           :symbol   reference}))
+  (let [methods (atom [])
+        term*
+        (walk/prewalk
+          (fn [node]
+            (match node
+              {:ast/term :lambda} ; TODO: captured variables
+              (let [type           (lookup-type module (:type-checker/type node))
+                    argument-types (butlast type)
+                    return-type    (last type)
+                    lambda-method
+                    {:flags #{:private :static}
+                     :name  (format "%s$fn%d" parent (count @methods))
+                     :desc  type
+                     :emit  (utils/concatv
+                              (->> node
+                                (push-arguments module)
+                                (->instructions module)) ; TODO: nested lambdas
+                              [[(return return-type)]])}
+                    reference {:reference :variable :name (:name lambda-method)}]
+                (swap! methods conj lambda-method)
+                (add-binding module reference
+                  (match (:desc lambda-method)
+                    [_ _]
+                    (fn [args]
+                      (utils/concatv
+                        [[:invokedynamic
+                          "apply1"
+                          ["lang.function.Function1"]
+                          [:invokestatic
+                           LambdaMetafactory
+                           "metafactory"
+                           [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+                          [(insn.util/method-type [Object Object])
+                           (insn.util/handle :invokestatic (class-name module) (:name lambda-method) (:desc lambda-method))
+                           (insn.util/method-type (:desc lambda-method))]]]
+                        args
+                        [[:invokeinterface "lang.function.Function1" "apply1" [Object Object]]]))
 
-                      _ node))
-                  term)]
-    {:lambdas @lambdas :term term*}))
+                    [_ _ _]
+                    (fn [args]
+                      (utils/concatv
+                        [[:invokedynamic
+                          "apply2"
+                          ["lang.function.Function2"]
+                          [:invokestatic
+                           LambdaMetafactory
+                           ""
+                           [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+                          [(insn.util/method-type [Object Object Object])
+                           (insn.util/handle :invokestatic (class-name module) (:name lambda-method) (:desc lambda-method))
+                           (insn.util/method-type (:desc lambda-method))]]]
+                        args
+                        [[:invokeinterface "lang.function.Function2" "apply2" [Object Object Object]]]))))
+                (merge
+                  (select-keys node [:type-checker/type])
+                  {:ast/term :symbol
+                   :symbol   reference}))
+
+              _ node))
+          term)]
+    {:methods @methods :term term*}))
 
 (defn- ->methods
   [module definition]
@@ -343,7 +378,7 @@
       {:ast/definition :constant
        :name           {:reference :variable :name "main"}
        :body           {:ast/term :lambda :body body}}
-      (let [{:keys [term lambdas]}
+      (let [{:keys [term methods]}
             (promote-lambdas module "main" body)
             method {:flags #{:public :static}
                     :name  "main"
@@ -351,7 +386,7 @@
                     :emit  (utils/concatv
                              (->instructions module term)
                              [[(return :void)]])}]
-        (conj lambdas method))
+        (conj methods method))
 
       {:ast/definition :constant
        :name           name
@@ -365,11 +400,39 @@
                     :emit  (utils/concatv
                              (->instructions module term)
                              [[(return (last type))]]) }]
-        (add-function module name
-          (fn [args]
-            (utils/concatv
-              args
-              [[:invokestatic (class-name module) (:name method) (:desc method)]])))
+        (add-binding module name
+          (match type
+            [_ _] 
+            (fn [args]
+              (utils/concatv
+                [[:invokedynamic
+                  "apply1"
+                  ["lang.function.Function1"]
+                  [:invokestatic
+                   LambdaMetafactory
+                   "metafactory"
+                   [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+                  [(insn.util/method-type [Object Object])
+                   (insn.util/handle :invokestatic (class-name module) (:name method) (:desc method))
+                   (insn.util/method-type (:desc method))]]]
+                args
+                [[:invokeinterface "lang.function.Function1" "apply1" [Object Object]]]))
+
+            [_ _ _] 
+            (fn [args]
+              (utils/concatv
+                [[:invokedynamic
+                  "apply2"
+                  ["lang.function.Function2"]
+                  [:invokestatic
+                   LambdaMetafactory
+                   "metafactory"
+                   [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+                  [(insn.util/method-type [Object Object Object])
+                   (insn.util/handle :invokestatic (class-name module) (:name method) (:desc method))
+                   (insn.util/method-type (:desc method))]]]
+                args
+                [[:invokeinterface "lang.function.Function2" "apply2" [Object Object Object]]]))))
         (conj lambdas method)))
     (mapv
       #(-> %
