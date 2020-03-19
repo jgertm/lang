@@ -675,7 +675,9 @@
             (swap! (:type-checker/facts module) zip/->end)
             (-> module
               (assoc-in [:type-checker/values name] type)
-              (update :definitions conj (resolve-annotations definition*))))
+              (update :definitions conj (-> definition*
+                                          (resolve-annotations)
+                                          (assoc :type-checker/type type)))))
 
           {:ast/definition :native :name name :type type}
           (let [type* (apply module type)]

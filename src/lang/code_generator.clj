@@ -8,6 +8,7 @@
             [lang.utils :as utils :refer [undefined]])
   (:import [java.lang.invoke CallSite LambdaMetafactory MethodHandle MethodHandles$Lookup MethodType]))
 
+(declare lookup-type)
 (declare ->instructions)
 
 (defn- class-name
@@ -35,7 +36,7 @@
 
 (defn- primitive?
   [type]
-  (contains? #{:byte :short :int :long :char :float :double :void} type))
+  (contains? #{'void 'boolean 'int} type))
 
 (defn- reference?
   [type]
@@ -67,14 +68,26 @@
 
     _ type))
 
+(defn- lookup-method-type
+  [module type]
+  (match (specialize-type type)
+    {:ast/type :function :domain domain :return return}
+    (let [domain* (lookup-type module domain)
+          return* (if (= :function (:ast/type return))
+                    (lookup-method-type module return)
+                    (lookup-type module return))]
+      (if (vector? return*) ; FIXME: returns array
+        (into [domain*] return*)
+        (conj [domain*] return*)))))
+
 (defn- lookup-type
   [module type]
   (let [primitives
-        (->> {:string  String ; TODO: complete
-              :unit    :void
-              :integer :int
+        (->> {:string  'java.lang.String ; TODO: complete
+              :unit    'void ; TODO: implement unit type
+              :integer 'int
               :boolean 'boolean
-              :object  Object}
+              :object  'java.lang.Object}
           (map (fn [[k v]] [{:ast/type :primitive :primitive k} v]))
           (into {}))]
     (-> type
@@ -83,15 +96,17 @@
         {:ast/type :primitive}
         (get primitives type)
 
-        {:ast/type :existential-variable} ; TODO: FIXME?
+        {:ast/type (:or :existential-variable :universal-variable)} ; TODO: FIXME?
         Object
 
-        {:ast/type :function :domain domain :return return}
-        (let [domain* (lookup-type module domain)
-              return* (lookup-type module return)]
-          (if (vector? return*) ; FIXME: returns array
-            (into [domain*] return*)
-            (conj [domain*] return*)))
+        {:ast/type :function}
+        (let [method-type (lookup-method-type module type)
+              return-type (last method-type)]
+          (match [return-type (->> method-type (count) (dec))]
+            ['void 1] "lang.function.Consumer1"
+            [_ 1] "lang.function.Function1"
+            ['void 2] "lang.function.Consumer2"
+            [_ 2] "lang.function.Function2"))
 
         _
         (or
@@ -111,17 +126,6 @@
   [module symbol instructions]
   (swap! (:code-generator/bindings module)
     assoc symbol instructions))
-
-(defn- lookup-function
-  [module symbol]
-  (or
-    (get @(:code-generator/functions module) symbol)
-    (get @(:code-generator/bindings module) symbol)))
-
-(defn- add-function
-  [module symbol fn]
-  (swap! (:code-generator/functions module)
-    assoc symbol fn))
 
 (defn- lookup-variant
   [module injector]
@@ -179,9 +183,17 @@
           arguments*
           (->> arguments
             (mapcat (partial ->instructions module)))
-          function* (lookup-function module (:symbol function))]
+          function*   (lookup-binding module (:symbol function))
+          invoke-insn
+          (match [return-type (+ (dec (count function*)) (count arguments))]
+            ['void 1] [:invokeinterface "lang.function.Consumer1" "apply1" [Object 'void]]
+            [_ 1] [:invokeinterface "lang.function.Function1" "apply1" [Object Object]]
+            ['void 2] [:invokeinterface "lang.function.Consumer2" "apply2" [Object Object 'void]]
+            [_ 2] [:invokeinterface "lang.function.Function2" "apply2" [Object Object Object]])]
       (utils/concatv
-        (function* arguments*)
+        function*
+        arguments*
+        [invoke-insn] 
         (when (reference? return-type) [[:checkcast return-type]])))
 
     {:ast/term :match :body body :branches branches}
@@ -297,8 +309,14 @@
    (push-arguments module term 0))
   ([module term register]
    (match term
-     {:ast/term :lambda :argument argument :body body}
-     (let [argument-type (lookup-type module (:domain (:type-checker/type module)))]
+     {:ast/term          :lambda
+      :argument          argument
+      :body              body
+      :type-checker/type type}
+     (let [argument-type (->> type
+                           (specialize-type)
+                           :domain
+                           (lookup-type module))]
        (add-binding module argument [[(load argument-type) register]])
        (recur
          module
@@ -306,6 +324,58 @@
          (cond-> (inc register) (wide? argument-type) inc)))
 
      _ term)))
+
+(defn- make-callsite
+  [module {:keys [desc name]}]
+  (let [class (class-name module)]
+    (match desc
+      [_ 'void]
+      [[:invokedynamic
+        "apply1"
+        ["lang.function.Consumer1"]
+        [:invokestatic
+         LambdaMetafactory
+         "metafactory"
+         [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+        [(insn.util/method-type [Object 'void])
+         (insn.util/handle :invokestatic class name desc)
+         (insn.util/method-type desc)]]]
+
+      [_ _]
+      [[:invokedynamic
+        "apply1"
+        ["lang.function.Function1"]
+        [:invokestatic
+         LambdaMetafactory
+         "metafactory"
+         [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+        [(insn.util/method-type [Object Object])
+         (insn.util/handle :invokestatic class name desc)
+         (insn.util/method-type desc)]]]
+
+      [_ _ 'void]
+      [[:invokedynamic
+        "apply2"
+        ["lang.function.Consumer2"]
+        [:invokestatic
+         LambdaMetafactory
+         "metafactory"
+         [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+        [(insn.util/method-type [Object Object 'void])
+         (insn.util/handle :invokestatic class name desc)
+         (insn.util/method-type desc)]]]
+
+      [_ _ _]
+      [[:invokedynamic
+        "apply2"
+        ["lang.function.Function2"]
+        [:invokestatic
+         LambdaMetafactory
+         "metafactory"
+         [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+        [(insn.util/method-type [Object Object Object])
+         (insn.util/handle :invokestatic class name desc)
+         (insn.util/method-type desc)]]])))
 
 (defn- promote-lambdas
   [module parent term]
@@ -315,7 +385,7 @@
           (fn [node]
             (match node
               {:ast/term :lambda} ; TODO: captured variables
-              (let [type           (lookup-type module (:type-checker/type node))
+              (let [type           (lookup-method-type module (:type-checker/type node))
                     argument-types (butlast type)
                     return-type    (last type)
                     lambda-method
@@ -329,43 +399,13 @@
                               [[(return return-type)]])}
                     reference {:reference :variable :name (:name lambda-method)}]
                 (swap! methods conj lambda-method)
-                (add-binding module reference
-                  (match (:desc lambda-method)
-                    [_ _]
-                    (fn [args]
-                      (utils/concatv
-                        [[:invokedynamic
-                          "apply1"
-                          ["lang.function.Function1"]
-                          [:invokestatic
-                           LambdaMetafactory
-                           "metafactory"
-                           [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-                          [(insn.util/method-type [Object Object])
-                           (insn.util/handle :invokestatic (class-name module) (:name lambda-method) (:desc lambda-method))
-                           (insn.util/method-type (:desc lambda-method))]]]
-                        args
-                        [[:invokeinterface "lang.function.Function1" "apply1" [Object Object]]]))
-
-                    [_ _ _]
-                    (fn [args]
-                      (utils/concatv
-                        [[:invokedynamic
-                          "apply2"
-                          ["lang.function.Function2"]
-                          [:invokestatic
-                           LambdaMetafactory
-                           ""
-                           [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-                          [(insn.util/method-type [Object Object Object])
-                           (insn.util/handle :invokestatic (class-name module) (:name lambda-method) (:desc lambda-method))
-                           (insn.util/method-type (:desc lambda-method))]]]
-                        args
-                        [[:invokeinterface "lang.function.Function2" "apply2" [Object Object Object]]]))))
-                (merge
-                  (select-keys node [:type-checker/type])
-                  {:ast/term :symbol
-                   :symbol   reference}))
+                (->> lambda-method
+                  (make-callsite module)
+                  (add-binding module reference))
+                (-> node
+                  (select-keys [:type-checker/type])
+                  (merge {:ast/term :symbol
+                          :symbol   reference})))
 
               _ node))
           term)]
@@ -392,47 +432,19 @@
        :name           name
        :body           body}
       (let [{:keys [term lambdas]}
-            (promote-lambdas module (:name name) (push-arguments module body))
-            type   (lookup-type module (:type-checker/type body))
+            (->> body
+              (push-arguments module)
+              (promote-lambdas module (:name name)))
+            type   (lookup-method-type module (:type-checker/type body))
             method {:flags #{:public :static}
                     :name  (:name name)
                     :desc  type
                     :emit  (utils/concatv
                              (->instructions module term)
                              [[(return (last type))]]) }]
-        (add-binding module name
-          (match type
-            [_ _] 
-            (fn [args]
-              (utils/concatv
-                [[:invokedynamic
-                  "apply1"
-                  ["lang.function.Function1"]
-                  [:invokestatic
-                   LambdaMetafactory
-                   "metafactory"
-                   [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-                  [(insn.util/method-type [Object Object])
-                   (insn.util/handle :invokestatic (class-name module) (:name method) (:desc method))
-                   (insn.util/method-type (:desc method))]]]
-                args
-                [[:invokeinterface "lang.function.Function1" "apply1" [Object Object]]]))
-
-            [_ _ _] 
-            (fn [args]
-              (utils/concatv
-                [[:invokedynamic
-                  "apply2"
-                  ["lang.function.Function2"]
-                  [:invokestatic
-                   LambdaMetafactory
-                   "metafactory"
-                   [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-                  [(insn.util/method-type [Object Object Object])
-                   (insn.util/handle :invokestatic (class-name module) (:name method) (:desc method))
-                   (insn.util/method-type (:desc method))]]]
-                args
-                [[:invokeinterface "lang.function.Function2" "apply2" [Object Object Object]]]))))
+        (->> method
+          (make-callsite module)
+          (add-binding module name))
         (conj lambdas method)))
     (mapv
       #(-> %
@@ -441,20 +453,28 @@
 
 (defn- register-native
   [module definition]
-  (add-function module
+  (add-binding module
     (:name definition)
     (match definition
       {:body {:function method :arguments [object]} :type type}
-      (fn [args]
-        (utils/concatv
-          [[:getstatic
-            (->> object :symbol :in :name (str/join "."))
-            (-> object :symbol :name)]]
-          args
-          [[:invokevirtual
-            (->> method :symbol :in :name (str/join "."))
-            (-> method :symbol :name)
-            (lookup-type module type)]])))))
+      (let [type* (lookup-method-type module type)]
+        [[:invokedynamic
+          "apply2"
+          ["lang.function.Consumer2"]
+          [:invokestatic
+           LambdaMetafactory
+           "metafactory"
+           [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
+          [(insn.util/method-type [Object Object 'void])
+           (insn.util/handle
+             :invokevirtual
+             (->> method :symbol :in :name (str/join "."))
+             (-> method :symbol :name)
+             type*)
+           (insn.util/method-type [java.io.PrintStream java.lang.String 'void])]]
+         [:getstatic
+          (->> object :symbol :in :name (str/join "."))
+          (-> object :symbol :name)]]))))
 
 (defn- variant->class
   [module super [injector type]]
