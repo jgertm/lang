@@ -39,22 +39,28 @@
                :body           body}))))
 
 (def ^:private function
-  (parens
-    (bind [_ (word "defn")
-           name reference/variable
-           arguments (brackets (many0 reference/variable))
-           body term/expr]
-      (return {:ast/definition :constant
-               :name           name
-               :body
-               (->> arguments
-                 (rseq)
-                 (reduce
-                   (fn [term arg]
-                     {:ast/term :lambda
-                      :argument arg
-                      :body     term})
-                   body))}))))
+  (let [argument (bind [symbol reference/variable
+                        type (optional (>> (sym \:) type/expr))]
+                   (return
+                     (if type
+                       (assoc symbol :type type)
+                       symbol)))]
+    (parens
+      (bind [_ (word "defn")
+             name reference/variable
+             arguments (brackets (many0 argument))
+             body term/expr]
+        (return {:ast/definition :constant
+                 :name           name
+                 :body
+                 (->> arguments
+                   (rseq)
+                   (reduce
+                     (fn [term arg]
+                       {:ast/term :lambda
+                        :argument arg
+                        :body     term})
+                     body))})))))
 
 (def ^:private native
   (parens

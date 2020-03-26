@@ -77,7 +77,7 @@
   [module symbol type principality]
   (swap! (:type-checker/facts module)
     zip/insert-left
-    {:fact/bind-symbol symbol
+    {:fact/bind-symbol (dissoc symbol :type)
      :type             type
      :principality     principality})
   nil)
@@ -328,6 +328,10 @@
         (solve-existential module alpha function)
         (swap! (:type-checker/facts module) zip/->end)
         (bind-symbol module argument alpha-1 :non-principal)
+        (when-let [argument-type (:type argument)]
+          (analysis:check module
+            {:ast/term :symbol :symbol (dissoc argument :type)}
+            [(apply module argument-type) :principal]))
         (analysis:check module body [alpha-2 :non-principal])
         (solve-existential module alpha (generalize module mark function) :kind/type)
         (annotate-type body (apply module alpha-2)))

@@ -37,7 +37,11 @@
 (defnative println : (-> String Unit)
   (java.io.PrintStream/println java.lang.System/out))
 
-(def val [:some "shit"])
+(def val [:some "shiiiit"])
+
+(defn apply
+  [f x]
+  (f x))
 
 (defn main [argv]
   (println (default ((fn [x] x) val) "fuck")))
