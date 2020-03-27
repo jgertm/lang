@@ -143,6 +143,9 @@
          (map (fn [[injector value]] [injector (some->> value (apply module))]))
          (into {})))
 
+    {:ast/type :vector}
+    (update type :inner (partial apply module))
+
     {:ast/type :primitive}
     type
 

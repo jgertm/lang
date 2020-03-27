@@ -1,4 +1,5 @@
 (ns lang.parser.type
+  (:refer-clojure :exclude [vector])
   (:require [blancas.kern.core :refer :all]
             [lang.parser.lexer :refer :all]
             [lang.parser.reference :as reference]))
@@ -15,6 +16,11 @@
            variants (many1 (brackets (<*> reference/keyword (optional (fwd expr)))))]
       (return {:ast/type :variant :variants (into (array-map) variants)}))))
 
+(def ^:private vector
+  (brackets
+    (bind [inner (fwd expr)]
+      (return {:ast/type :vector :inner inner}))))
+
 (def ^:private function
   (parens
     (bind [_ (word "->")
@@ -29,4 +35,5 @@
   (<|>
     named
     (<:> variant)
+    (<:> vector)
     (<:> function)))

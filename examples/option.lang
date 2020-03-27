@@ -44,5 +44,6 @@
   [f x]
   (f x))
 
-(defn main [argv]
+(defn main
+  [argv : [String]]
   (println (default ((fn [x] x) val) "fuck")))

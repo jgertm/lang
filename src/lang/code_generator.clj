@@ -24,16 +24,16 @@
 
 (defn- load
   [type]
-  (get {:int :iload} type :aload))
+  (get {'int :iload} type :aload))
 
 (defn- store
   [type]
-  (get {:int :istore} type :astore))
+  (get {'int :istore} type :astore))
 
 (defn- return
   [type]
-  (get {:void :return
-        :int  :ireturn} type :areturn))
+  (get {'void :return
+        'int  :ireturn} type :areturn))
 
 (defn- primitive?
   [type]
@@ -96,6 +96,9 @@
       (match
         {:ast/type :primitive}
         (get primitives type)
+
+        {:ast/type :vector :inner inner}
+        [(lookup-type module inner)]
 
         {:ast/type (:or :existential-variable :universal-variable)} ; TODO: FIXME?
         Object
@@ -214,7 +217,7 @@
         [[:mark failure]
          [:new Exception] ; TODO: IllegalArgumentException
          [:dup]
-         [:invokespecial Exception :init [:void]]
+         [:invokespecial Exception :init ['void]]
          [:athrow]
          [:mark success]]
         (when (reference? return-type) [[:checkcast return-type]])))
@@ -234,7 +237,7 @@
         [[:new class]
          [:dup]]
         (some->> value (->instructions module))
-        [[:invokespecial class :init (filterv some? [type :void])]]))
+        [[:invokespecial class :init (filterv some? [type 'void])]]))
 
     {:ast/term :access
      :object   object
@@ -437,22 +440,9 @@
   (->>
     (match definition
       {:ast/definition :constant
-       :name           {:reference :variable :name "main"}
-       :body           {:ast/term :lambda :body body}}
-      (let [{:keys [term methods]}
-            (promote-lambdas module "main" body)
-            method {:flags #{:public :static}
-                    :name  "main"
-                    :desc  [[String] :void]
-                    :emit  (utils/concatv
-                             (->instructions module term)
-                             [[(return :void)]])}]
-        (conj methods method))
-
-      {:ast/definition :constant
        :name           name
        :body           body}
-      (let [{:keys [term lambdas]}
+      (let [{:keys [term methods]}
             (->> body
               (push-arguments module)
               (promote-lambdas module (:name name)))
@@ -466,7 +456,7 @@
         (->> method
           (make-callsite module)
           (add-binding module name))
-        (conj lambdas method)))
+        (conj methods method)))
     (mapv
       #(-> %
          (allocate-registers)
@@ -481,15 +471,15 @@
       (if (nil? type) ; distinguish between true variant and enum
         {:methods [{:flags #{:public}
                     :name  :init
-                    :desc  [:void]
+                    :desc  ['void]
                     :emit  [[:aload 0]
-                            [:invokespecial :super :init [:void]]
+                            [:invokespecial :super :init ['void]]
                             [:return]]}]}
         {:methods [{:flags #{:public}
                     :name  :init
-                    :desc  [type :void]
+                    :desc  [type 'void]
                     :emit  [[:aload 0]
-                            [:invokespecial :super :init [:void]]
+                            [:invokespecial :super :init ['void]]
                             [:aload 0]
                             [(load type) 1]
                             [:putfield :this :value type]
@@ -513,9 +503,9 @@
                    :version 11
                    :methods [{:flags #{:protected}
                               :name  :init
-                              :desc  [:void]
+                              :desc  ['void]
                               :emit  [[:aload 0]
-                                      [:invokespecial :super :init [:void]]
+                                      [:invokespecial :super :init ['void]]
                                       [:return]]}]}]
         (->> super
           (conj (map (partial variant->class module (:name super)) variants))
@@ -550,11 +540,11 @@
               method
               (-> {:flags #{:public :static}
                    :name  :clinit
-                   :desc  [:void]
+                   :desc  ['void]
                    :emit  (utils/concatv
                             [[:new name]
                              [:dup]
-                             [:invokespecial name :init [:void]]]
+                             [:invokespecial name :init ['void]]]
                             instructions
                             [[:return]])}
                 (allocate-registers)
