@@ -62,22 +62,9 @@
                         :body     term})
                      body))})))))
 
-(def ^:private native
-  (parens
-    (bind [_ (word "defnative")
-           name reference/variable
-           _ (sym \:)
-           type type/expr
-           body term/expr]
-      (return {:ast/definition :native
-               :name           name
-               :type           type
-               :body           body}))))
-
 (def expr
   (<|>
     (<:> module)
     (<:> type)
     (<:> constant)
-    (<:> function)
-    (<:> native)))
+    (<:> function)))

@@ -1,10 +1,13 @@
 (ns lang.type-checker
   (:refer-clojure :exclude [apply drop])
   (:require [clojure.core.match :refer [match]]
+            clojure.reflect
             [clojure.string :as str]
             [clojure.walk :as walk]
+            [lang.jvm :as jvm]
             [lang.utils :as utils :refer [undefined]]
-            [lang.zip :as zip]))
+            [lang.zip :as zip])
+  (:import java.lang.Class))
 
 (def ^:private builtins
   (let [unit   {:ast/type :primitive :primitive :unit}
@@ -77,7 +80,7 @@
   [module symbol type principality]
   (swap! (:type-checker/facts module)
     zip/insert-left
-    {:fact/bind-symbol (dissoc symbol :type)
+    {:fact/bind-symbol (select-keys symbol [:reference :name])
      :type             type
      :principality     principality})
   nil)
@@ -107,7 +110,7 @@
                          (when-let [symbol (:fact/bind-symbol fact)]
                            [symbol ((juxt :type :principality) fact)])))
                  (into {}))]
-    (get (merge definitions locals) symbol)))
+    (get (merge definitions locals) (select-keys symbol [:reference :name]))))
 
 (defn- lookup-type
   [module name]
@@ -147,6 +150,9 @@
     (or
       (lookup-type module name)
       (undefined :apply/named.unknown))
+
+    {:ast/type :object}
+    type
 
     _
     (undefined :apply/fallthrough)))
@@ -229,7 +235,8 @@
 
 (defn- annotate-type
   [term type]
-  (deliver (:type-checker/type term) type))
+  (when-let [promise (:type-checker/type term)]
+    (deliver promise type)))
 
 (defn- generalize
   [module mark type]
@@ -330,7 +337,7 @@
         (bind-symbol module argument alpha-1 :non-principal)
         (when-let [argument-type (:type argument)]
           (analysis:check module
-            {:ast/term :symbol :symbol (dissoc argument :type)}
+            {:ast/term :symbol :symbol argument}
             [(apply module argument-type) :principal]))
         (analysis:check module body [alpha-2 :non-principal])
         (solve-existential module alpha (generalize module mark function) :kind/type)
@@ -613,10 +620,34 @@
 
     [_ _] (undefined :recover-spine/fallthrough)))
 
+(defn- to-jvm-type
+  [type]
+  (match type ; TODO: complete
+    {:ast/type :object :class class}
+    class
+
+    {:ast/type :primitive :primitive primitive}
+    (case primitive
+      :string 'java.lang.String)))
+
+(defn- from-jvm-type
+  [type]
+  (case type ; TODO: complete
+    'void {:ast/type :primitive :primitive :unit}))
+
 (defn- synthesize
   [module term]
   (let [[type principality]
         (match term
+          {:ast/term :symbol :symbol (symbol :guard jvm/native?)}
+          (let [class (->> symbol :in :name
+                        (str/join ".")
+                        (java.lang.Class/forName)
+                        (clojure.reflect/reflect))
+                field (first (filter #(= (:name symbol) (name (:name %))) (:members class)))]
+            [{:ast/type :object :class (:type field)}
+             :principal])
+
           {:ast/term :symbol :symbol symbol}
           (lookup-binding module symbol)
 
@@ -628,12 +659,40 @@
                   (recover-spine module arguments))]
             [(generalize module mark result-type) result-principality])
 
+          {:ast/term :access
+           :object   object
+           :field    {:ast/term  :application
+                      :function  function
+                      :arguments arguments}} ; instance method
+          (let [object-type           (->> object (synthesize module) (first) (to-jvm-type))
+                parameter-types       (mapv #(to-jvm-type (first (synthesize module %))) arguments)
+                {:keys [return-type]} (->> function :symbol :in :name
+                                        (str/join ".")
+                                        (java.lang.Class/forName)
+                                        (clojure.reflect/reflect)
+                                        :members
+                                        (filter (fn [member]
+                                                  (and
+                                                    (= (:declaring-class member) object-type)
+                                                    (= (name (:name member)) (:name (:symbol function)))
+                                                    (= (:parameter-types member) parameter-types))))
+                                        (first))]
+            (annotate-type function
+              {:ast/type  :method
+               :class     object-type
+               :signature (conj parameter-types return-type)})
+            [(from-jvm-type return-type) :principal])
+
+          {:ast/term :access
+           :object   object} ; static field
+          (undefined ::static-field)
+
           {:ast/term _}
           (let [alpha (fresh-existential module)]
             (analysis:check module term [alpha :non-principal])
             [(get (existential-solutions module) alpha alpha) :non-principal]))
 
-        _ (when (not (map? type)) (undefined :messed-up-type))
+        _ (when (not (map? type)) (undefined ::messed-up-type))
 
         type* (apply module type)]
     (annotate-type term type*)

@@ -5,6 +5,7 @@
             [clojure.walk :as walk]
             [insn.core :as insn]
             insn.util
+            [lang.jvm :as jvm]
             [lang.utils :as utils :refer [undefined]])
   (:import [java.lang.invoke CallSite LambdaMetafactory MethodHandle MethodHandles$Lookup MethodType]))
 
@@ -125,7 +126,7 @@
 (defn- add-binding
   [module symbol instructions]
   (swap! (:code-generator/bindings module)
-    assoc symbol instructions))
+    assoc (select-keys symbol [:reference :name]) instructions))
 
 (defn- lookup-variant
   [module injector]
@@ -180,9 +181,7 @@
      :function  function
      :arguments arguments}
     (let [return-type (lookup-type module (:type-checker/type term))
-          arguments*
-          (->> arguments
-            (mapcat (partial ->instructions module)))
+          arguments*  (mapcat (partial ->instructions module) arguments)
           function*   (lookup-binding module (:symbol function))
           invoke-insn
           (match [return-type (+ (dec (count function*)) (count arguments))]
@@ -220,6 +219,12 @@
          [:mark success]]
         (when (reference? return-type) [[:checkcast return-type]])))
 
+    {:ast/term :symbol :symbol (symbol :guard jvm/native?)}
+    (let [class (->> symbol :in :name (str/join "."))
+          field (:name symbol)
+          type  (:class (:type-checker/type term))]
+      [[:getstatic class field type]])
+
     {:ast/term :symbol :symbol symbol}
     (lookup-binding module symbol)
 
@@ -230,6 +235,22 @@
          [:dup]]
         (some->> value (->instructions module))
         [[:invokespecial class :init (filterv some? [type :void])]]))
+
+    {:ast/term :access
+     :object   object
+     :field    {:ast/term  :application
+                :function  function
+                :arguments arguments}} ; instance method
+    (let [object*    (->instructions module object)
+          arguments* (mapcat (partial ->instructions module) arguments)
+          invocation [[:invokevirtual
+                       (str/join "." (:name (:in (:symbol function))))
+                       (:name (:symbol function))
+                       (:signature (:type-checker/type function))]]]
+      (utils/concatv
+        object*
+        arguments*
+        invocation))
 
     {:ast/term :atom :atom {:value value}}
     [[:ldc value]]))
@@ -451,31 +472,6 @@
          (allocate-registers)
          (assign-marks)))))
 
-(defn- register-native
-  [module definition]
-  (add-binding module
-    (:name definition)
-    (match definition
-      {:body {:function method :arguments [object]} :type type}
-      (let [type* (lookup-method-type module type)]
-        [[:invokedynamic
-          "apply2"
-          ["lang.function.Consumer2"]
-          [:invokestatic
-           LambdaMetafactory
-           "metafactory"
-           [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-          [(insn.util/method-type [Object Object 'void])
-           (insn.util/handle
-             :invokevirtual
-             (->> method :symbol :in :name (str/join "."))
-             (-> method :symbol :name)
-             type*)
-           (insn.util/method-type [java.io.PrintStream java.lang.String 'void])]]
-         [:getstatic
-          (->> object :symbol :in :name (str/join "."))
-          (-> object :symbol :name)]]))))
-
 (defn- variant->class
   [module super [injector type]]
   (let [type (lookup-type module type)
@@ -543,11 +539,7 @@
       {:ast/definition :constant}
       (->> definition
         (->field module)
-        (update-in module [:bytecode class :fields] utils/conjv))
-
-      {:ast/definition :native}
-      (do (register-native module definition )
-          module))))
+        (update-in module [:bytecode class :fields] utils/conjv)))))
 
 (defn- add-static-initializer
   [module]

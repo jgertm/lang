@@ -35,6 +35,15 @@
                  :body     body
                  :branches branches})))))
 
+(def ^:private access
+  (parens
+    (bind [_ (word ".")
+           object (fwd expr)
+           field (fwd expr)]
+      (return {:ast/term :access
+               :object   object
+               :field    field}))))
+
 (def ^:private application
   (parens
     (bind [function (fwd expr)
@@ -64,6 +73,7 @@
   (<|>
     (<:> lambda)
     (<:> match)
+    (<:> access)
     application
     variant
     atom
@@ -72,8 +82,8 @@
 (comment
 
   (blancas.kern.core/run*
-    match
-    "(match greeting [:wrap text] (println text))")
+    expr
+    "(. java.lang.System/out (java.io.PrintStream/println \"foobar\"))")
 
 
   )

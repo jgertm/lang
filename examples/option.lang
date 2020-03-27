@@ -34,8 +34,9 @@
 (def flip-default*
   (flip default))
 
-(defnative println : (-> String Unit)
-  (java.io.PrintStream/println java.lang.System/out))
+(defn println
+  [s : String]
+  (. java.lang.System/out (java.io.PrintStream/println s)))
 
 (def val [:some "shiiiit"])
 
