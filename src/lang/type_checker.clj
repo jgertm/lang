@@ -10,15 +10,15 @@
   (:import java.lang.Class))
 
 (def ^:private builtins
-  (let [unit   {:ast/type :primitive :primitive :unit}
-        string {:ast/type :primitive :primitive :string}
+  (let [unit    {:ast/type :primitive :primitive :unit}
+        string  {:ast/type :primitive :primitive :string}
         integer {:ast/type :primitive :primitive :integer}
         boolean {:ast/type :primitive :primitive :boolean}]
     {:type-checker/types
-     {{:reference :type :name "Unit"} unit
+     {{:reference :type :name "Unit"}   unit
       {:reference :type :name "String"} string
-      {:reference :type :name "Int"} integer
-      {:reference :type :name "Bool"} boolean}
+      {:reference :type :name "Int"}    integer
+      {:reference :type :name "Bool"}   boolean}
      :type-checker/values {}}))
 
 (declare analysis:check)
@@ -96,21 +96,32 @@
               [existential (:type fact)])))
     (into {})))
 
+(defn- global-bindings
+  [module]
+  (->> module
+    :type-checker/values
+    (map (fn [[name type]] [name [type :principal]]))
+    (into {})))
+
+(defn- local-bindings
+  [module]
+  (->> module
+    :type-checker/facts
+    (deref)
+    (zip/left-seq)
+    (keep (fn [fact]
+            (when-let [symbol (:fact/bind-symbol fact)]
+              [symbol ((juxt :type :principality) fact)])))
+    (into {})))
+
 (defn- lookup-binding
   [module symbol]
-  (let [definitions (->> module
-                      :type-checker/values
-                      (map (fn [[name type]] [name [type :principal]]))
-                      (into {}))
-        locals (->> module
-                 :type-checker/facts
-                 (deref)
-                 (zip/left-seq)
-                 (keep (fn [fact]
-                         (when-let [symbol (:fact/bind-symbol fact)]
-                           [symbol ((juxt :type :principality) fact)])))
-                 (into {}))]
-    (get (merge definitions locals) (select-keys symbol [:reference :name]))))
+  (let [all-bindings (merge
+                       (global-bindings module)
+                       (local-bindings module))]
+    (or
+      (get all-bindings (select-keys symbol [:reference :name]))
+      (throw (ex-info "Unknown binding" {:symbol symbol})))))
 
 (defn- lookup-type
   [module name]
@@ -310,23 +321,24 @@
       [{:ast/term :variant :variant {:injector injector}}
        {:ast/type :existential-variable :id alpha}
        _]
-      (let [;current (zip/node @(:type-checker/facts module))
-            _       (swap! (:type-checker/facts module)
-                      zip/focus-left
-                      {:fact/declare-existential alpha
-                       :kind                     :kind/type})
+      (let [current (zip/node @(:type-checker/facts module))
+            _ (swap! (:type-checker/facts module)
+                zip/focus-left
+                {:fact/declare-existential alpha
+                 :kind                     :kind/type})
             [type principality]
             (->> injector
               (find-variant module)
               (instantiate-universal module))]
-                                        ;(swap! (:type-checker/facts module) zip/focus-right current)
+        (swap! (:type-checker/facts module) zip/focus-right current)
         (solve-existential module alpha type)
         (analysis:check module term [type principality]))
 
       [{:ast/term :lambda :argument argument :body body}
        {:ast/type :existential-variable :id alpha}
        :non-principal]          ; TODO: guard that `alpha` is declared
-      (let [_        (swap! (:type-checker/facts module)
+      (let [current  (zip/node @(:type-checker/facts module))
+            _        (swap! (:type-checker/facts module)
                        zip/focus-left
                        {:fact/declare-existential alpha :kind :kind/type})
             mark     (fresh-mark module)
@@ -336,7 +348,7 @@
                       :domain   alpha-1
                       :return   alpha-2}]
         (solve-existential module alpha function)
-        (swap! (:type-checker/facts module) zip/->end)
+        (swap! (:type-checker/facts module) zip/focus-right current)
         (bind-symbol module argument alpha-1 :non-principal)
         (when-let [argument-type (:type argument)]
           (analysis:check module

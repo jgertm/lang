@@ -4,26 +4,18 @@
   (| [:none]
      [:some T]))
 
-; (-> (Option String) String)
-(defn foo
-  [option]
-  (match option
-    [:none] "foo"
-    [:some n] n))
-
-; (∀ T (-> (Option T) T T))
 (defn default
   [option fallback]
   (match option
     [:none] fallback
     [:some value] value))
 
-; (∀ T (-> T (Option T) T))
-(defn flip-default
-  [fallback option]
+; (∀ X Y (-> (-> X Y) (Option X) (Option Y)))
+(defn map
+  [f option]
   (match option
-    [:none] fallback
-    [:some value] value))
+    [:none] [:none]
+    [:some value] [:some (f value)]))
 
 ; TODO: implement `flip-default` using `flip`
 ; (∀ X Y Z (-> (-> X Y Z) (-> Y X Z)))
