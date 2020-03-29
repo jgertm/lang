@@ -514,12 +514,13 @@
 
 (defn- definition->bytecode
   [module definition]
-  (let [class (class-name module)]
+  (let [class (class-name module)
+        reverse-merge (fn [x y] (merge y x))]
     (match definition
       {:ast/definition :type}
       (->> definition
         (type->classes module)
-        (update module :bytecode merge))
+        (update module :bytecode reverse-merge))
 
       {:ast/definition :constant :body {:ast/term :lambda}}
       (->> definition
@@ -575,17 +576,28 @@
         (:definitions module))
       (add-static-initializer))))
 
+(extend-protocol insn.core/Loader ; FIXME: reflection warning
+  ClassLoader
+  (load-type [classloader t]
+    (let [get-declared-method (.getDeclaredMethod ClassLoader "defineClass" (into-array [String (Class/forName "[B") (Integer/TYPE) (Integer/TYPE)]))]
+      (try
+        (.setAccessible get-declared-method true)
+        (.invoke get-declared-method classloader (into-array Object [(:name t) (:bytes t) (int 0) (int (count (:bytes t)))]))
+        (catch Exception e nil)
+        (finally
+          (.setAccessible get-declared-method false))))))
+
 (defn run
   [module]
-  (let [module (module->bytecode module)]
+  (let [module      (module->bytecode module)
+        classloader (ClassLoader/getSystemClassLoader)]
     (->> module
       :bytecode
       (vals)
-      (vec)
       (run!
-        #(-> %
-           (insn/visit)
-           (insn/write "out/"))))
+        #(let [class (insn/visit %)]
+           (insn/define classloader class)
+           (insn/write class "out/"))))
     module))
 
 (comment
