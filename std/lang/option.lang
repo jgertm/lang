@@ -1,0 +1,18 @@
+(defmodule lang.option) 
+
+(deftype (Option T)
+  (| [:none]
+     [:some T]))
+
+(defn default
+  [option fallback]
+  (match option
+    [:none] fallback
+    [:some value] value))
+
+; (∀ X Y (-> (-> X Y) (Option X) (Option Y)))
+(defn map
+  [f option]
+  (match option
+    [:none] [:none]
+    [:some value] [:some (f value)]))

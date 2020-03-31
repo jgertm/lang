@@ -7,11 +7,19 @@
             [lang.parser.type :as type]))
 
 (def ^:private module
-  (parens
-    (bind [_ (word "defmodule")
-           name reference/module]
-      (return {:ast/definition :module
-               :name       name}))))
+  (let [import (brackets
+                 (bind [name reference/module
+                        alias (optional (>> (word ":as") reference/module))]
+                   (return (merge
+                             {:module name}
+                             (when alias {:alias alias})))))]
+    (parens
+      (bind [_ (word "defmodule")
+             name reference/module
+             imports (optional (parens (>> (word ":import") (many import))))]
+        (return {:ast/definition :module
+                 :name           name
+                 :imports        imports})))))
 
 (def ^:private type
   (let [concrete (bind [name reference/type]

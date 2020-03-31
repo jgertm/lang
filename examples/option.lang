@@ -1,21 +1,7 @@
-(defmodule examples.option)
+(defmodule examples.option
+  (:import [lang.io :as io]
+           [lang.option :as option]))
 
-(deftype (Option T)
-  (| [:none]
-     [:some T]))
-
-(defn default
-  [option fallback]
-  (match option
-    [:none] fallback
-    [:some value] value))
-
-; (∀ X Y (-> (-> X Y) (Option X) (Option Y)))
-(defn map
-  [f option]
-  (match option
-    [:none] [:none]
-    [:some value] [:some (f value)]))
 
 ; TODO: implement `flip-default` using `flip`
 ; (∀ X Y Z (-> (-> X Y Z) (-> Y X Z)))
@@ -26,11 +12,8 @@
 (def flip-default*
   (flip default))
 
-(defn println
-  [s : String]
-  (. java.lang.System/out (java.io.PrintStream/println s)))
+(def val [:option/some "shiiiit"])
 
-(def val [:some "shiiiit"])
 
 (defn apply
   [f x]
@@ -38,4 +21,4 @@
 
 (defn main
   [argv : [String]]
-  (println (default ((fn [x] x) val) "fuck")))
+  (io/println (option/default ((fn [x] x) val) "fuck")))

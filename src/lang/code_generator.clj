@@ -6,11 +6,23 @@
             [insn.core :as insn]
             insn.util
             [lang.jvm :as jvm]
+            [lang.module :as module]
+            [lang.type :as type]
             [lang.utils :as utils :refer [undefined]])
   (:import [java.lang.invoke CallSite LambdaMetafactory MethodHandle MethodHandles$Lookup MethodType]))
 
 (declare lookup-type)
 (declare ->instructions)
+
+(def ^:private bytecode-version 11)
+
+(def ^:private VOID Void/TYPE)
+(def ^:private INT Integer/TYPE)
+(def ^:private BOOL Boolean/TYPE)
+
+(defn- void?
+  [type]
+  (= type VOID))
 
 (defn- class-name
   [module]
@@ -24,20 +36,20 @@
 
 (defn- load
   [type]
-  (get {'int :iload} type :aload))
+  (get {INT :iload} type :aload))
 
 (defn- store
   [type]
-  (get {'int :istore} type :astore))
+  (get {INT :istore} type :astore))
 
 (defn- return
   [type]
-  (get {'void :return
-        'int  :ireturn} type :areturn))
+  (get {VOID :return
+        INT  :ireturn} type :areturn))
 
 (defn- primitive?
   [type]
-  (contains? #{'void 'boolean 'int} type))
+  (contains? #{VOID BOOL INT} type))
 
 (defn- reference?
   [type]
@@ -81,15 +93,17 @@
         (into [domain*] return*)
         (conj [domain*] return*)))))
 
+(defn- all-types
+  [module]
+  (merge
+    (module/all-types module)
+    @(:code-generator/types module)))
+
 (defn- lookup-type
   [module type]
   (let [primitives
-        (->> {:string  'java.lang.String ; TODO: complete
-              :unit    'void ; TODO: implement unit type
-              :integer 'int
-              :boolean 'boolean
-              :object  'java.lang.Object}
-          (map (fn [[k v]] [{:ast/type :primitive :primitive k} v]))
+        (->> module/builtins
+          (map (comp (juxt :body :class) val))
           (into {}))]
     (-> type
       (specialize-type)
@@ -106,38 +120,65 @@
         {:ast/type :function}
         (let [method-type (lookup-method-type module type)
               return-type (last method-type)]
-          (match [return-type (->> method-type (count) (dec))]
-            ['void 1] "lang.function.Consumer1"
-            [_ 1] "lang.function.Function1"
-            ['void 2] "lang.function.Consumer2"
-            [_ 2] "lang.function.Function2"))
+          (case (->> method-type (count) (dec))
+            1 (if (void? return-type) "lang.function.Consumer1" "lang.function.Function1")
+            2 (if (void? return-type) "lang.function.Consumer2" "lang.function.Function2")))
 
         _
-        (or
-          (get @(:code-generator/types module) type)
-          (get @(:code-generator/types module) (:type-checker/instance-of type)))))))
+        (let [types (all-types module)]
+          (:class
+           (or
+             (get types type)
+             (get types (:type-checker/instance-of type))
+             (throw (ex-info "Could not find class for type"
+                      {:type type
+                       :module (:name module)})))))))))
 
 (defn- add-type
   [module type class]
   (swap! (:code-generator/types module)
-    assoc type class))
+    assoc type {:class class}))
+
+(defn- local-bindings
+  [module]
+  (->> module
+    :code-generator/bindings
+    (deref)
+    (map (fn [[k v]] [k {:instructions v}]))
+    (into {})))
+
+(defn- all-bindings
+  [module]
+  (merge
+    (module/all-bindings module)
+    (local-bindings module)))
 
 (defn- lookup-binding
   [module symbol]
-  (get @(:code-generator/bindings module) symbol))
+  (or
+    (:instructions (get (all-bindings module) symbol))
+    (throw (ex-info "Could not find instructions for binding"
+             {:symbol symbol
+              :module (:name module)}))))
 
 (defn- add-binding
   [module symbol instructions]
   (swap! (:code-generator/bindings module)
     assoc (select-keys symbol [:reference :name]) instructions))
 
-(defn- lookup-variant
-  [module injector]
-  (get @(:code-generator/variants module) injector))
+(defn- all-injectors
+  [module]
+  (merge
+    (module/all-injectors module)
+    @(:code-generator/injectors module)))
 
-(defn- add-variant
-  [module injector {:keys [class super type] :as variant}]
-  (swap! (:code-generator/variants module)
+(defn- lookup-injector
+  [module injector]
+  (get (all-injectors module) injector))
+
+(defn- add-injector
+  [module injector variant]
+  (swap! (:code-generator/injectors module)
     assoc injector variant))
 
 (defn- pattern->instructions
@@ -145,19 +186,19 @@
   (let [load-body [(load (:type body-info)) (:register body-info)]]
     (match pattern
       {:ast/pattern :variant :variant {:injector injector :value value}}
-      (let [{:keys [class type]} (lookup-variant module injector)]
+      (let [{:class/keys [outer inner]} (lookup-injector module injector)]
         (utils/concatv
           [load-body
-           [:instanceof class]
+           [:instanceof outer]
            [:ifeq next]]
-          (when (and (some? value) (some? type)) ; distinguish between true variant and enum
-            (let [sub-register (next-register module type)]
+          (when (and (some? value) (some? inner)) ; distinguish between true variant and enum
+            (let [sub-register (next-register module inner)]
               (utils/concatv
                 [load-body
-                 [:checkcast class]
-                 [:getfield class :value type]
-                 [(store type) sub-register]]
-                (pattern->instructions module {:register sub-register :type type} value next))))))
+                 [:checkcast outer]
+                 [:getfield outer :value inner]
+                 [(store inner) sub-register]]
+                (pattern->instructions module {:register sub-register :type inner} value next))))))
 
       {:ast/pattern :symbol :symbol symbol}
       (let [type     (:type body-info)
@@ -187,11 +228,15 @@
           arguments*  (mapcat (partial ->instructions module) arguments)
           function*   (lookup-binding module (:symbol function))
           invoke-insn
-          (match [return-type (+ (dec (count function*)) (count arguments))]
-            ['void 1] [:invokeinterface "lang.function.Consumer1" "apply1" [Object 'void]]
-            [_ 1] [:invokeinterface "lang.function.Function1" "apply1" [Object Object]]
-            ['void 2] [:invokeinterface "lang.function.Consumer2" "apply2" [Object Object 'void]]
-            [_ 2] [:invokeinterface "lang.function.Function2" "apply2" [Object Object Object]])]
+          (case (+ (dec (count function*)) (count arguments))
+            1 [:invokeinterface
+               (if (void? return-type) "lang.function.Consumer1" "lang.function.Function1")
+               "apply1"
+               [Object (if (void? return-type) VOID Object)]]
+            2 [:invokeinterface
+               (if (void? return-type) "lang.function.Consumer2" "lang.function.Function2")
+               "apply2"
+               [Object Object (if (void? return-type) VOID Object)]])]
       (utils/concatv
         function*
         arguments*
@@ -217,7 +262,7 @@
         [[:mark failure]
          [:new Exception] ; TODO: IllegalArgumentException
          [:dup]
-         [:invokespecial Exception :init ['void]]
+         [:invokespecial Exception :init [VOID]]
          [:athrow]
          [:mark success]]
         (when (reference? return-type) [[:checkcast return-type]])))
@@ -232,12 +277,12 @@
     (lookup-binding module symbol)
 
     {:ast/term :variant :variant {:injector injector :value value}}
-    (let [{:keys [class type]} (lookup-variant module injector)]
+    (let [{:class/keys [outer inner]} (lookup-injector module injector)]
       (utils/concatv
-        [[:new class]
+        [[:new outer]
          [:dup]]
         (some->> value (->instructions module))
-        [[:invokespecial class :init (filterv some? [type 'void])]]))
+        [[:invokespecial outer :init (filterv some? [inner VOID])]]))
 
     {:ast/term :access
      :object   object
@@ -269,8 +314,11 @@
             {:value (:value atom)}
 
             {:ast/term :variant}
-            (do (swap! (get-in module [:bytecode class :code-generator/static-initializer-instructions])
-                  utils/concatv (conj (->instructions module body) [:putstatic class (:name name) type]))
+            (do (swap! (get-in module [:code-generator/bytecode class :code-generator/static-initializer-instructions])
+                  utils/concatv
+                  (conj
+                    (->instructions module body)
+                    [:putstatic class (:name name) type]))
                 {}))
           (merge
             {:flags #{:public :static :final}
@@ -353,51 +401,31 @@
   [module {:keys [desc name]}]
   (let [class (class-name module)]
     (match desc
-      [_ 'void]
+      [_ return-type]
       [[:invokedynamic
         "apply1"
-        ["lang.function.Consumer1"]
+        [(if (void? return-type)
+           "lang.function.Consumer1"
+           "lang.function.Function1")]
         [:invokestatic
          LambdaMetafactory
          "metafactory"
          [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-        [(insn.util/method-type [Object 'void])
+        [(insn.util/method-type [Object (if (void? return-type) VOID Object)])
          (insn.util/handle :invokestatic class name desc)
          (insn.util/method-type desc)]]]
 
-      [_ _]
-      [[:invokedynamic
-        "apply1"
-        ["lang.function.Function1"]
-        [:invokestatic
-         LambdaMetafactory
-         "metafactory"
-         [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-        [(insn.util/method-type [Object Object])
-         (insn.util/handle :invokestatic class name desc)
-         (insn.util/method-type desc)]]]
-
-      [_ _ 'void]
+      [_ _ return-type]
       [[:invokedynamic
         "apply2"
-        ["lang.function.Consumer2"]
+        [(if (void? return-type)
+           "lang.function.Consumer2"
+           "lang.function.Function2")]
         [:invokestatic
          LambdaMetafactory
          "metafactory"
          [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-        [(insn.util/method-type [Object Object 'void])
-         (insn.util/handle :invokestatic class name desc)
-         (insn.util/method-type desc)]]]
-
-      [_ _ _]
-      [[:invokedynamic
-        "apply2"
-        ["lang.function.Function2"]
-        [:invokestatic
-         LambdaMetafactory
-         "metafactory"
-         [MethodHandles$Lookup String MethodType MethodType MethodHandle MethodType CallSite]]
-        [(insn.util/method-type [Object Object Object])
+        [(insn.util/method-type [Object Object (if (void? return-type) VOID Object)])
          (insn.util/handle :invokestatic class name desc)
          (insn.util/method-type desc)]]])))
 
@@ -462,24 +490,24 @@
          (allocate-registers)
          (assign-marks)))))
 
-(defn- variant->class
+(defn- injector->class
   [module super [injector type]]
-  (let [type (lookup-type module type)
+  (let [type (some->> type (lookup-type module))
         name (format "%s$%s" super (:name injector))]
-    (add-variant module injector {:class name :super super :type type})
+    (add-injector module injector #:class{:outer name :super super :inner type})
     (->
       (if (nil? type) ; distinguish between true variant and enum
         {:methods [{:flags #{:public}
                     :name  :init
-                    :desc  ['void]
+                    :desc  [VOID]
                     :emit  [[:aload 0]
-                            [:invokespecial :super :init ['void]]
+                            [:invokespecial :super :init [VOID]]
                             [:return]]}]}
         {:methods [{:flags #{:public}
                     :name  :init
-                    :desc  [type 'void]
+                    :desc  [type VOID]
                     :emit  [[:aload 0]
-                            [:invokespecial :super :init ['void]]
+                            [:invokespecial :super :init [VOID]]
                             [:aload 0]
                             [(load type) 1]
                             [:putfield :this :value type]
@@ -489,7 +517,7 @@
                     :type  type}]})
       (merge {:flags #{:public :final}
               :name  name
-              :version 11
+              :version bytecode-version
               :super super}))))
 
 (defn- type->classes
@@ -497,55 +525,66 @@
   (let [class (subclass module name)]
     (add-type module body class)
     (match (specialize-type body)
-      {:ast/type :variant :variants variants}
+      {:ast/type :variant :injectors injectors}
       (let [super {:flags   #{:public :abstract}
                    :name    class
-                   :version 11
+                   :version bytecode-version
                    :methods [{:flags #{:protected}
                               :name  :init
-                              :desc  ['void]
+                              :desc  [VOID]
                               :emit  [[:aload 0]
-                                      [:invokespecial :super :init ['void]]
+                                      [:invokespecial :super :init [VOID]]
                                       [:return]]}]}]
         (->> super
-          (conj (map (partial variant->class module (:name super)) variants))
+          (conj (map (partial injector->class module (:name super)) injectors))
           (map (fn [class] [(:name class) class]))
           (into {}))))))
 
 (defn- definition->bytecode
   [module definition]
   (let [class (class-name module)
-        reverse-merge (fn [x y] (merge y x))]
+        reverse-merge (fn [x y] (merge y x))
+        name (:name definition)]
     (match definition
-      {:ast/definition :type}
-      (->> definition
-        (type->classes module)
-        (update module :bytecode reverse-merge))
+      {:ast/definition :type :body body}
+      (let [classes (type->classes module definition)]
+        (-> module
+          (update :code-generator/bytecode reverse-merge classes)
+          (assoc-in [:types name :class] (lookup-type module body))
+          (update-in [:types name :injectors]
+            (partial merge-with merge)
+            (->> body
+              (type/injectors)
+              (keys)
+              (map (fn [injector] [injector (lookup-injector module injector)]))
+              (into {})))))
 
       {:ast/definition :constant :body {:ast/term :lambda}}
-      (->> definition
-        (->methods module)
-        (update-in module [:bytecode class :methods] utils/concatv))
+      (let [methods (->methods module definition)]
+        (-> module
+          (update-in [:code-generator/bytecode class :methods] utils/concatv methods)
+          (assoc-in [:values name :instructions] (lookup-binding module name))))
 
       {:ast/definition :constant}
-      (->> definition
-        (->field module)
-        (update-in module [:bytecode class :fields] utils/conjv)))))
+      (let [field (->field module definition)]
+        (-> module
+          (update-in [:code-generator/bytecode class :fields] utils/conjv field)
+          (assoc-in [:values name :instructions] (lookup-binding module name)))))))
 
 (defn- add-static-initializer
   [module]
   (let [name (class-name module)]
-    (update-in module [:bytecode name]
+    (update-in module [:code-generator/bytecode name]
       (fn [class]
         (let [instructions @(:code-generator/static-initializer-instructions class)
               method
               (-> {:flags #{:public :static}
                    :name  :clinit
-                   :desc  ['void]
+                   :desc  [VOID]
                    :emit  (utils/concatv
                             [[:new name]
                              [:dup]
-                             [:invokespecial name :init ['void]]]
+                             [:invokespecial name :init [VOID]]]
                             instructions
                             [[:return]])}
                 (allocate-registers)
@@ -558,18 +597,17 @@
   [module]
   (let [name    (class-name module)
         module* (-> module
-                  (assoc-in [:bytecode name]
-                    {:name name
-                     :version 11
-                     :flags #{:public :final :super}
+                  (assoc-in [:code-generator/bytecode name]
+                    {:name    name
+                     :version bytecode-version
+                     :flags   #{:public :final :super}
                      :code-generator/static-initializer-instructions
                      (atom [])})
                   (merge #:code-generator{:next-register (atom 0)
                                           :next-mark     (atom 0)
                                           :bindings      (atom {})
-                                          :functions     (atom {})
                                           :types         (atom {})
-                                          :variants      (atom {})}))]
+                                          :injectors     (atom {})}))]
     (->
       (reduce definition->bytecode
         module*
@@ -579,11 +617,13 @@
 (extend-protocol insn.core/Loader ; FIXME: reflection warning
   ClassLoader
   (load-type [classloader t]
-    (let [get-declared-method (.getDeclaredMethod ClassLoader "defineClass" (into-array [String (Class/forName "[B") (Integer/TYPE) (Integer/TYPE)]))]
+    (let [get-declared-method (.getDeclaredMethod ClassLoader "defineClass" (into-array [String (Class/forName "[B") Integer/TYPE Integer/TYPE]))]
       (try
         (.setAccessible get-declared-method true)
-        (.invoke get-declared-method classloader (into-array Object [(:name t) (:bytes t) (int 0) (int (count (:bytes t)))]))
-        (catch Exception e nil)
+        (.invoke get-declared-method classloader
+          (into-array Object [(:name t) (:bytes t) (int 0) (int (count (:bytes t)))]))
+        (catch Exception e
+          nil)
         (finally
           (.setAccessible get-declared-method false))))))
 
@@ -592,7 +632,7 @@
   (let [module      (module->bytecode module)
         classloader (ClassLoader/getSystemClassLoader)]
     (->> module
-      :bytecode
+      :code-generator/bytecode
       (vals)
       (run!
         #(let [class (insn/visit %)]
@@ -602,8 +642,14 @@
 
 (comment
 
-  (-> "examples/hello.lang"
-    (lang.compiler/run)
-    :bytecode)
+  (-> "examples/option.lang"
+    (lang.compiler/run #{:parser :dependency-analyzer :type-checker :code-generator})
+    :code-generator/bytecode
+    )
+
+  (-> "std/lang/option.lang"
+    (lang.compiler/run #{:parser :dependency-analyzer :type-checker :code-generator})
+    :types
+    )
 
   )

@@ -1,0 +1,5 @@
+(defmodule lang.io)
+
+(defn println
+  [s : String]
+  (. java.lang.System/out (java.io.PrintStream/println s)))

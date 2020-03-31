@@ -13,8 +13,8 @@
 (def ^:private variant
   (parens
     (bind [_ (sym \|)
-           variants (many1 (brackets (<*> reference/keyword (optional (fwd expr)))))]
-      (return {:ast/type :variant :variants (into (array-map) variants)}))))
+           injectors (many1 (brackets (<*> reference/keyword (optional (fwd expr)))))]
+      (return {:ast/type :variant :injectors (into (array-map) injectors)}))))
 
 (def ^:private vector
   (brackets
