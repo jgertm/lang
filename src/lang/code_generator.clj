@@ -36,16 +36,19 @@
 
 (defn- load
   [type]
-  (get {INT :iload} type :aload))
+  (get {INT  :iload
+        BOOL :iload} type :aload))
 
 (defn- store
   [type]
-  (get {INT :istore} type :astore))
+  (get {INT  :istore
+        BOOL :istore} type :astore))
 
 (defn- return
   [type]
   (get {VOID :return
-        INT  :ireturn} type :areturn))
+        INT  :ireturn
+        BOOL :ireturn} type :areturn))
 
 (defn- primitive?
   [type]
@@ -181,10 +184,42 @@
   (swap! (:code-generator/injectors module)
     assoc injector variant))
 
+(defn- push-atom
+  [atom]
+  [(if (contains? #{:long :double} (:atom atom))
+     :ldc2
+     :ldc)
+   (match atom
+     {:atom (:or :integer :string) :value value}
+     value
+
+     {:atom :boolean :value value}
+     (case value
+       true  1
+       false 0))])
+
+(defn- compare-atoms
+  [atom]
+  (case (:atom atom)
+    :integer
+    [:invokestatic Integer "compare" [INT INT INT]] 
+
+    :boolean
+    [:invokestatic Boolean "compare" [BOOL BOOL INT]]
+
+    :string
+    [:invokevirtual String "compareTo" [String String INT]]))
+
 (defn- pattern->instructions
   [module body-info pattern next]
   (let [load-body [(load (:type body-info)) (:register body-info)]]
     (match pattern
+      {:ast/pattern :atom :atom atom}
+      [load-body
+       (push-atom atom)
+       (compare-atoms atom)
+       [:ifeq next]]
+
       {:ast/pattern :variant :variant {:injector injector :value value}}
       (let [{:class/keys [outer inner]} (lookup-injector module injector)]
         (utils/concatv
@@ -300,8 +335,8 @@
         arguments*
         invocation))
 
-    {:ast/term :atom :atom {:value value}}
-    [[:ldc value]]))
+    {:ast/term :atom :atom atom}
+    [(push-atom atom)]))
 
 (defn- ->field
   [module {:keys [name body]}]
@@ -313,7 +348,7 @@
             {:ast/term :atom :atom atom}
             {:value (:value atom)}
 
-            {:ast/term :variant}
+            _
             (do (swap! (get-in module [:code-generator/bytecode class :code-generator/static-initializer-instructions])
                   utils/concatv
                   (conj
@@ -542,9 +577,9 @@
 
 (defn- definition->bytecode
   [module definition]
-  (let [class (class-name module)
+  (let [class         (class-name module)
         reverse-merge (fn [x y] (merge y x))
-        name (:name definition)]
+        name          (:name definition)]
     (match definition
       {:ast/definition :type :body body}
       (let [classes (type->classes module definition)]
@@ -569,7 +604,10 @@
       (let [field (->field module definition)]
         (-> module
           (update-in [:code-generator/bytecode class :fields] utils/conjv field)
-          (assoc-in [:values name :instructions] (lookup-binding module name)))))))
+          (assoc-in [:values name :instructions] (lookup-binding module name))))
+
+      {:ast/definition :macro}
+      module)))
 
 (defn- add-static-initializer
   [module]

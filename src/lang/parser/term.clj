@@ -1,10 +1,11 @@
 (ns lang.parser.term
-  (:refer-clojure :exclude [symbol atom])
+  (:refer-clojure :exclude [symbol atom quote unquote unquote-splicing])
   (:require [blancas.kern.core :refer :all]
             [lang.parser.atom :as atom]
             [lang.parser.lexer :refer :all]
             [lang.parser.pattern :as pattern]
-            [lang.parser.reference :as reference]))
+            [lang.parser.reference :as reference]
+            [lang.term :as term]))
 
 (declare expr)
 
@@ -69,6 +70,30 @@
     (return {:ast/term :symbol
              :symbol   symbol})))
 
+(def ^:private quote
+  (letfn [(wrap [form]
+            (if (and (term/is? form) (not (-> form :ast/term #{:unquote :unquote-splicing})))
+              {:ast/term :quote
+               :body     (->> form
+                           (map (fn [[k v]] [k (wrap v)]))
+                           (into {}))}
+              form))]
+    (bind [_ (sym \`)
+           body (fwd expr)]
+      (return (wrap body)))))
+
+(def ^:private unquote
+  (bind [_ (sym \,)
+         body (fwd expr)]
+    (return {:ast/term :unquote
+             :body     body})))
+
+(def ^:private unquote-splicing
+  (bind [_ (word ",@")
+         body (fwd expr)]
+    (return {:ast/term :unquote-splicing
+             :body      body})))
+
 (def expr
   (<|>
     (<:> lambda)
@@ -77,13 +102,16 @@
     application
     variant
     atom
-    symbol))
+    symbol
+    quote
+    (<:> unquote)
+    unquote-splicing))
 
 (comment
 
   (blancas.kern.core/run*
     expr
-    "(. java.lang.System/out (java.io.PrintStream/println \"foobar\"))")
+    "`(match ,test true ,tru false ,fls)")
 
 
   )

@@ -89,3 +89,30 @@
   (merge
     (imported-injectors module)
     (surface-injectors module)))
+
+(defn surface-macros
+  [module]
+  (:macros module))
+
+(defn imported-macros
+  [module]
+  (->> module
+    :imports
+    (map
+      (fn [import]
+        (let [module (or (:alias import) (:name import))]
+          (->> import
+            (surface-macros)
+            (map (fn [[k v]] [(assoc k :in module) v]))
+            (into {})))))
+    (reduce merge)))
+
+(defn all-macros
+  [module]
+  (merge
+    (surface-macros module)
+    (imported-macros module)))
+
+(defn macro?
+  [module symbol]
+  (contains? (all-macros module) symbol))

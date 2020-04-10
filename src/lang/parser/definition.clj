@@ -70,9 +70,21 @@
                         :body     term})
                      body))})))))
 
+(def ^:private macro
+  (parens
+    (bind [_ (word "defmacro")
+           name reference/variable
+           arguments (brackets (many0 reference/variable))
+           body term/expr]
+      (return {:ast/definition :macro
+               :name           name
+               :arguments      arguments
+               :body           body}))))
+
 (def expr
   (<|>
     (<:> module)
     (<:> type)
     (<:> constant)
-    (<:> function)))
+    (<:> function)
+    (<:> macro)))

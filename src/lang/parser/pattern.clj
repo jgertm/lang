@@ -29,7 +29,7 @@
 
 (def expr
   (<|>
+    atom
     wildcard
     symbol
-    variant
-    atom))
+    variant))

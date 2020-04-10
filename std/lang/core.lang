@@ -1,0 +1,7 @@
+(defmodule lang.core)
+
+(defmacro if
+  [test tru fls]
+  `(match ,test
+     true ,tru
+     false ,fls))
