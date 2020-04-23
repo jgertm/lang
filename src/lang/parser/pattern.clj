@@ -16,12 +16,18 @@
 
 (def ^:private variant
   (brackets
-    (bind [injector reference/keyword
+    (bind [injector reference/injector
            value (optional (fwd expr))]
       (return
         {:ast/pattern :variant
          :variant     {:injector injector
                        :value    value}}))))
+
+(def ^:private record
+  (braces
+    (bind [fields (many1 (<*> reference/field (fwd expr)))]
+      (return {:ast/pattern :record
+               :fields      (into (array-map) fields)}))))
 
 (def ^:private atom
   (bind [atom atom/expr] 
@@ -32,4 +38,5 @@
     atom
     wildcard
     symbol
-    variant))
+    variant
+    record))

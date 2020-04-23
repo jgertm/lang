@@ -1,35 +1,72 @@
 (ns lang.module
   (:require [clojure.core.match :refer [match]]
-            [lang.utils :as utils :refer [undefined]]))
+            [clojure.string :as str]
+            [clojure.walk :as walk]
+            [lang.type :as type]))
 
 (def builtins
-  {{:reference :type :name "Unit"}   {:body  {:ast/type :primitive :primitive :unit}
-                                      :class Void/TYPE}
-   {:reference :type :name "String"} {:body  {:ast/type :primitive :primitive :string}
-                                      :class java.lang.String}
-   {:reference :type :name "Int"}    {:body  {:ast/type :primitive :primitive :integer}
-                                      :class Integer/TYPE}
-   {:reference :type :name "Bool"}   {:body  {:ast/type :primitive :primitive :boolean}
-                                      :class Boolean/TYPE}
-   {:reference :type :name "Object"} {:body  {:ast/type :primitive :primitive :object}
-                                      :class java.lang.Object}})
+  (->>
+    {{:reference :type :name "Unit"}   {:ast/type :primitive :primitive :unit}
+     {:reference :type :name "String"} {:ast/type :primitive :primitive :string}
+     {:reference :type :name "Int"}    {:ast/type :primitive :primitive :integer}
+     {:reference :type :name "Bool"}   {:ast/type :primitive :primitive :boolean}
+     {:reference :type :name "Object"} {:ast/type :primitive :primitive :object}
+     {:reference :type :name "Array"}
+     (let [universal-variable (gensym)]
+       {:ast/type :forall
+        :variable universal-variable
+        :body     {:ast/type :primitive :primitive :array :element universal-variable}})}
+    (map (fn [[k v]] [(assoc k :in {:reference :module :name ["lang" "builtin"]}) v]))
+    (into {})))
 
-(defn imported-bindings
-  [module]
-  (->> module
-    :imports
-    (map
-      (fn [import]
-        (let [module (or (:alias import) (:name import))]
-          (->> import
-            :values
-            (map (fn [[k v]] [(assoc k :in module) v]))
-            (into {})))))
-    (reduce merge)))
+(defn- importer
+  [projection-fn module]
+  (letfn [(qualify-references [source type]
+            (walk/prewalk
+              (fn [node]
+                (match node
+                  {:ast/type :record}
+                  (update node :fields
+                    #(map
+                       (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v])
+                       %))
+
+                  {:ast/type :variant}
+                  (update node :injectors
+                    #(map
+                       (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v])
+                       %))
+
+                  _ node))
+              type))]
+    (->> module
+      :imports
+      (mapcat
+        (fn [import]
+          (for [module [(:alias import) (:name import)]]
+            (when module
+              (->> import
+                (projection-fn)
+                (map (fn [[k v]]
+                       [(cond
+                          (map? k)
+                          (assoc k :in module)
+
+                          (set? k)
+                          (->> k
+                            (map #(assoc % :in module))
+                            (into (empty k))))
+                        (qualify-references module v)]))
+                (into {}))))))
+      (reduce merge))))
 
 (defn surface-bindings
   [module]
   (:values module))
+
+(defn imported-bindings
+  [module]
+  (importer surface-bindings module))
 
 (defn all-bindings
   [module]
@@ -43,46 +80,28 @@
 
 (defn imported-types
   [module]
-  (->> module
-    :imports
-    (map
-      (fn [import]
-        (let [module (or (:alias import) (:name import))]
-          (->> import
-            (surface-types)
-            (map (fn [[k v]] [(assoc k :in module) v]))
-            (into {})))))
-    (reduce merge)))
+  (importer surface-types module))
 
 (defn all-types
   [module]
-  (->> (merge
-         builtins
-         (imported-types module)
-         (surface-types module))
-    (map (fn [[k v]] [(select-keys k [:reference :name]) v]))
-    (into {})))
+  (merge
+    builtins
+    (imported-types module)
+    (surface-types module)))
 
 (defn surface-injectors
   [module]
   (->> module
     :types
-    (mapcat (fn [[name {:keys [injectors] :as type}]]
-              injectors))
+    (mapcat (fn [[name type]]
+              (->> type
+                (type/injectors)
+                (map (fn [[injector _]] [injector {:ast/type :named :name name}])))))
     (into {})))
 
 (defn imported-injectors
   [module]
-  (->> module
-    :imports
-    (map
-      (fn [import]
-        (let [module (or (:alias import) (:name import))]
-          (->> import
-            (surface-injectors)
-            (map (fn [[k v]] [(assoc k :in module) v]))
-            (into {})))))
-    (reduce merge)))
+  (importer surface-injectors module))
 
 (defn all-injectors
   [module]
@@ -90,22 +109,33 @@
     (imported-injectors module)
     (surface-injectors module)))
 
+(defn surface-fields
+  [module]
+  (->> module
+    :types
+    (mapcat (fn [[name type]]
+              (->> type
+                (type/fields)
+                (map (fn [[field _]] [field {:ast/type :named :name name}])))))
+    (into {})))
+
+(defn imported-fields
+  [module]
+  (importer surface-fields module))
+
+(defn all-fields
+  [module]
+  (merge
+    (imported-fields module)
+    (surface-fields module)))
+
 (defn surface-macros
   [module]
   (:macros module))
 
 (defn imported-macros
   [module]
-  (->> module
-    :imports
-    (map
-      (fn [import]
-        (let [module (or (:alias import) (:name import))]
-          (->> import
-            (surface-macros)
-            (map (fn [[k v]] [(assoc k :in module) v]))
-            (into {})))))
-    (reduce merge)))
+  (importer surface-macros module))
 
 (defn all-macros
   [module]
@@ -116,3 +146,31 @@
 (defn macro?
   [module symbol]
   (contains? (all-macros module) symbol))
+
+(defn surface-classes
+  [module]
+  (:classes module))
+
+(defn imported-classes
+  [module]
+  (importer surface-classes module))
+
+(defn all-classes
+  [module]
+  (merge
+    (surface-classes module)
+    (imported-classes module)))
+
+(defn surface-instructions
+  [module]
+  (:instructions module))
+
+(defn imported-instructions
+  [module]
+  (importer surface-instructions module))
+
+(defn all-instructions
+  [module]
+  (merge
+    (surface-instructions module)
+    (imported-instructions module)))

@@ -26,7 +26,7 @@
 (def ^:private match
   (let [branch (bind [pattern pattern/expr
                       action (fwd expr)]
-                 (return {:pattern pattern
+                 (return {:patterns [pattern]
                           :action  action}))]
     (parens
       (bind [_ (word "match")
@@ -55,10 +55,16 @@
 
 (def ^:private variant
   (brackets
-    (bind [injector reference/keyword
+    (bind [injector reference/injector
            value (optional (fwd expr))]
       (return {:ast/term :variant
                :variant  {:injector injector :value value}}))))
+
+(def ^:private record
+  (braces
+    (bind [fields (many1 (<*> reference/field (fwd expr)))]
+      (return {:ast/term :record
+               :fields   (into (array-map) fields)}))))
 
 (def ^:private atom
   (bind [atom atom/expr]
@@ -101,6 +107,7 @@
     (<:> access)
     application
     variant
+    record
     atom
     symbol
     quote

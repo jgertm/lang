@@ -20,5 +20,5 @@
   (f x))
 
 (defn main
-  [argv : [String]]
+  [argv : (Array String)]
   (io/println (option/default ((fn [x] x) val) "fuck")))

@@ -1,5 +1,5 @@
 (ns lang.parser.type
-  (:refer-clojure :exclude [vector])
+  (:refer-clojure :exclude [])
   (:require [blancas.kern.core :refer :all]
             [lang.parser.lexer :refer :all]
             [lang.parser.reference :as reference]))
@@ -10,16 +10,24 @@
   (bind [name reference/type]
     (return {:ast/type :named :name name})))
 
+(def ^:private application
+  (parens
+    (bind [operator named
+           parameters (many1 named)]
+      (return {:ast/type   :application
+               :operator   operator
+               :parameters parameters}))))
+
 (def ^:private variant
   (parens
     (bind [_ (sym \|)
-           injectors (many1 (brackets (<*> reference/keyword (optional (fwd expr)))))]
+           injectors (many1 (brackets (<*> reference/injector (optional (fwd expr)))))]
       (return {:ast/type :variant :injectors (into (array-map) injectors)}))))
 
-(def ^:private vector
-  (brackets
-    (bind [inner (fwd expr)]
-      (return {:ast/type :vector :inner inner}))))
+(def ^:private record
+  (braces
+   (bind [fields (many1 (<*> reference/field (fwd expr)))]
+     (return {:ast/type :record :fields (into (array-map) fields)}))))
 
 (def ^:private function
   (parens
@@ -34,6 +42,7 @@
 (def expr
   (<|>
     named
+    (<:> application)
     (<:> variant)
-    (<:> vector)
+    (<:> record)
     (<:> function)))

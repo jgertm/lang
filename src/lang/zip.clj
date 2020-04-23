@@ -130,7 +130,9 @@
   ([[current _ :as zipper] target eq-fn]
    (cond
      (start? zipper)
-     (throw (Exception. "target not found"))
+     (throw (ex-info "target not found"
+              {:target target
+               :zipper zipper}))
 
      (eq-fn current target)
      zipper

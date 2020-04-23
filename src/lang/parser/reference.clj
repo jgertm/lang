@@ -33,3 +33,9 @@
   (lexeme
     (bind [name (>> (sym* \:) variable-name)]
       (return (assoc name :reference :keyword)))))
+
+(def injector
+  (<$> #(assoc % :reference :injector) keyword))
+
+(def field
+  (<$> #(assoc % :reference :field) keyword))

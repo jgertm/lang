@@ -61,14 +61,17 @@
         (return {:ast/definition :constant
                  :name           name
                  :body
-                 (->> arguments
-                   (rseq)
-                   (reduce
-                     (fn [term arg]
-                       {:ast/term :lambda
-                        :argument arg
-                        :body     term})
-                     body))})))))
+                 {:ast/term :recur
+                  :reference name
+                  :body
+                  (->> arguments
+                    (rseq)
+                    (reduce
+                      (fn [term arg]
+                        {:ast/term :lambda
+                         :argument arg
+                         :body     term})
+                      body))}})))))
 
 (def ^:private macro
   (parens

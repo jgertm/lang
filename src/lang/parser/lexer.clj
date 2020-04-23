@@ -23,7 +23,7 @@
   (def token      (:token      parsers))
   (def word       (:word       parsers))
   ;; (def identifier (:identifier parsers))
-  (def field      (:field      parsers))
+  ;; (def field      (:field      parsers))
   (def char-lit   (:char-lit   parsers))
   (def string-lit (:string-lit parsers))
   (def dec-lit    (:dec-lit    parsers))

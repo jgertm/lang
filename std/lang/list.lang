@@ -1,0 +1,38 @@
+(defmodule lang.list)
+
+(deftype (List T)
+  (| [:nil]
+     [:cons {:value T
+             :next (List T)}]))
+
+(defn empty?
+  [list]
+  (match list
+    [:nil] true
+    [:cons _] false))
+
+; (defn sum [list]
+;   (match list
+;     [:nil] 0
+;     [:cons {:value n :next tl}] (+ n (sum tl))))
+
+(defn fold
+  [op init list]
+  (match list
+    [:nil] init
+    [:cons {:value n :next tl}] (op (fold op init tl) n)))
+
+(defn map
+  [f list]
+  (match list
+    [:nil] [:nil]
+    [:cons {:value el :next tl}] [:cons {:value (f el) :next (map f tl)}]))
+
+; (defn filter
+;   [p list]
+;   (match list
+;     [:nil] list
+;     [:cons {:value el :next tl}]
+;      (if (p el)
+;        [:cons {:value el :next (filter p tl)}]
+;        (filter p tl))))

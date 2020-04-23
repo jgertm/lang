@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [lang.code-generator :as code-generator]
+            [lang.name-resolution :as name-resolution]
             [lang.parser :as parser]
             [lang.type-checker :as type-checker]))
 
@@ -10,7 +11,7 @@
 (def ^:private lang-home "/home/tjgr/Dropbox/lang-clj/std") ; TODO: env var
 
 (defn- resolve-dependencies
-  [module]
+  [module phases]
   (update module :imports
     (fn [imports]
       (map (fn [{:keys [module alias]}]
@@ -19,14 +20,15 @@
                            (str/join (cons lang-home (:name module)))
                            (str ".lang")
                            (io/file)))]
-              (assoc (run file) :alias alias))) imports))))
+              (assoc (run file phases) :alias alias))) imports))))
 
 (defn run
   ([path]
-   (run path #{:parser :dependency-analyzer :type-checker :code-generator}))
+   (run path #{:parser :name-resolution :dependency-analyzer :type-checker :code-generator}))
   ([path phases]
    (cond-> path
      (:parser phases) (parser/run)
-     (:dependency-analyzer phases) (resolve-dependencies)
+     (:name-resolution phases) (name-resolution/run)
+     (:dependency-analyzer phases) (resolve-dependencies (conj phases :type-checker))
      (:type-checker phases) (type-checker/run)
      (:code-generator phases) (code-generator/run))))
