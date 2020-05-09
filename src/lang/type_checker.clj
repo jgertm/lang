@@ -727,23 +727,25 @@
               return)))
         (annotate-pattern pattern pattern-type)))))
 
-(defn- recover-spine
+(defn- apply-spine
   [module arguments [type principality]]
-  (match [arguments type]
-    [[] _]
+  (match [arguments type principality]
+    [[] _ _] ; EmptySpine
     [type principality]
 
-    [[e & s] {:ast/type :function :domain domain :return return}]
-    (do (analysis:check module e [domain principality])
-        (recover-spine module s [(apply module return) principality]))
-
-    [es {:ast/type :forall :variable universal-variable :body body}]
+    [_ {:ast/type :forall :variable universal-variable :body body} _] ; ∀Spine
     (let [existential-variable (fresh-existential module)]
-      (recover-spine module
-        es
+      (apply-spine module
+        arguments
         [(walk/prewalk-replace {universal-variable existential-variable} body) principality]))
 
-    [_ {:ast/type :existential-variable :id alpha}]
+    [[e & s] {:ast/type :function :domain domain :return return} _] ; →Spine
+    (do (analysis:check module e [domain principality])
+        (apply-spine module
+          s
+          [(apply module return) principality]))
+
+    [_ {:ast/type :existential-variable :id alpha} :non-principal] ; α^Spine
     (let [current  (zip/node @(:type-checker/facts module))
           _        (swap! (:type-checker/facts module)
                      zip/focus-left
@@ -756,12 +758,28 @@
                     :return   alpha-2}]
       (solve-existential module alpha function :kind/type)
       (swap! (:type-checker/facts module) zip/focus-right current)
-      (recover-spine module arguments [function principality]))
+      (apply-spine module
+        arguments
+        [function principality]))))
 
-    [_ _] (undefined :recover-spine/fallthrough)))
+(defn- recovering-apply-spine
+  [module arguments [type principality]]
+  (let [[type principality*]
+        (apply-spine module arguments [type principality])
+        type (apply module type)]
+    (cond
+      (and ; SpineRecover
+        (= principality* :non-principal)
+        (empty? (type/free-existential-variables type)))
+      [type :principal] 
 
-    [_ _ _] ; SpinePass
-    (undefined ::recover-spine.spine-pass)))
+      (or ; SpinePass
+        (= principality :non-principal)
+        (= principality* :principal)
+        (not-empty (type/free-existential-variables type)))
+      [type principality*]
+
+      :else (undefined ::recovering-apply-spine))))
 
 (defn to-jvm-type
   [module type]
@@ -783,11 +801,12 @@
    :name     {:reference :type
               :in        {:reference :module :name ["lang" "builtin"]}
               :name      (match type
-                           'void              "Unit"
-                           'java.lang.String  "String"
-                           'java.lang.Integer "Integer"
-                           'java.lang.Boolean "Boolean"
-                           'java.lang.Object  "Object")}})
+                           'void                 "Unit"
+                           'int                  "int"
+                           'java.lang.String     "String"
+                           'java.math.BigInteger "Integer"
+                           'java.lang.Boolean    "Boolean"
+                           'java.lang.Object     "Object")}})
 
 (defn expand-macro
   [module term]
@@ -824,7 +843,7 @@
           {:ast/term :application :function function :arguments arguments}
           (->> function
             (synthesize module)
-            (recover-spine module arguments))
+            (recovering-apply-spine module arguments))
 
           {:ast/term :access
            :object   object
@@ -835,6 +854,12 @@
                                         (synthesize module)
                                         (first)
                                         (to-jvm-type module))
+                object-bases (->> object-type
+                               (name)
+                               (Class/forName)
+                               (bases)
+                               (map (fn [class] (symbol (. class Class/getName))))
+                               (set))
                 parameter-types       (mapv
                                         #(->> %
                                            (synthesize module)
@@ -848,7 +873,8 @@
                                         :members
                                         (filter (fn [member]
                                                   (and
-                                                    (= (:declaring-class member) object-type)
+                                                    (contains? (conj object-bases object-type) (:declaring-class member))
+                                                    (contains? (:flags member) :public)
                                                     (= (name (:name member)) (:name (:symbol function)))
                                                     (= (:parameter-types member) parameter-types))))
                                         (first))]
@@ -977,3 +1003,36 @@
        :type-checker/current-variable (atom 0)
        :type-checker/facts            (atom zip/empty)})
     (:definitions module)))
+
+
+(comment
+
+  (letfn [(run [path]
+            (-> path
+              (lang.compiler/run #{:parser :dependency-analyzer :type-checker :code-generator})
+              (module/signature)
+              (println)))]
+    (do (println "\n–-—")
+        (run "std/lang/option.lang")
+        (run "std/lang/list.lang")
+        (run "std/lang/io.lang")
+        (run "std/lang/core.lang")))
+
+  (-> "examples/arithmetic.lang"
+    (lang.compiler/run #{:parser :dependency-analyzer :type-checker :code-generator})
+    :code-generator/bytecode)
+
+  (-> "std/lang/math.lang"
+    (lang.compiler/run #{:parser :dependency-analyzer #_:type-checker #_:code-generator})
+    )
+  
+
+  @(:type-checker/facts module)
+
+  (throw (ex-info "foo" {}))
+
+  (com.gfredericks.debug-repl/unbreak!!)
+
+  (com.gfredericks.debug-repl/unbreak!)
+
+  )

@@ -83,6 +83,26 @@
          :domain   type
          :return   acc}))))
 
+(defn nodes
+  [type]
+  (letfn [(branch? [node] (is? node))
+          (children [node]
+            (match node
+              {:ast/type :variant}
+              (->> node
+                :injectors
+                (vals)
+                (filter some?))
+
+              {:ast/type :record}
+              (vals (:fields node))
+
+              _
+              (->> node
+                (vals)
+                (filter is?))))]
+    (set (tree-seq branch? children type))))
+
 (defn contains?
   [type child]
   (if (= type child)
@@ -112,6 +132,13 @@
       (contains? body child)
 
       _ nil)))
+
+(defn free-existential-variables
+  [type]
+  (->> type
+    (nodes)
+    (filter #(-> % :ast/type (= :existential-variable)))
+    (set)))
 
 (defn instantiate-universals
   [type instantiations]

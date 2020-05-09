@@ -1,0 +1,21 @@
+(defmodule lang.math)
+
+(defn +
+  [x : Integer y : Integer]
+  (. x (java.math.BigInteger/add y)))
+
+(defn -
+  [x : Integer y : Integer]
+  (. x (java.math.BigInteger/subtract y)))
+
+(defn *
+  [x : Integer y : Integer]
+  (. x (java.math.BigInteger/multiply y)))
+
+(defn /
+  [x : Integer y : Integer]
+  (. x (java.math.BigInteger/divide y)))
+
+(defn **
+  [x : Integer y : Integer]
+  (. x (java.math.BigInteger/pow (. y (java.lang.Number/intValue)))))

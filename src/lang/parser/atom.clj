@@ -7,8 +7,11 @@
   (>> (word "nil") (return {:atom :unit :value nil})))
 
 (def ^:private integer
-  (bind [value dec-lit]
-    (return {:atom :integer :value value})))
+  (lexeme
+    (bind [sign      (optional (one-of* "+-"))
+           magnitude (<+> (many1 digit))]
+      (return {:atom :integer
+               :value (str sign magnitude)}))))
 
 (def ^:private string
   (bind [value string-lit]
@@ -26,3 +29,11 @@
     integer
     string
     boolean))
+
+(comment
+
+  (blancas.kern.core/run*
+    expr
+    "+ 22  ")
+
+  )

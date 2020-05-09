@@ -102,13 +102,13 @@
 
 (def expr
   (<|>
+    (<:> atom)
     (<:> lambda)
     (<:> match)
     (<:> access)
     application
     variant
     record
-    atom
     symbol
     quote
     (<:> unquote)
@@ -118,7 +118,7 @@
 
   (blancas.kern.core/run*
     expr
-    "`(match ,test true ,tru false ,fls)")
+    "(+ 22 value)")
 
 
   )

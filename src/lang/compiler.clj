@@ -14,17 +14,35 @@
     "/home/tjgr/Dropbox/lang-clj/std"
     (throw (ex-info "Could not find stdlib" {}))))
 
+(def ^:private default-imports
+  (->> [["lang" "core"]
+        ["lang" "math"]]
+    (map (fn [name]
+           {:reference :module
+            :name      name}))
+    (set)))
+
 (defn- resolve-dependencies
   [module phases]
-  (update module :imports
-    (fn [imports]
-      (map (fn [{:keys [module alias]}]
-            (let [file (when (= "lang" (first (:name module)))
-                         (-> "/"
-                           (str/join (cons lang-home (:name module)))
-                           (str ".lang")
-                           (io/file)))]
-              (assoc (run file phases) :alias alias))) imports))))
+  (let [additional-imports
+        (when-not (contains? default-imports (:name module))
+          (map
+            (fn [m] {:module m :open true})
+            default-imports))]
+    (update module :imports
+      (fn [imports]
+        (->> imports
+          (concat additional-imports)
+          (map (fn [{:keys [module alias open]}]
+                 (let [file (when (= "lang" (first (:name module)))
+                              (-> "/"
+                                (str/join (cons lang-home (:name module)))
+                                (str ".lang")
+                                (io/file)))
+                       module (run file phases)]
+                   (assoc module
+                     :alias alias
+                     :open open)))))))))
 
 (defn run
   ([path]

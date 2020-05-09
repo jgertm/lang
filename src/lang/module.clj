@@ -6,11 +6,12 @@
 
 (def builtins
   (->>
-    {{:reference :type :name "Unit"}   {:ast/type :primitive :primitive :unit}
-     {:reference :type :name "String"} {:ast/type :primitive :primitive :string}
-     {:reference :type :name "Int"}    {:ast/type :primitive :primitive :integer}
-     {:reference :type :name "Bool"}   {:ast/type :primitive :primitive :boolean}
-     {:reference :type :name "Object"} {:ast/type :primitive :primitive :object}
+    {{:reference :type :name "Unit"}    {:ast/type :primitive :primitive :unit}
+     {:reference :type :name "String"}  {:ast/type :primitive :primitive :string}
+     {:reference :type :name "Integer"} {:ast/type :primitive :primitive :integer}
+     {:reference :type :name "int"}     {:ast/type :primitive :primitive :int}
+     {:reference :type :name "Bool"}    {:ast/type :primitive :primitive :boolean}
+     {:reference :type :name "Object"}  {:ast/type :primitive :primitive :object}
      {:reference :type :name "Array"}
      (let [universal-variable (gensym)]
        {:ast/type :forall
@@ -41,23 +42,30 @@
               type))]
     (->> module
       :imports
-      (mapcat
+      (map
         (fn [import]
-          (for [module [(:alias import) (:name import)]]
-            (when module
-              (->> import
-                (projection-fn)
-                (map (fn [[k v]]
-                       [(cond
-                          (map? k)
-                          (assoc k :in module)
+          (->> import
+            (projection-fn)
+            (mapcat
+              (fn [[k v]]
+                (->> [(:alias import)
+                      (:name import)
+                      (when (:open import) :open)]
+                  (filter some?)
+                  (map (fn [m]
+                         [(cond
+                            (= :open m)
+                            k
 
-                          (set? k)
-                          (->> k
-                            (map #(assoc % :in module))
-                            (into (empty k))))
-                        (qualify-references module v)]))
-                (into {}))))))
+                            (map? k)
+                            (assoc k :in m)
+
+                            (set? k)
+                            (->> k
+                              (map #(assoc % :in m))
+                              (into (empty k))))
+                          (qualify-references m v)])))))
+            (into {}))))
       (reduce merge))))
 
 (defn surface-bindings

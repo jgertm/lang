@@ -26,13 +26,14 @@
 
 (defn- class-name
   [module]
-  (str/join "." (:name (:name module))))
+  (munge (str/join "." (:name (:name module)))))
 
 (defn- subclass
   [module & classes]
-  (format "%s.%s"
-    (class-name module)
-    (str/join "$" (map :name classes))))
+  (munge
+    (format "%s.%s"
+      (class-name module)
+      (str/join "$" (map :name classes)))))
 
 (defn- load
   [type]
@@ -241,8 +242,10 @@
   [{:keys [atom value]}]
   (case atom
     :integer
-    [[:ldc value]
-     [:invokestatic Integer "valueOf" [Integer/TYPE Integer]]]
+    [[:new BigInteger]
+     [:dup]
+     [:ldc value]
+     [:invokespecial BigInteger :init [String VOID]]]
 
     :string
     [[:ldc value]]
@@ -255,7 +258,7 @@
   [{:keys [atom]}]
   (case atom
     :integer
-    [[:invokevirtual Integer "compareTo" [Integer Integer/TYPE]]]
+    [[:invokevirtual BigInteger "compareTo" [BigInteger Integer/TYPE]]]
 
     :boolean
     [[:invokevirtual Boolean "compareTo" [Boolean Integer/TYPE]]]
@@ -436,10 +439,11 @@
   [module {:keys [name body]}]
   (let [class (class-name module)
         type  (->> body :type-checker.term/type (lookup-type module))
+        name* (munge (:name name))
         field
         (-> body
           (match
-            {:ast/term :atom :atom atom}
+            {:ast/term :atom :atom (atom :guard #(-> % :atom (not= :integer)))}
             {:value (:value atom)}
 
             _
@@ -447,11 +451,11 @@
                   utils/concatv
                   (conj
                     (->instructions module body)
-                    [:putstatic class (:name name) type]))
+                    [:putstatic class name* type]))
                 {}))
           (merge
             {:flags #{:public :static :final}
-             :name  (:name name)
+             :name  name*
              :type  type}))]
     (add-binding module
       name
@@ -604,7 +608,7 @@
               (push-arguments module)
               (promote-lambdas module (:name name)))
             type (lookup-method-type module (:type-checker.term/type body))
-            stub {:name (:name name)
+            stub {:name (munge (:name name))
                   :desc type}]
         (->> stub
           (make-callsite module)
@@ -809,7 +813,7 @@
 
 (comment
 
-  (-> "examples/option.lang"
+  (-> "examples/arithmetic.lang"
     (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker :code-generator})
     :code-generator/bytecode)
 
