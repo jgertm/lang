@@ -1,6 +1,7 @@
 (ns lang.parser.atom
   (:refer-clojure :exclude (boolean))
   (:require [blancas.kern.core :refer :all]
+            [clojure.string :as str]
             [lang.parser.lexer :refer :all]))
 
 (def ^:private unit
@@ -9,9 +10,10 @@
 (def ^:private integer
   (lexeme
     (bind [sign      (optional (one-of* "+-"))
-           magnitude (<+> (many1 digit))]
-      (return {:atom :integer
-               :value (str sign magnitude)}))))
+           magnitude (<+> digit (many0 (<|> digit (sym* \_))))]
+      (let [representation (str sign (str/replace magnitude "_" ""))]
+        (return {:atom :integer
+                 :value representation})))))
 
 (def ^:private string
   (bind [value string-lit]
@@ -33,7 +35,7 @@
 (comment
 
   (blancas.kern.core/run*
-    expr
-    "+ 22  ")
+    integer
+    "+22_000")
 
   )
