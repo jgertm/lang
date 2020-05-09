@@ -1,17 +1,18 @@
 (ns lang.core
   (:gen-class)
-  (:require [clojure.string :as str]
-            [lang.compiler :as compiler]))
-
-(comment
-
-  (compiler/run "../lang/examples/option.lang")
-
-  )
+  (:require [lang.compiler :as compiler]
+            [lang.module :as module]))
 
 (defn -main
-  [argv]
-  (-> argv
-    (str/split #"\s+")
-    (first)
-    (compiler/run)))
+  [& args]
+  (run!
+    (case (first args)
+      "signature"
+      #(-> %
+         (compiler/run #{:parser :dependency-analyzer :type-checker})
+         (module/signature)
+         (println))
+
+      "compile"
+      compiler/run)
+    (next args)))

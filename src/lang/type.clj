@@ -125,48 +125,63 @@
     [_ []]
     type))
 
+(def greek-alphabet
+  '("α" "β" "γ" "δ" "ε" "ζ" "η" "θ" "ι" "κ" "λ" "μ"
+    "ν" "ξ" "ο" "π" "ρ" "σ" "τ" "υ" "ϕ" "χ" "ψ" "ω"))
+
 (defn print
-  [type]
-  (letfn [(collect-arguments [type]
-            (match type
-              {:ast/type :function :domain domain :return return}
-              (cons domain (collect-arguments return))
+  ([type]
+   (print
+     (atom {:letters greek-alphabet
+            :mapping {}})
+     type))
+  ([env type]
+   (letfn [(collect-arguments [type]
+             (match type
+               {:ast/type :function :domain domain :return return}
+               (cons domain (collect-arguments return))
 
-              _ (list type)))
-          (collect-quantifiers [type]
-            (match type
-              {:ast/type :forall :variable variable :body body}
-              (merge-with cons
-                {:variables variable}
-                (collect-quantifiers body))
+               _ (list type)))
+           (collect-quantifiers [type]
+             (match type
+               {:ast/type :forall :variable variable :body body}
+               (merge-with cons
+                 {:variables variable}
+                 (collect-quantifiers body))
 
-              _ {:inner type
-                 :variables '()}))]
-    (match type
-      {:ast/type :named :name name}
-      (if true
-          (:name name))
+               _ {:inner type
+                  :variables '()}))]
+     (match type
+       {:ast/type :named :name name}
+       (if true
+         (:name name))
 
-      {:ast/type :application :operator operator :parameters parameters}
-      (format "(%s %s)"
-        (print operator)
-        (str/join " " (mapv print parameters)))
+       {:ast/type :application :operator operator :parameters parameters}
+       (format "(%s %s)"
+         (print env operator)
+         (str/join " " (mapv (partial print env) parameters)))
 
-      {:ast/type :universal-variable :id id}
-      (format "%d" id)
+       {:ast/type :universal-variable :id id}
+       (if-let [symbol (get-in @env [:mapping id])]
+         symbol
+         (let [new-symbol (peek (:letters @env))]
+           (swap! env #(-> %
+                         (update :letters pop)
+                         (update :mapping assoc id new-symbol)))
+           new-symbol))
 
-      {:ast/type :quote :inner inner}
-      (format "(Expr %s)" (print inner))
+       {:ast/type :quote :inner inner}
+       (format "(Expr %s)" (print env inner))
 
-      {:ast/type :function}
-      (->> type
-        (collect-arguments)
-        (map print)
-        (str/join " ")
-        (format "(-> %s)"))
+       {:ast/type :function}
+       (->> type
+         (collect-arguments)
+         (map (partial print env))
+         (str/join " ")
+         (format "(-> %s)"))
 
-      {:ast/type :forall :variable variable :body body}
-      (let [{:keys [inner variables]} (collect-quantifiers type)]
-        (format "(∀ %s %s)"
-          (str/join " " (map print variables))
-          (print inner))))))
+       {:ast/type :forall :variable variable :body body}
+       (let [{:keys [inner variables]} (collect-quantifiers type)]
+         (format "(∀ %s %s)"
+           (str/join " " (map (partial print env) variables))
+           (print inner)))))))

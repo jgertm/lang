@@ -8,7 +8,11 @@
 
 (declare run)
 
-(def ^:private lang-home "/home/tjgr/Dropbox/lang-clj/std") ; TODO: env var
+(def lang-home 
+  (or
+    (System/getenv "LANG_HOME")
+    "/home/tjgr/Dropbox/lang-clj/std"
+    (throw (ex-info "Could not find stdlib" {}))))
 
 (defn- resolve-dependencies
   [module phases]

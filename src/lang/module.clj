@@ -174,3 +174,30 @@
   (merge
     (surface-instructions module)
     (imported-instructions module)))
+
+(defn signature
+  [module]
+  (let [name   (str/join "." (:name (:name module)))
+        macros (map (fn [[k v]] (format "  macro (%s %s)"
+                                  (:name k)
+                                  (str/join " " (map :name (:arguments v)))))
+                 (surface-macros module))
+        types  (map (fn [[k v]]
+                      (if-let [params (type/parameters v)]
+                        (format "  type (%s %s)"
+                          (:name k)
+                          (str/join " " (map (comp :name :reference) params)))
+                        (format "  type %s" (:name k))))
+                 (surface-types module))
+        values (map (fn [[k v]]
+                      (format "  %s : %s"
+                        (:name k)
+                        (type/print (first (:type v)))))
+                 (surface-bindings module))]
+    (->>
+      (concat
+        macros
+        types
+        values)
+      (cons name)
+      (str/join "\n"))))
