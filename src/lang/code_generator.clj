@@ -386,6 +386,11 @@
          [:mark success]]
         (when (reference? return-type) [[:checkcast return-type]])))
 
+    {:ast/term :sequence :operations operations}
+    (->> operations
+      (mapcat (partial ->instructions module))
+      (vec))
+
     {:ast/term :symbol :symbol (symbol :guard jvm/native?)}
     (let [class (->> symbol :in :name (str/join "."))
           field (:name symbol)
@@ -813,7 +818,7 @@
 
 (comment
 
-  (-> "examples/arithmetic.lang"
+  (-> "examples/option.lang"
     (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker :code-generator})
     :code-generator/bytecode)
 

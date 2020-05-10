@@ -1,5 +1,5 @@
 (ns lang.parser.term
-  (:refer-clojure :exclude [symbol atom quote unquote unquote-splicing])
+  (:refer-clojure :exclude [symbol atom sequence quote unquote unquote-splicing])
   (:require [blancas.kern.core :refer :all]
             [lang.parser.atom :as atom]
             [lang.parser.lexer :refer :all]
@@ -75,6 +75,13 @@
   (bind [symbol reference/variable]
     (return {:ast/term :symbol
              :symbol   symbol})))
+
+(def ^:private sequence
+  (parens
+    (bind [_ (word "do")
+           operations (many1 (fwd expr))]
+      (return {:ast/term   :sequence
+               :operations operations}))))
 
 (def ^:private quote
   (letfn [(wrap [form]

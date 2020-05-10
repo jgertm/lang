@@ -197,6 +197,8 @@
   ([module existential solution]
    (solve-existential module existential solution :kind/type))
   ([module existential solution kind]
+   (when (= existential (:id solution))
+     (undefined ::tautology))
    (let [current-fact
          (if-let [existing-solution (get (existential-solutions module) existential)]
            {:fact/solve-existential existential
@@ -400,6 +402,16 @@
           (undefined ::analysis:check.record-type))
         (annotate-term term (apply module type))) 
 
+      [{:ast/term :record}
+       {:ast/type :existential-variable}
+       _]
+      (do
+        (comment
+          [term type]
+
+          )
+        (undefined ::analysis:check.record-exvar)) 
+
       [{:ast/term :lambda :argument argument :body body}
        ({:ast/type :existential-variable :id alpha} :as alpha-type)
        :non-principal]          ; TODO: guard that `alpha` is declared
@@ -436,6 +448,20 @@
                     (lookup-type (:name operator))
                     (type/instantiate-universals parameters))]
         (analysis:check module term [type* principality]))
+
+      [{:ast/term :sequence :operations operations} _ _]
+      (let [return (last operations)]
+        (->> operations
+          (butlast)
+          (run!
+            (fn [operation]
+              (let [alpha (fresh-existential module)]
+                (analysis:check module
+                  operation
+                  [alpha :non-principal])
+                (annotate-term operation (apply module alpha))))))
+        (analysis:check module return [type principality])
+        (annotate-term return (apply module type)))
 
       [_ _ _]
       (let [[synth-type] (synthesize module term)
@@ -522,7 +548,12 @@
         [{:ast/type :variant :injectors injectors-1}
          {:ast/type :variant :injectors injectors-2}] ; ≡⊕
         (do (when-let [diff (not-empty (utils/symmetric-difference (set (keys injectors-1)) (set (keys injectors-2))))]
-              (throw (ex-info "Different variant types" {:left type-a :right type-b :diff diff})))
+              ;; TODO: check that both or neither fields are enums
+              (throw
+                (ex-info "Different variant types"
+                  {:left  type-a
+                   :right type-b
+                   :diff  diff})))
             (merge-with
               (fn [type-1 type-2]
                 (when (and (some? type-1) (some? type-2))
@@ -530,6 +561,8 @@
               injectors-1
               injectors-2)
             nil)
+
+        ;; TODO: records
 
         [{:ast/type :quote :inner inner-1}
          {:ast/type :quote :inner inner-2}]
@@ -562,7 +595,10 @@
             (type/instantiate-universals parameters)))
 
         [_ _]
-        (undefined :subtyping.equivalent/fallthrough)))))
+        (throw
+          (ex-info "Different types"
+            {:left  type-a
+             :right type-b}))))))
 
 (defn- subtype
   [module polarity type-a type-b]
@@ -817,7 +853,7 @@
       (deliver (:type-checker.macro/expands-to term) term*)
       term*)))
 
-(defn- synthesize
+(defn synthesize
   [module term]
   (let [mark (fresh-mark module)
         [type principality]
@@ -1018,14 +1054,13 @@
         (run "std/lang/io.lang")
         (run "std/lang/core.lang")))
 
-  (-> "examples/arithmetic.lang"
-    (lang.compiler/run #{:parser :dependency-analyzer :type-checker :code-generator})
-    :code-generator/bytecode)
+  (-> "examples/option.lang"
+    (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker #_:code-generator})
+    :values)
 
-  (-> "std/lang/math.lang"
-    (lang.compiler/run #{:parser :dependency-analyzer #_:type-checker #_:code-generator})
-    )
-  
+  (-> "std/lang/option.lang"
+    (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker #_:code-generator})
+    :values)
 
   @(:type-checker/facts module)
 

@@ -57,11 +57,11 @@
       (bind [_ (word "defn")
              name reference/variable
              arguments (brackets (many0 argument))
-             body term/expr]
+             operations (many1 term/expr)]
         (return {:ast/definition :constant
                  :name           name
                  :body
-                 {:ast/term :recur
+                 {:ast/term  :recur
                   :reference name
                   :body
                   (->> arguments
@@ -71,7 +71,8 @@
                         {:ast/term :lambda
                          :argument arg
                          :body     term})
-                      body))}})))))
+                      {:ast/term   :sequence
+                       :operations operations}))}})))))
 
 (def ^:private macro
   (parens
