@@ -11,11 +11,14 @@
   (lexeme module-name))
 
 (def ^:private type-name
-  (bind [name (<+> upper (many letter))]
+  (bind [name (<+> upper (many0 letter))]
     (return {:reference :type :name name}))) 
 
 (def type
   (lexeme type-name))
+
+(def typeclass
+  (<$> #(assoc % :reference :typeclass) type))
 
 (def ^:private variable-name
   (let [local (bind [name identifier]

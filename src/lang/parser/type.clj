@@ -33,11 +33,12 @@
   (parens
     (bind [_ (word "->")
            domains (many1 (fwd expr))]
-      (return (reduce (fn [inner type]
-                        {:ast/type :function
-                         :domain   type
-                         :return   inner})
-                (rseq domains))))))
+      (return (->> domains
+                (rseq)
+                (reduce (fn [inner type]
+                          {:ast/type :function
+                           :domain   type
+                           :return   inner})))))))
 
 (def expr
   (<|>

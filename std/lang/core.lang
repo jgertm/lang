@@ -6,3 +6,21 @@
   `(match ,test
      true ,tru
      false ,fls))
+
+
+(defclass (Show T)
+  (show : (-> T String)))
+
+
+(definstance (Show Bool)
+  (show [b]
+    (if b "true" "false")))
+
+
+(definstance (Show Integer)
+  (show [i]
+    (. i (java.math.BigInteger/toString))))
+
+
+(defclass (Functor F)
+  (map : (-> (-> A B) (F A) (F B))))

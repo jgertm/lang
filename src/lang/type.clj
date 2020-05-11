@@ -1,6 +1,7 @@
 (ns lang.type
   (:refer-clojure :exclude [contains? print])
   (:require [clojure.core.match :refer [match]]
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.walk :as walk]))
 
@@ -25,6 +26,24 @@
   (or
     (universally-quantified? type)
     (existentially-quantified? type)))
+
+(defn primitive?
+  [type]
+  (match type
+    {:ast/type :primitive} true
+    _ false))
+
+(defn existential-variable?
+  [type]
+  (match type
+    {:ast/type :existential-variable} true
+    _ false))
+
+(defn universal-variable?
+  [type]
+  (match type
+    {:ast/type :universal-variable} true
+    _ false))
 
 (defn polarity
   [type]
@@ -133,10 +152,27 @@
 
       _ nil)))
 
+(defn free-variables
+  [type]
+  (let [nodes (nodes type)
+        variables
+        (->> nodes
+          (filter #(-> % :ast/type (= :existential-variable)))
+          (set))
+        bound
+        (->> nodes
+          (keep #(match %
+                   {:ast/type :forall :variable variable}
+                   variable
+
+                   _ nil))
+          (set))]
+    (set/difference variables bound)))
+
 (defn free-existential-variables
   [type]
   (->> type
-    (nodes)
+    (free-variables)
     (filter #(-> % :ast/type (= :existential-variable)))
     (set)))
 
@@ -146,7 +182,7 @@
     [{:ast/type :forall :variable universal-variable :body body}
      [instantiation & more-instantiations]]
     (recur
-      (walk/prewalk-replace {universal-variable instantiation} body)
+      (walk/postwalk-replace {universal-variable instantiation} body)
       more-instantiations)
 
     [_ []]
@@ -176,8 +212,16 @@
                  {:variables variable}
                  (collect-quantifiers body))
 
-               _ {:inner type
-                  :variables '()}))]
+               _ {:inner     type
+                  :variables '()}))
+           (print-proposition [proposition]
+             (match proposition
+               {:ast/constraint :instance
+                :typeclass      typeclass
+                :parameters     parameters}
+               (format "%s %s"
+                 (:name typeclass)
+                 (str/join " " (map (partial print env) parameters)))))]
      (match type
        {:ast/type :named :name name}
        (if true
@@ -211,4 +255,11 @@
        (let [{:keys [inner variables]} (collect-quantifiers type)]
          (format "(∀ %s %s)"
            (str/join " " (map (partial print env) variables))
-           (print inner)))))))
+           (print inner)))
+
+       {:ast/type    :guarded
+        :proposition proposition
+        :body        body}
+       (format "(=> (%s) %s)"
+         (print-proposition proposition)
+         (print body))))))

@@ -39,15 +39,17 @@
                                 (str ".lang")
                                 (io/file)))
                        module (run file :until phase)]
-                   (assoc module
-                     :alias alias
-                     :open open)))))))))
+                   (-> module
+                     (assoc
+                       :alias alias
+                       :open open)
+                     (dissoc :definitions))))))))))
 
 (defn run
   ([path]
    (run path :until :code-generator))
   ([path & {:keys [until]}]
-   (let [all-phases [:parser :name-resolution :dependency-analyzer :type-checker :code-generator]
+   (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :code-generator]
          phases     (conj
                       (->> all-phases
                         (take-while (partial not= until))
@@ -55,8 +57,8 @@
                       until)]
      (cond-> path
        (:parser phases)              (parser/run)
-       (:name-resolution phases)     (name-resolution/run)
        (:dependency-analyzer phases) (resolve-dependencies
                                        (or (:code-generator phases) :type-checker))
+       (:name-resolution phases)     (name-resolution/run)
        (:type-checker phases)        (type-checker/run)
        (:code-generator phases)      (code-generator/run)))))

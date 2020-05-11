@@ -11,8 +11,8 @@
     [:some value] value))
 
 ; (∀ X Y (-> (-> X Y) (Option X) (Option Y)))
-(defn map
-  [f option]
-  (match option
-    [:none] [:none]
-    [:some value] [:some (f value)]))
+(definstance (Functor Option)
+  (map [f option]
+    (match option
+      [:none]       [:none]
+      [:some value] [:some (f value)])))
