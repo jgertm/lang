@@ -28,15 +28,15 @@
                 (match node
                   {:ast/type :record}
                   (update node :fields
-                    #(map
-                       (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v])
-                       %))
+                    #(->> %
+                       (map (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v]))
+                       (into (empty %))))
 
                   {:ast/type :variant}
                   (update node :injectors
-                    #(map
-                       (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v])
-                       %))
+                    #(->> %
+                       (map (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v]))
+                       (into (empty %))))
 
                   _ node))
               type))]
@@ -200,7 +200,7 @@
         values (map (fn [[k v]]
                       (format "  %s : %s"
                         (:name k)
-                        (type/print (first (:type v)))))
+                        (type/print (first v))))
                  (surface-bindings module))]
     (->>
       (concat

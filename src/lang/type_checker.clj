@@ -97,7 +97,7 @@
     (zip/left-seq)
     (keep (fn [fact]
             (when-let [symbol (:fact/bind-symbol fact)]
-              [symbol {:type ((juxt :type :principality) fact)}])))
+              [symbol ((juxt :type :principality) fact)])))
     (into {})))
 
 (defn- all-bindings
@@ -112,8 +112,7 @@
     (when-let [[type principality]
                (some->>
                  (select-keys symbol [:reference :name :in])
-                 (get (all-bindings module))
-                 :type)]
+                 (get (all-bindings module)))]
       [(apply module type) principality])
     (throw (ex-info "Unknown binding"
              {:symbol symbol
@@ -169,13 +168,13 @@
     (update type :injectors
       #(->> %
          (map (fn [[injector value]] [injector (some->> value (apply module))]))
-         (into {})))
+         (into (empty %))))
 
     {:ast/type :record}
     (update type :fields
       #(->> %
          (map (fn [[field content]] [field (apply module content)]))
-         (into {})))
+         (into (empty %))))
 
     {:ast/type :primitive}
     type
@@ -331,7 +330,7 @@
     (get
       (->> module/builtins
         (map (fn [[k v]] [(:primitive v) {:ast/type :named :name k}]))
-        (into {}))
+        (into (empty module/builtins)))
       (:atom atom))
     (throw (ex-info "Unrecognized atom" {:atom atom}))))
 
@@ -359,62 +358,16 @@
       (when-not (= (:atom atom) primitive)
         (throw (ex-info "Distinct types" {:atom atom :primitive primitive})))
 
-      [{:ast/term :variant :variant {:injector injector :value value}}
-       {:ast/type :variant :injectors injectors}
-       _]
-      (do
-        (cond
-          (and (some? value) (some? (get injectors injector))) ; variant wraps value
-          (analysis:check module value [(get injectors injector) principality])
-
-          (and (nil? value) (contains? injectors injector)) ; variant is enum
-          nil
-
-          :default ; injector isn't defined
-          (throw (ex-info "Unknown injector" {:injector injector})))
-        (annotate-term term (apply module type)))
-
-      [{:ast/term :variant :variant {:injector injector}}
-       {:ast/type :existential-variable :id alpha}
-       _]
-      (let [current (zip/node @(:type-checker/facts module))
-            _       (swap! (:type-checker/facts module)
-                      zip/focus-left
-                      {:fact/declare-existential alpha
-                       :kind                     :kind/type})
-            type
-            (find-variant module injector)]
-        (swap! (:type-checker/facts module) zip/focus-right current)
-        (solve-existential module alpha type)
-        (analysis:check module term [type principality]))
-
-      [{:ast/term :record :fields fields}
-       {:ast/type :record :fields rows}
-       _]
-      (do
-        (cond
-          (= (keys fields) (keys rows))
-          (run! (fn [[field value]]
-                  (let [row-type (get rows field)]
-                    (analysis:check module value [row-type principality]))) fields)
-
-          :else
-          (undefined ::analysis:check.record-type))
-        (annotate-term term (apply module type))) 
-
-      [{:ast/term :record}
-       {:ast/type :existential-variable}
-       _]
-      (do
-        (comment
-          [term type]
-
-          )
-        (undefined ::analysis:check.record-exvar)) 
+      [{:ast/term :lambda :argument argument :body body}
+       {:ast/type :function :domain domain :return return}
+       _] ; →I
+      (do (bind-symbol module argument domain principality)
+          (analysis:check module body [return principality])
+          (annotate-term term (apply module type)))
 
       [{:ast/term :lambda :argument argument :body body}
        ({:ast/type :existential-variable :id alpha} :as alpha-type)
-       :non-principal]          ; TODO: guard that `alpha` is declared
+       :non-principal] ; →Iα^
       (let [current  (zip/node @(:type-checker/facts module))
             _        (swap! (:type-checker/facts module)
                        zip/focus-left
@@ -429,19 +382,63 @@
                       :return   alpha-2}]
         (solve-existential module alpha function)
         (swap! (:type-checker/facts module) zip/focus-right current)
-        (bind-symbol module argument alpha-1 :non-principal)
-        (analysis:check module body [alpha-2 :non-principal])
+        (analysis:check module term [function :non-principal])
         (solve-existential module alpha (generalize module mark function) :kind/type)
-        (annotate-term term (apply module alpha-type))
         (annotate-term body (apply module alpha-2)))
 
-      [{:ast/term :match :body body :branches branches} _ _]
+      [{:ast/term :match :body body :branches branches} _ _] ; Case
       (let [[pattern-type pattern-principality] (synthesize module body)]
         (match:check module
           branches
           [[(apply module pattern-type)] pattern-principality]
           [(apply module type) principality])
         nil)
+
+      [{:ast/term :variant :variant {:injector injector :value value}}
+       {:ast/type :variant :injectors injectors}
+       _] ; +I
+      (do (cond
+            (and (some? value) (some? (get injectors injector))) ; variant wraps value
+            (analysis:check module value [(get injectors injector) principality])
+
+            (and (nil? value) (contains? injectors injector)) ; variant is enum
+            nil
+
+            :default ; injector isn't defined
+            (throw (ex-info "Unknown injector" {:injector injector})))
+          (annotate-term term (apply module type)))
+
+      [{:ast/term :variant :variant {:injector injector}}
+       {:ast/type :existential-variable :id alpha}
+       _] ; +Iα^
+      (let [current (zip/node @(:type-checker/facts module))
+            _       (swap! (:type-checker/facts module)
+                      zip/focus-left
+                      {:fact/declare-existential alpha
+                       :kind                     :kind/type})
+            type
+            (find-variant module injector)]
+        (swap! (:type-checker/facts module) zip/focus-right current)
+        (solve-existential module alpha type)
+        (analysis:check module term [type principality]))
+
+      [{:ast/term :record :fields fields}
+       {:ast/type :record :fields rows}
+       _] ; ×I
+      (do (cond
+            (= (keys fields) (keys rows))
+            (run! (fn [[field value]]
+                    (let [row-type (get rows field)]
+                      (analysis:check module value [row-type principality]))) fields)
+
+            :else
+            (undefined ::analysis:check.record-type))
+          (annotate-term term (apply module type))) 
+
+      [{:ast/term :record}
+       {:ast/type :existential-variable}
+       _] ; ×Iα^
+      (undefined ::analysis:check.record-exvar) 
 
       [_ {:ast/type :application :operator operator :parameters parameters} _]
       (let [type* (-> module
@@ -515,7 +512,7 @@
           (->> injectors
             (map (fn [[injector value]]
                    [injector (when (some? value) (fresh-existential module))]))
-            (into {}))]
+            (into (empty injectors)))]
       (solve-existential module alpha (assoc solution :injectors injectors*))
       (swap! (:type-checker/facts module) zip/->end)
       (dorun (map
@@ -988,52 +985,58 @@
   [module]
   (reduce
     (fn [module definition]
-      (let [definition* (setup-annotations definition)]
-        (match definition*
-          {:ast/definition :type :name name}
-          (let [name        (assoc name :in (:name module))
-                type*       (abstract-type module definition*)
-                definition* (assoc definition* :body type*)]
-            (-> module
-              (update :definitions conj definition*)
-              (assoc-in [:types name] type*)))
+      (match (setup-annotations definition)
+        {:ast/definition :type
+         :name           name}
+        (let [name        (assoc name :in (:name module))
+              type*       (abstract-type module definition)
+              definition* (assoc definition :body type*)]
+          (-> module
+            (update :definitions conj definition*)
+            (assoc-in [:types name] type*)))
 
-          {:ast/definition :constant :name name :body expr}
-          (let [mark                (fresh-mark module)
-                [type principality] (synthesize module expr)
-                definition*         (resolve-annotations module definition*)
-                discard             (drop module mark)]
-            (swap! (:type-checker/facts module) zip/->end)
-            (-> module
-              (assoc-in [:values name :type] [type :principal])
-              (update :definitions conj
-                (assoc definition* :type-checker.term/type type))))
+        {:ast/definition :constant
+         :name           name
+         :body           expr}
+        (let [mark                (fresh-mark module)
+              expr                (setup-annotations expr)
+              [type principality] (synthesize module expr)
+              discard             (drop module mark)]
+          (swap! (:type-checker/facts module) zip/->end)
+          (-> module
+            (assoc-in [:values name] [type :principal])
+            (update :definitions conj
+              (assoc definition
+                :body (resolve-annotations module expr)
+                :type-checker.term/type type))))
 
-          {:ast/definition :macro    :name name
-           :arguments      arguments :body body}
-          (let [mark        (fresh-mark module)
-                argument-types
-                (mapv (fn [argument]
-                        (let [alpha (fresh-existential module :kind/type)
-                              type  {:ast/type :quote :inner alpha}]
-                          (bind-symbol module argument type :non-principal)
-                          type))
-                  arguments)
-                return-type (fresh-existential module)
-                _           (analysis:check module body [return-type :non-principal])
-                type        [(->> return-type
-                               (conj argument-types)
-                               (type/function)
-                               (generalize module mark))
-                             :non-principal]]
-            (-> module
-              (update :definitions conj definition)
-              (assoc-in [:macros name]
-                {:type      type
-                 :arguments arguments
-                 :expand    (fn [application]
-                              (let [environment (zipmap arguments (:arguments application))]
-                                (interpreter/run environment body)))}))))))
+        {:ast/definition :macro
+         :name           name
+         :arguments      arguments
+         :body           body}
+        (let [mark        (fresh-mark module)
+              argument-types
+              (mapv (fn [argument]
+                      (let [alpha (fresh-existential module :kind/type)
+                            type  {:ast/type :quote :inner alpha}]
+                        (bind-symbol module argument type :non-principal)
+                        type))
+                arguments)
+              return-type (fresh-existential module)
+              _           (analysis:check module body [return-type :non-principal])
+              type        [(->> return-type
+                             (conj argument-types)
+                             (type/function)
+                             (generalize module mark))
+                           :non-principal]]
+          (-> module
+            (update :definitions conj definition)
+            (assoc-in [:macros name]
+              {:type      type
+               :arguments arguments
+               :expand    (fn [application]
+                            (let [environment (zipmap arguments (:arguments application))]
+                              (interpreter/run environment body)))})))))
     (merge module
       {:definitions                   []
        :type-checker/current-variable (atom 0)
@@ -1045,29 +1048,32 @@
 
   (letfn [(run [path]
             (-> path
-              (lang.compiler/run #{:parser :dependency-analyzer :type-checker :code-generator})
+              (lang.compiler/run :until :type-checker)
               (module/signature)
               (println)))]
     (do (println "\n–-—")
         (run "std/lang/option.lang")
         (run "std/lang/list.lang")
+        (run "std/lang/math.lang")
         (run "std/lang/io.lang")
-        (run "std/lang/core.lang")))
-
-  (-> "examples/option.lang"
-    (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker #_:code-generator})
-    :values)
-
-  (-> "std/lang/option.lang"
-    (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker #_:code-generator})
-    :values)
-
-  @(:type-checker/facts module)
+        (run "std/lang/core.lang")
+        (run "examples/option.lang")
+        (run "examples/linked-list.lang")
+        (run "examples/arithmetic.lang")))
 
   (throw (ex-info "foo" {}))
 
   (com.gfredericks.debug-repl/unbreak!!)
 
   (com.gfredericks.debug-repl/unbreak!)
+
+  (-> "examples/linked-list.lang"
+    (lang.compiler/run :until :type-checker)
+    :values)
+
+  (do (println "\n–-—")
+      (-> "std/lang/core.lang"
+        (lang.compiler/run :until :type-checker)
+        :values))
 
   )

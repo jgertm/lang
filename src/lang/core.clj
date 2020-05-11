@@ -9,7 +9,7 @@
     (case (first args)
       "signature"
       #(-> %
-         (compiler/run #{:parser :dependency-analyzer :type-checker})
+         (compiler/run :until :type-checker)
          (module/signature)
          (println))
 

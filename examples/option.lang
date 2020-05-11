@@ -3,21 +3,19 @@
            [lang.option :as option]))
 
 
-; TODO: implement `flip-default` using `flip`
-; (∀ X Y Z (-> (-> X Y Z) (-> Y X Z)))
-(defn flip
-  [f]
-  (fn [x y] (f y x)))
+(def val
+  [:option/some "shiiiit"])
 
-(def flip-default*
-  (flip default))
 
-(def val [:option/some "shiiiit"])
+(defn id
+  [x]
+  x)
 
 
 (defn apply
   [f x]
   (f x))
+
 
 (defn main
   [argv : (Array String)]

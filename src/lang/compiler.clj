@@ -23,7 +23,7 @@
     (set)))
 
 (defn- resolve-dependencies
-  [module phases]
+  [module phase]
   (let [additional-imports
         (when-not (contains? default-imports (:name module))
           (map
@@ -39,18 +39,25 @@
                                 (str/join (cons lang-home (:name module)))
                                 (str ".lang")
                                 (io/file)))
-                       module (run file phases)]
+                       module (run file :until phase)]
                    (assoc module
                      :alias alias
                      :open open)))))))))
 
 (defn run
   ([path]
-   (run path #{:parser :name-resolution :dependency-analyzer :type-checker :code-generator}))
-  ([path phases]
-   (cond-> path
-     (:parser phases) (parser/run)
-     (:name-resolution phases) (name-resolution/run)
-     (:dependency-analyzer phases) (resolve-dependencies (conj phases :type-checker))
-     (:type-checker phases) (type-checker/run)
-     (:code-generator phases) (code-generator/run))))
+   (run path :until :code-generator))
+  ([path & {:keys [until]}]
+   (let [all-phases [:parser :name-resolution :dependency-analyzer :type-checker :code-generator]
+         phases     (conj
+                      (->> all-phases
+                        (take-while (partial not= until))
+                        (set))
+                      until)]
+     (cond-> path
+       (:parser phases)              (parser/run)
+       (:name-resolution phases)     (name-resolution/run)
+       (:dependency-analyzer phases) (resolve-dependencies
+                                       (or (:code-generator phases) :type-checker))
+       (:type-checker phases)        (type-checker/run)
+       (:code-generator phases)      (code-generator/run)))))
