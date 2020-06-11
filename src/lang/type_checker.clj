@@ -369,30 +369,24 @@
 
 (defn- resolve-annotations
   [module definition]
-  (walk/prewalk
-    (fn resolve-node [node]
-      (cond
-        (some-> node :type-checker.macro/expands-to (realized?))
-        (recur (-> node
-                 :type-checker.macro/expands-to
-                 (deref)
-                 (assoc :type-checker.macro/expanded-from
-                   (dissoc node :type-checker.macro/expands-to :type-checker.term/type))))
-
-        (some-> node :type-checker.term/type (realized?))
-        (update node :type-checker.term/type (comp (partial apply module) deref))
-
-        (:type-checker.term/type node)
-        (dissoc node :type-checker.term/type)
-
-        (some-> node :type-checker.pattern/type (realized?))
-        (update node :type-checker.pattern/type (comp (partial apply module) deref))
-
-        (:type-checker.pattern/type node)
-        (dissoc node :type-checker.pattern/type)
-
-        :else node))
-    definition))
+  (let [annotations [:type-checker.macro/expands-to
+                     :type-checker.term/type
+                     :type-checker.pattern/type]]
+    (walk/prewalk
+      (fn resolve-node [node]
+        (if-not (map? node)
+          node
+          (merge
+            (clojure.core/apply dissoc node annotations)
+            (->> annotations
+              (select-keys node)
+              (keep (fn [[k promise]]
+                      (when (realized? promise)
+                        (let [value (deref promise)]
+                          [k (cond->> value
+                               (:ast/type value) (apply module))]))))
+              (into {})))))
+      definition)))
 
 (defn- annotate-term
   [term type]
@@ -522,6 +516,7 @@
   found on pg. 37"
   [module term [type principality]]
   (let [type (apply module type)]
+    (annotate-term term type)
     (match [term type principality]
       [{:ast/term :recur :reference reference :body body}
        _ _] ; Rec
@@ -534,7 +529,6 @@
        {:ast/type :existential-variable :id alpha}
        :non-principal] ; 1Iα^
       (let [type (synthesize-atom atom)]
-        (annotate-term term type)
         (solve-existential module alpha type))
 
       [{:ast/term :atom :atom atom}
@@ -563,8 +557,7 @@
        {:ast/type :function :domain domain :return return}
        _] ; →I
       (do (bind-symbol module argument domain principality)
-          (analysis:check module body [return principality])
-          (annotate-term term (apply module type)))
+          (analysis:check module body [return principality]))
 
       [{:ast/term :lambda :argument argument :body body}
        ({:ast/type :existential-variable :id alpha} :as alpha-type)
@@ -584,8 +577,7 @@
         (solve-existential module alpha function)
         (swap! (:type-checker/facts module) zip/focus-right current)
         (analysis:check module term [function :non-principal])
-        (solve-existential module alpha (generalize module mark function) :kind/type)
-        (annotate-term body (apply module alpha-2)))
+        (solve-existential module alpha (generalize module mark function) :kind/type))
 
       [{:ast/term :match :body body :branches branches} _ _] ; Case
       (let [[pattern-type pattern-principality] (synthesize module body)]
@@ -598,16 +590,15 @@
       [{:ast/term :variant :variant {:injector injector :value value}}
        {:ast/type :variant :injectors injectors}
        _] ; +I
-      (do (cond
-            (and (some? value) (some? (get injectors injector))) ; variant wraps value
-            (analysis:check module value [(get injectors injector) principality])
+      (cond
+        (and (some? value) (some? (get injectors injector))) ; variant wraps value
+        (analysis:check module value [(get injectors injector) principality])
 
-            (and (nil? value) (contains? injectors injector)) ; variant is enum
-            nil
+        (and (nil? value) (contains? injectors injector)) ; variant is enum
+        nil
 
-            :default ; injector isn't defined
-            (throw (ex-info "Unknown injector" {:injector injector})))
-          (annotate-term term (apply module type)))
+        :default ; injector isn't defined
+        (throw (ex-info "Unknown injector" {:injector injector})))
 
       [{:ast/term :variant :variant {:injector injector}}
        {:ast/type :existential-variable :id alpha}
@@ -626,15 +617,14 @@
       [{:ast/term :record :fields fields}
        {:ast/type :record :fields rows}
        _] ; ×I
-      (do (cond
-            (= (keys fields) (keys rows))
-            (run! (fn [[field value]]
-                    (let [row-type (get rows field)]
-                      (analysis:check module value [row-type principality]))) fields)
+      (cond
+        (= (keys fields) (keys rows))
+        (run! (fn [[field value]]
+                (let [row-type (get rows field)]
+                  (analysis:check module value [row-type principality]))) fields)
 
-            :else
-            (undefined ::analysis:check.record-type))
-          (annotate-term term (apply module type))) 
+        :else
+        (undefined ::analysis:check.record-type)) 
 
       [{:ast/term :record}
        {:ast/type :existential-variable}
@@ -666,10 +656,8 @@
               (let [alpha (fresh-existential module)]
                 (analysis:check module
                   operation
-                  [alpha :non-principal])
-                (annotate-term operation (apply module alpha))))))
-        (analysis:check module return [type principality])
-        (annotate-term return (apply module type)))
+                  [alpha :non-principal])))))
+        (analysis:check module return [type principality]))
 
       [_ _ _] ; Sub
       (let [[synth-type] (synthesize module term)
@@ -1405,10 +1393,10 @@
           (let [mark                (fresh-mark module)
                 expr                (setup-annotations expr)
                 [type principality] (synthesize module expr)
-                discard             (drop module mark)
                 definition          (assoc definition
                                       :body (resolve-annotations module expr)
                                       :type-checker.term/type type)]
+            (drop module mark)
             (swap! (:type-checker/facts module) zip/->end)
             (-> module
               (assoc-in [:values name] [type :principal])
