@@ -583,8 +583,8 @@
       (let [[pattern-type pattern-principality] (synthesize module body)]
         (match:check module
           branches
-          [[(apply module pattern-type)] pattern-principality]
-          [(apply module type) principality])
+          [[pattern-type] pattern-principality]
+          [type principality])
         nil)
 
       [{:ast/term :variant :variant {:injector injector :value value}}
