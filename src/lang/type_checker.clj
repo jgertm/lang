@@ -221,12 +221,14 @@
       type)
 
     {:ast/type :forall}
-    (update type :body (partial apply module))
+    (-> type
+      (update :variable (partial apply module))
+      (update :body (partial apply module)))
 
     {:ast/type :guarded}
     (-> type
-      (update :body (partial apply module))
-      (update-in [:proposition :parameters] (partial mapv (partial apply module))))
+      (update-in [:proposition :parameters] (partial mapv (partial apply module)))
+      (update :body (partial apply module)))
 
     {:ast/type :application}
     (-> type
@@ -520,10 +522,8 @@
     (match [term type principality]
       [{:ast/term :recur :reference reference :body body}
        _ _] ; Rec
-      (let [mark (fresh-mark module)]
-        (bind-symbol module reference type principality)
-        (analysis:check module body [type principality])
-        (drop module mark))  
+      (do (bind-symbol module reference type principality)
+          (analysis:check module body [type principality]))  
 
       [{:ast/term :atom :atom atom}
        {:ast/type :existential-variable :id alpha}
@@ -540,10 +540,8 @@
       [(_ :guard checked-intro-form?)
        {:ast/type :forall :variable alpha :body body}
        _] ; ∀I
-      (let [mark (fresh-mark module)]
-        (declare-universal module alpha :kind/type)
-        (analysis:check module term [body principality])
-        nil)
+      (do (declare-universal module alpha :kind/type)
+          (analysis:check module term [body principality]))
 
       [(_ :guard checked-intro-form?)
        {:ast/type :guarded :proposition proposition :body body}
@@ -1025,7 +1023,7 @@
               [(update branch :patterns next)]
               [(next pattern-types) pattern-principality]
               return)
-            (drop module mark))
+            (drop module mark)) ; TODO: maybe remove `drop` since lots of typechecking work might occur before it
 
           [{:ast/pattern :wildcard}
            _ _]                         ; MatchWild
@@ -1063,6 +1061,7 @@
 
     [_ {:ast/type :forall :variable universal-variable :body body} _] ; ∀Spine
     (let [existential-variable (fresh-existential module)]
+      (equate-universal module (:id universal-variable) existential-variable)
       (apply-spine module
         arguments
         [(walk/prewalk-replace {universal-variable existential-variable} body) principality]))
