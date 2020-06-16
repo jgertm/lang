@@ -27,6 +27,17 @@
     (universally-quantified? type)
     (existentially-quantified? type)))
 
+(defn constraints
+  [type]
+  (match type
+    {:ast/type :forall :body body}
+    (recur body)
+
+    {:ast/type :guarded :proposition proposition :body body}
+    (conj (constraints body) proposition)
+
+    _ nil))
+
 (defn primitive?
   [type]
   (match type

@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [lang.code-generator :as code-generator]
+            [lang.desugar :as desugar]
             [lang.name-resolution :as name-resolution]
             [lang.parser :as parser]
             [lang.type-checker :as type-checker]))
@@ -49,7 +50,7 @@
   ([path]
    (run path :until :code-generator))
   ([path & {:keys [until]}]
-   (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :code-generator]
+   (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
          phases     (conj
                       (->> all-phases
                         (take-while (partial not= until))
@@ -61,4 +62,5 @@
                                        (or (:code-generator phases) :type-checker))
        (:name-resolution phases)     (name-resolution/run)
        (:type-checker phases)        (type-checker/run)
+       (:desugar phases)             (desugar/run)
        (:code-generator phases)      (code-generator/run)))))
