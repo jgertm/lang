@@ -1146,7 +1146,9 @@
   (match term
     {:ast/term :application :function {:symbol symbol}}
     (let [macro (lookup-macro module symbol)
-          term* ((:expand macro) term)]
+          term* (merge
+                  ((:expand macro) term)
+                  (select-keys term [:type-checker.term/type]))]
       (deliver (:type-checker.macro/expands-to term) term*)
       term*)))
 
