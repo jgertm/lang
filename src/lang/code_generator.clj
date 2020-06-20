@@ -110,7 +110,7 @@
 (defn- add-binding
   [module symbol instructions]
   (swap! (:code-generator/bindings module)
-    assoc (select-keys symbol [:reference :name]) instructions))
+    assoc (select-keys symbol [:reference :name :in]) instructions))
 
 (defn- all-classes
   [module]
@@ -343,7 +343,7 @@
      :arguments arguments}
     (let [return-type (lookup-type module (:type-checker.term/type term))
           arguments*  (mapcat (partial ->instructions module) arguments)
-          function*   (lookup-binding module (:symbol function))
+          function*   (->instructions module function)
           ct          (+ (dec (count function*)) (count arguments)) ;; TODO: why `(dec (count function*))`? 
           invoke-insn
           [:invokeinterface
@@ -439,33 +439,6 @@
 
     {:ast/term :atom :atom atom}
     (push-atom atom)))
-
-(defn- ->field
-  [module {:keys [name body]}]
-  (let [class (class-name module)
-        type  (->> body :type-checker.term/type (lookup-type module))
-        name* (munge (:name name))
-        field
-        (-> body
-          (match
-            {:ast/term :atom :atom (atom :guard #(-> % :atom (not= :integer)))}
-            {:value (:value atom)}
-
-            _
-            (do (swap! (get-in module [:code-generator/bytecode class :code-generator/static-initializer-instructions])
-                  utils/concatv
-                  (conj
-                    (->instructions module body)
-                    [:putstatic class name* type]))
-                {}))
-          (merge
-            {:flags #{:public :static :final}
-             :name  name*
-             :type  type}))]
-    (add-binding module
-      name
-      [[:getstatic class (:name field) (:type field)]])
-    field))
 
 (defn- allocate-registers
   [method]
@@ -601,33 +574,59 @@
           term)]
     {:methods @methods :term term*}))
 
+(defn- ->field
+  [module {:keys [name body]}]
+  (let [class                  (class-name module)
+        type                   (->> body :type-checker.term/type (lookup-type module))
+        name*                  (munge (:name name))
+        {:keys [methods term]} (promote-lambdas module name* body)
+        field
+        (-> term
+          (match
+            {:ast/term :atom :atom (atom :guard #(-> % :atom (not= :integer)))}
+            {:value (:value atom)}
+
+            _
+            (do (swap! (get-in module [:code-generator/bytecode class :code-generator/static-initializer-instructions])
+                  utils/concatv
+                  (conj
+                    (->instructions module term)
+                    [:putstatic class name* type]))
+                {}))
+          (merge
+            {:flags #{:public :static :final}
+             :name  name*
+             :type  type}))]
+    (add-binding module
+      name
+      [[:getstatic class (:name field) (:type field)]])
+    {class {:fields  [field]
+            :methods methods}}))
+
 (defn- ->methods
   [module definition]
-  (->>
-    (match definition
-      {:ast/definition :constant
-       :name           name
-       :body           body}
-      (let [{:keys [term methods]}
-            (->> body
-              (push-arguments module)
-              (promote-lambdas module (:name name)))
-            type (lookup-method-type module (:type-checker.term/type body))
-            stub {:name (munge (:name name))
-                  :desc type}]
-        (->> stub
-          (make-callsite module)
-          (add-binding module name))
-        (->> {:flags #{:public :static}
-              :emit   (utils/concatv
-                        (->instructions module term)
-                        [[(return (last type))]]) }
-          (merge stub)
-          (conj methods))))
-    (mapv
-      #(-> %
-         (allocate-registers)
-         (assign-marks)))))
+  (let [methods
+        (match definition
+          {:ast/definition :constant
+           :name           name
+           :body           body}
+          (let [{:keys [term methods]}
+                (->> body
+                  (push-arguments module)
+                  (promote-lambdas module (:name name)))
+                type (lookup-method-type module (:type-checker.term/type body))
+                stub {:name (munge (:name name))
+                      :desc type}]
+            (->> stub
+              (make-callsite module)
+              (add-binding module name))
+            (->> {:flags #{:public :static}
+                  :emit   (utils/concatv
+                            (->instructions module term)
+                            [[(return (last type))]]) }
+              (merge stub)
+              (conj methods))))]
+    {(class-name module) {:methods methods}}))
 
 (declare type->classes)
 
@@ -718,6 +717,21 @@
       (map (fn [class] [(:name class) class]))
       (into {}))))
 
+(defn- combine
+  [module bytecode]
+  (letfn [(finalize-method [method]
+            (-> method (allocate-registers) (assign-marks)))]
+    (let [bytecode
+          (->> bytecode
+            (map (fn [[class body]]
+                   [class
+                    (-> body
+                      (update :methods (partial mapv finalize-method)))]))
+            (into (empty bytecode)))]
+      (update module :code-generator/bytecode
+        #(merge-with (fn [class-1 class-2]
+                       (merge-with utils/concatv class-1 class-2)) % bytecode)))))
+
 (defn- definition->bytecode
   [module definition]
   (let [class         (class-name module)
@@ -725,16 +739,13 @@
         name          (:name definition)]
     (match definition
       {:ast/definition :type :body body}
-      (let [classes (type->classes module definition)]
-        (update module :code-generator/bytecode reverse-merge classes))
+      (combine module (type->classes module definition))
 
       {:ast/definition :constant :body {:ast/term :recur}}
-      (let [methods (->methods module definition)]
-        (update-in module [:code-generator/bytecode class :methods] utils/concatv methods))
+      (combine module (->methods module definition))
 
       {:ast/definition :constant}
-      (let [field (->field module definition)]
-        (update-in module [:code-generator/bytecode class :fields] utils/conjv field))
+      (combine module (->field module definition))
 
       {:ast/definition :macro}
       module)))
@@ -752,17 +763,15 @@
       (fn [class]
         (let [instructions @(:code-generator/static-initializer-instructions class)
               method
-              (-> {:flags #{:public :static}
-                   :name  :clinit
-                   :desc  [VOID]
-                   :emit  (utils/concatv
-                            [[:new name]
-                             [:dup]
-                             [:invokespecial name :init [VOID]]]
-                            instructions
-                            [[:return]])}
-                (allocate-registers)
-                (assign-marks))]
+              {:flags #{:public :static}
+               :name  :clinit
+               :desc  [VOID]
+               :emit  (utils/concatv
+                        [[:new name]
+                         [:dup]
+                         [:invokespecial name :init [VOID]]]
+                        instructions
+                        [[:return]])}]
           (-> class
             (dissoc :code-generator/static-initializer-instructions)
             (update :methods conj method)))))))
