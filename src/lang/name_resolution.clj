@@ -28,7 +28,8 @@
   (let [modules
         (->> module
           :imports
-          (map (juxt :alias :module))
+          (map (juxt :alias :name ))
+          (filter first)
           (into {}))]
     (match node
       {:reference _ :in (source :guard (partial contains? modules))}
