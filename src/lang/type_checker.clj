@@ -221,9 +221,18 @@
       type)
 
     {:ast/type :forall}
-    (-> type
-      (update :variable (partial apply module))
-      (update :body (partial apply module)))
+    (letfn [(unwrap-nonuniversal [type]
+              (match type
+                {:ast/type :forall :variable variable :body body}
+                (if-not (type/universal-variable? variable)
+                  body
+                  type)
+
+                _ type))]
+      (-> type
+        (update :variable (partial apply module))
+        (update :body (partial apply module))
+        (unwrap-nonuniversal)))
 
     {:ast/type :guarded}
     (-> type

@@ -7,21 +7,30 @@
 
 (defn- absorb-definition
   [module {:keys [name] :as definition}]
-  (let [name (assoc name :in (:name module))]
-    (match definition
-      {:ast/definition :macro}
-      (assoc-in module [:macros name] true)
+  (letfn [(qualify-internal-references [expr]
+            (walk/prewalk
+              (fn [node]
+                (if (some-> node :reference #{:field :injector :variable})
+                  (assoc node :in (:name module))
+                  node))
+              expr))]
+    (let [name (assoc name :in (:name module))]
+      (match definition
+        {:ast/definition :macro}
+        (assoc-in module [:macros name] true)
 
-      {:ast/definition :constant}
-      (assoc-in module [:values name] true)
+        {:ast/definition :constant}
+        (assoc-in module [:values name] true)
 
-      {:ast/definition :type}
-      (assoc-in module [:types name] true)
+        {:ast/definition :type}
+        (assoc-in module [:types name]
+          (qualify-internal-references (:body definition)))
 
-      {:ast/definition :typeclass :fields fields}
-      (assoc-in module [:typeclasses name] {:fields (zipmap (keys fields) (repeat true))})
+        {:ast/definition :typeclass :fields fields}
+        (assoc-in module [:typeclasses name :fields]
+          (qualify-internal-references fields))
 
-      :else module)))
+        :else module))))
 
 (defn- resolve-reference
   [module node]
@@ -41,6 +50,8 @@
                                   :typeclass module/all-typeclasses
                                   :type      module/all-types
                                   :variable  module/all-bindings
+                                  :injector  module/all-injectors
+                                  :field     module/all-fields
                                   (constantly nil))
                                 module) node)]
         reference

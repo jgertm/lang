@@ -22,6 +22,18 @@
     (assoc :reference :type)
     (update :name #(format "D:%s" %))))
 
+(defn- all-typeclass-dictionary-types
+  [module]
+  (merge
+    (module/importer (comp deref :desugar.typeclasses/dictionary-types) module)
+    @(:desugar.typeclasses/dictionary-types module)))
+
+(defn- all-typeclass-dictionary-instances
+  [module]
+  (merge
+    (module/importer (comp deref :desugar.typeclasses/dictionary-instances) module)
+    @(:desugar.typeclasses/dictionary-instances module)))
+
 (defn- desugar-typeclasses
   [module definition]
   (match definition
@@ -66,12 +78,18 @@
 
     {:ast/definition :constant}
     (let [dictionary-arguments (atom {})]
-      (letfn [(get-dictionary-argument [constraint]
-                (get
-                  (merge
-                    @(:desugar.typeclasses/dictionary-instances module)
-                    @dictionary-arguments)
-                  ((juxt :typeclass :parameters) constraint)))
+      (letfn [(get-dictionary-argument [{:keys [typeclass parameters] :as constraint}]
+                {:ast/term :symbol
+                 :symbol
+                 (get
+                   (merge
+                     (all-typeclass-dictionary-instances module)
+                     @dictionary-arguments)
+                   ((juxt :typeclass :parameters) constraint))
+                 :type-checker.term/type
+                 {:ast/type   :application
+                  :operator   {:ast/type :named :name (get (all-typeclass-dictionary-types module) typeclass)}
+                  :parameters parameters}})
               (add-dictionary-arguments [term]
                 (walk/postwalk
                   (fn [node]
@@ -83,7 +101,7 @@
                         (fn [term {:keys [typeclass parameters] :as constraint}]
                           (let [argument      {:reference :variable :name (gensym (:name typeclass))}
                                 argument-type {:ast/type   :application
-                                               :operator   (get @(:desugar.typeclasses/dictionary-types module) typeclass)
+                                               :operator   {:ast/type :named :name (get (all-typeclass-dictionary-types module) typeclass)}
                                                :parameters parameters}]
                             (swap! dictionary-arguments assoc
                               ((juxt :typeclass :parameters) constraint)
@@ -117,7 +135,9 @@
                                (type/constraints (:type-checker.term/type (:function node))))]
                       (update node :arguments
                         (fn [arguments]
-                          (into (mapv get-dictionary-argument constraints) arguments)))
+                          (into
+                            (mapv get-dictionary-argument constraints)
+                            arguments)))
                       node))
                   term))
               (inline-typeclass-fields [term]
@@ -138,21 +158,19 @@
                                   (:symbol function))
                             (let [argument-type
                                   {:ast/type   :application
-                                   :operator   (get @(:desugar.typeclasses/dictionary-types module) typeclass)
+                                   :operator   {:ast/type :named :name (get (all-typeclass-dictionary-types module) typeclass)}
                                    :parameters parameters}]
                               (-> node
                                 (assoc :function
                                   (merge 
                                     {:ast/term :extract ; TODO: this AST node is moot. use pattern matching instead?
-                                     :record   {:ast/term :symbol
-                                                :symbol   (get-dictionary-argument constraint)
-                                                :type-checker.term/type argument-type}
+                                     :record   (get-dictionary-argument constraint)
                                      :field    (assoc (:symbol function) :reference :field)
                                      :type-checker.term/type
-                                     (-> function
+                                     (->> function ; FIXME: feels hacky
                                        :type-checker.term/type
-                                       :body
-                                       :body)}))
+                                       (iterate :body) 
+                                       (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))}))
                                 (update :arguments (comp vec next))))))
                         node)))
                   term))

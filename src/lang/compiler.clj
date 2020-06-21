@@ -58,8 +58,7 @@
                       until)]
      (cond-> path
        (:parser phases)              (parser/run)
-       (:dependency-analyzer phases) (resolve-dependencies
-                                       (or (:code-generator phases) :type-checker))
+       (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
        (:name-resolution phases)     (name-resolution/run)
        (:type-checker phases)        (type-checker/run)
        (:desugar phases)             (desugar/run)

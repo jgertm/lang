@@ -344,7 +344,7 @@
     (let [return-type (lookup-type module (:type-checker.term/type term))
           arguments*  (mapcat (partial ->instructions module) arguments)
           function*   (->instructions module function)
-          ct          (+ (dec (count function*)) (count arguments)) ;; TODO: why `(dec (count function*))`? 
+          ct          (count arguments) 
           invoke-insn
           [:invokeinterface
            (str (if (void? return-type)
@@ -420,6 +420,13 @@
           (fn [[field value]] (->instructions module value))
           fields)
         [[:invokespecial outer :init (conj argument-desc VOID)]]))
+
+    {:ast/term :extract :record record :field field}
+    (let [record-type (lookup-type module (:type-checker.term/type record))
+          field-type  (lookup-type module (:type-checker.term/type term))]
+      (utils/concatv
+        (->instructions module record)
+        [[:getfield record-type (:name field) field-type]]))
 
     {:ast/term :access
      :object   object
@@ -720,7 +727,9 @@
 (defn- combine
   [module bytecode]
   (letfn [(finalize-method [method]
-            (-> method (allocate-registers) (assign-marks)))]
+            (-> method
+              (allocate-registers)
+              (assign-marks)))]
     (let [bytecode
           (->> bytecode
             (map (fn [[class body]]
@@ -729,8 +738,10 @@
                       (update :methods (partial mapv finalize-method)))]))
             (into (empty bytecode)))]
       (update module :code-generator/bytecode
-        #(merge-with (fn [class-1 class-2]
-                       (merge-with utils/concatv class-1 class-2)) % bytecode)))))
+        #(merge-with
+           (fn [class-1 class-2]
+             (merge-with utils/concatv class-1 class-2))
+           % bytecode)))))
 
 (defn- definition->bytecode
   [module definition]
@@ -776,6 +787,15 @@
             (dissoc :code-generator/static-initializer-instructions)
             (update :methods conj method)))))))
 
+(defn- resort
+  [module]
+  (let [class (class-name module)]
+    (update module :code-generator/bytecode
+      (fn [bytecode]
+        (-> bytecode
+          (dissoc class)
+          (assoc class (get bytecode class)))))))
+
 (defn- module->bytecode
   [module]
   (let [name    (class-name module)
@@ -795,7 +815,8 @@
         (comp update-tables definition->bytecode)
         module*
         (:definitions module))
-      (add-static-initializer))))
+      (add-static-initializer)
+      (resort))))
 
 (extend-protocol insn.core/Loader ; FIXME: reflection warning
   ClassLoader

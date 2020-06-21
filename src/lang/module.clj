@@ -26,12 +26,22 @@
   (->> module
     (projection-fn)
     (mapcat (fn [[k v]]
-              (let [k* (dissoc k :in)]
-                [[k* k]
-                 [k v]])))
+              (cond
+                (set? k) ; records/variants
+                (let [k* (into (empty k) (map #(dissoc % :in) k))]
+                  [[k* k]
+                   [k v]])
+
+                (vector? k) ; typeclass dictionary instance
+                [[k v]]
+
+                :else 
+                (let [k* (dissoc k :in)]
+                  [[k* k]
+                   [k v]]))))
     (into {})))
 
-(defn- importer
+(defn importer
   [projection-fn module]
   (->> module
     :imports
@@ -48,7 +58,7 @@
                    [(if-not (:in k) (assoc k :in alias) k)
                     v]))
             (into {})))))
-    (reduce merge)))
+    (reduce (partial merge-with merge))))
 
 (defn surface-typeclasses
   [module]
@@ -70,7 +80,7 @@
     :typeclasses
     (vals)
     (mapcat (fn [{:keys [fields]}]
-              (map (fn [[name type]] [(assoc name :in (:name module)) [type :principal]]) fields)))
+              (map (fn [[name type]] [name [type :principal]]) fields)))
     (into {})))
 
 (defn imported-typeclass-fields
@@ -156,7 +166,7 @@
   [module]
   (merge
     (imported-injectors module)
-    (surface-injectors module)))
+    (dequalifier surface-injectors module)))
 
 (defn surface-fields
   [module]
