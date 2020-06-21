@@ -1021,7 +1021,9 @@
               return)
 
             :default
-            (throw (ex-info "Unknown record" {:fields (keys pattern-fields)})))
+            (throw (ex-info "Unknown record"
+                     {:fields (keys pattern-fields)
+                      :module (:name module)})))
 
           [{:ast/pattern :symbol :symbol symbol}
            pattern-type

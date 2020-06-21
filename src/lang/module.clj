@@ -178,6 +178,28 @@
                 (map (fn [[field _]] [field {:ast/type :named :name name}])))))
     (into {})))
 
+(defn inner-fields
+  [module]
+  (->> module
+    :types
+    (mapcat
+      (fn [[name type]]
+        (->> type
+          (type/nodes)
+          (filter
+            (every-pred
+              (partial not= type)
+              #(-> % :ast/type (= :record))))
+          (mapcat
+            (fn [index inner-type]
+              (let [inner-type-name (update name :name #(format "%s$inner_%d" % index))]
+                (map
+                  (fn [inner-field]
+                    [inner-field {:ast/type :named :name inner-type-name}])
+                  (keys (type/fields inner-type)))))
+            (range)))))
+    (into {})))
+
 (defn imported-fields
   [module]
   (importer surface-fields module))
@@ -185,7 +207,9 @@
 (defn all-fields
   [module]
   (merge
+    (importer inner-fields module)
     (imported-fields module)
+    (dequalifier inner-fields module)
     (surface-fields module)))
 
 (defn surface-classes
