@@ -1341,8 +1341,9 @@
               body
 
               _ (throw (ex-info "Unguarded type" {:type type}))))]
-    (if-let [typeclass (module/get (module/all-typeclasses module) name)]
-      (let [types (mapv (partial apply module) types)]
+    (if-let [typeclass (-> module (module/all-typeclasses) (module/get name))]
+      (let [types (mapv (partial apply module) types)
+            module (assoc-in module [:typeclasses name :instances types] true)]
         (run!
           (fn [[field term]]
             (let [type (-> typeclass
@@ -1390,14 +1391,15 @@
           {:ast/definition :typeclass-instance
            :types          types
            :fields         fields}
-          (let [definition (setup-annotations definition)
+          (let [mark       (fresh-mark module)
+                definition (setup-annotations definition)
                 {:keys [typeclass types]}
-                (instantiate-typeclass module definition)]
+                (instantiate-typeclass module definition)
+                definition (resolve-annotations module definition)]
+            (drop module mark)
             (-> module
-              (assoc-in
-                [:typeclasses typeclass :instances types]
-                true)
-              (update :definitions conj (resolve-annotations module definition))))
+              (assoc-in [:typeclasses typeclass :instances types] true)
+              (update :definitions conj definition)))
 
           {:ast/definition :constant
            :name           name

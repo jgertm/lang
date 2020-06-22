@@ -58,7 +58,10 @@
           name  (-> definition
                   :name
                   (assoc :reference :variable)
-                  (update :name #(format "I:%s:%s" % types)))]
+                  (update :name #(format "I:%s:%s" % types)))
+          type  {:ast/type   :application
+                 :operator   {:ast/type :named :name (typeclass-record-name (:name definition))}
+                 :parameters (:types definition)}]
       (swap! (:desugar.typeclasses/dictionary-instances module) assoc
         ((juxt :name :types) definition)
         name)
@@ -68,13 +71,34 @@
        {:ast/term :record
         :fields   (->> definition
                     :fields
-                    (map (fn [[name term]]
-                           [(assoc name :reference :field) term]))
+                    (map (fn [[field term]]
+                           (letfn [(inline-recurrences [term]
+                                     (walk/postwalk
+                                       (fn [node]
+                                         (match node
+                                           {:ast/term  :application
+                                            :function  ({:ast/term :symbol :symbol field} :as function)
+                                            :arguments arguments}
+                                           (assoc node :function
+                                             {:ast/term :extract ; TODO: this AST node is moot. use pattern matching instead?
+                                              :record
+                                              {:ast/term :symbol
+                                               :symbol   name
+                                               :type-checker.term/type
+                                               type}
+                                              :field    (assoc field :reference :field)
+                                              :type-checker.term/type
+                                              (->> function ; FIXME: feels hacky
+                                                :type-checker.term/type
+                                                (iterate :body)
+                                                (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))})
+
+                                           _ node))
+                                       term))]
+                             [(assoc field :reference :field)
+                              (inline-recurrences term)])))
                     (into (empty (:fields definition))))
-        :type-checker.term/type
-        {:ast/type   :application
-         :operator   {:ast/type :named :name (typeclass-record-name (:name definition))}
-         :parameters (:types definition)}}})
+        :type-checker.term/type type}})
 
     {:ast/definition :constant}
     (let [dictionary-arguments (atom {})]
@@ -162,15 +186,14 @@
                                    :parameters parameters}]
                               (-> node
                                 (assoc :function
-                                  (merge 
-                                    {:ast/term :extract ; TODO: this AST node is moot. use pattern matching instead?
-                                     :record   (get-dictionary-argument constraint)
-                                     :field    (assoc (:symbol function) :reference :field)
+                                  {:ast/term :extract ; TODO: this AST node is moot. use pattern matching instead?
+                                   :record   (get-dictionary-argument constraint)
+                                   :field    (assoc (:symbol function) :reference :field)
+                                   :type-checker.term/type
+                                   (->> function ; FIXME: feels hacky
                                      :type-checker.term/type
-                                     (->> function ; FIXME: feels hacky
-                                       :type-checker.term/type
-                                       (iterate :body) 
-                                       (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))}))
+                                     (iterate :body) 
+                                     (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))})
                                 (update :arguments (comp vec next))))))
                         node)))
                   term))

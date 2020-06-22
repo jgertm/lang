@@ -345,12 +345,13 @@
           arguments*  (mapcat (partial ->instructions module) arguments)
           function*   (->instructions module function)
           ct          (count arguments) 
+          interface   (str (if (void? return-type)
+                           "lang.function.Consumer"
+                           "lang.function.Function")
+                        ct)
           invoke-insn
           [:invokeinterface
-           (str (if (void? return-type)
-                  "lang.function.Consumer"
-                  "lang.function.Function")
-             ct)
+           interface
            (str "apply" ct)
            (utils/concatv
              (repeat ct Object)
@@ -530,7 +531,7 @@
              :desc body-type}
          (make-callsite module)
          (add-binding module reference))
-       (push-arguments module body register))
+       (recur module body register))
 
      {:ast/term          :lambda
       :argument          argument
@@ -541,7 +542,7 @@
                            :domain
                            (lookup-type module))]
        (add-binding module argument [[(load argument-type) register]])
-       (push-arguments module
+       (recur module
          body
          (cond-> (inc register) (wide? argument-type) inc)))
 
@@ -567,7 +568,7 @@
                                 (push-arguments module)
                                 (->instructions module))
                               [[(return return-type)]])}
-                    reference {:reference :variable :name (:name lambda-method)}]
+                    reference      {:reference :variable :name (:name lambda-method)}]
                 (swap! methods conj lambda-method)
                 (->> lambda-method
                   (make-callsite module)
@@ -586,6 +587,9 @@
   (let [class                  (class-name module)
         type                   (->> body :type-checker.term/type (lookup-type module))
         name*                  (munge (:name name))
+        _ (add-binding module
+            name
+            [[:getstatic class name* type]])
         {:keys [methods term]} (promote-lambdas module name* body)
         field
         (-> term
@@ -604,9 +608,6 @@
             {:flags #{:public :static :final}
              :name  name*
              :type  type}))]
-    (add-binding module
-      name
-      [[:getstatic class (:name field) (:type field)]])
     {class {:fields  [field]
             :methods methods}}))
 
