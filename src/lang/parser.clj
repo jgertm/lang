@@ -15,3 +15,12 @@
     (if (:ok result)
       (:value result)
       (throw (ex-info "Parsing error" (:error result))))))
+
+(comment
+
+  (blancas.kern.core/parse
+    file
+    (slurp "std/lang/option.lang"))
+
+
+  )

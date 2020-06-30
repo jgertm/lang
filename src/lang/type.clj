@@ -128,6 +128,9 @@
               {:ast/type :record}
               (vals (:fields node))
 
+              {:ast/type :application :operator operator :parameters parameters}
+              (cons operator parameters)
+
               _
               (->> node
                 (vals)

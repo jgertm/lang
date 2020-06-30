@@ -122,17 +122,20 @@
                             :argument arg
                             :body     term})
                          {:ast/term   :sequence
-                          :operations operations}))])))]
+                          :operations operations}))])))
+        instance (parens (<*> reference/typeclass (many1 type/expr)))]
     (parens
       (bind [_ (word "definstance")
-             [name types]
-             (parens (<*> reference/typeclass (many1 type/expr)))
+             [name types] instance
+             superclasses
+             (<$> (comp not-empty set) (many0 (>> (word ":when") instance)))
              fields
              (<$> (partial into (array-map))
                (many1 field))]
         (return {:ast/definition :typeclass-instance
                  :name           name
                  :types          types
+                 :superclasses   superclasses
                  :fields         fields})))))
 
 (def expr

@@ -2,19 +2,12 @@
   (:require [clojure.core.match :refer [match]]
             [clojure.string :as str]
             [clojure.walk :as walk]
-            [lang.utils :as utils :refer [undefined]]
+            [lang.desugar.macros :as macros]
+            [lang.desugar.typeclasses :as typeclasses]
             [lang.module :as module]
             [lang.term :as term]
-            [lang.type :as type]))
-
-(defn- desugar-macros
-  [definition]
-  (walk/prewalk
-    (fn [node]
-      (if-let [expansion (:type-checker.macro/expands-to node)]
-        (recur expansion)
-        node))
-    definition))
+            [lang.type :as type]
+            [lang.utils :as utils :refer [undefined]]))
 
 (defn- typeclass-record-name
   [name]
@@ -51,54 +44,51 @@
                                     (into (empty (:fields definition))))}})
 
     {:ast/definition :typeclass-instance}
-    (let [types (->> definition
-                  :types
-                  (map (comp :name :name))
-                  (str/join "-"))
-          name  (-> definition
-                  :name
-                  (assoc :reference :constant)
-                  (update :name #(format "I:%s:%s" % types)))
-          type  {:ast/type   :application
-                 :operator   {:ast/type :named :name (typeclass-record-name (:name definition))}
-                 :parameters (:types definition)}]
-      (swap! (:desugar.typeclasses/dictionary-instances module) assoc
-        ((juxt :name :types) definition)
-        name)
-      {:ast/definition :constant
-       :name           name
-       :body
-       {:ast/term :record
-        :fields   (->> definition
-                    :fields
-                    (map (fn [[field term]]
-                           (letfn [(inline-recurrences [term]
-                                     (walk/postwalk
-                                       (fn [node]
-                                         (match node
-                                           {:ast/term  :application
-                                            :function  ({:ast/term :symbol :symbol field} :as function)
-                                            :arguments arguments}
-                                           (assoc node :function
-                                             {:ast/term :extract ; TODO: this AST node is moot. use pattern matching instead?
-                                              :record
-                                              {:ast/term :symbol
-                                               :symbol   name
-                                               :type-checker.term/type
-                                               type}
-                                              :field    (assoc field :reference :field)
-                                              :type-checker.term/type
-                                              (->> function ; FIXME: feels hacky
+    (letfn [(instance-name [{:keys [name types] :as definition}]
+              (format "I:%s:%s"
+                (:name name)
+                (str/join "-" (mapv type/print types))))]
+      (let [name (instance-name definition)
+            type  {:ast/type   :application
+                   :operator   {:ast/type :named :name (typeclass-record-name (:name definition))}
+                   :parameters (:types definition)}]
+        (swap! (:desugar.typeclasses/dictionary-instances module) assoc
+          ((juxt :name :types) definition)
+          name)
+        {:ast/definition :constant
+         :name           name
+         :body
+         {:ast/term :record
+          :fields   (->> definition
+                      :fields
+                      (map (fn [[field term]]
+                             (letfn [(inline-recurrences [term]
+                                       (walk/postwalk
+                                         (fn [node]
+                                           (match node
+                                             {:ast/term  :application
+                                              :function  ({:ast/term :symbol :symbol field} :as function)
+                                              :arguments arguments}
+                                             (assoc node :function
+                                               {:ast/term :extract ; TODO: this AST node is moot. use pattern matching instead?
+                                                :record
+                                                {:ast/term :symbol
+                                                 :symbol   name
+                                                 :type-checker.term/type
+                                                 type}
+                                                :field    (assoc field :reference :field)
                                                 :type-checker.term/type
-                                                (iterate :body)
-                                                (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))})
+                                                (->> function ; FIXME: feels hacky
+                                                  :type-checker.term/type
+                                                  (iterate :body)
+                                                  (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))})
 
-                                           _ node))
-                                       term))]
-                             [(assoc field :reference :field)
-                              (inline-recurrences term)])))
-                    (into (empty (:fields definition))))
-        :type-checker.term/type type}})
+                                             _ node))
+                                         term))]
+                               [(assoc field :reference :field)
+                                (inline-recurrences term)])))
+                      (into (empty (:fields definition))))
+          :type-checker.term/type type}}))
 
     {:ast/definition :constant}
     (let [dictionary-arguments (atom {})]
@@ -115,6 +105,7 @@
                   :operator   {:ast/type :named :name (get (all-typeclass-dictionary-types module) typeclass)}
                   :parameters parameters}})
               (add-dictionary-arguments [term]
+                ;; Converts
                 (walk/postwalk
                   (fn [node]
                     (if-let [constraints
@@ -220,14 +211,14 @@
 (defn- desugar
   [module definition]
   (->> definition
-    (desugar-macros)
-    (desugar-typeclasses module)))
+    (macros/desugar module)
+    (typeclasses/desugar module)))
 
 (defn- init
   [module]
   (merge module
-    {:definitions                            []
-     :desugar.typeclasses/dictionary-types   (atom {})
+    {:definitions                              []
+     :desugar.typeclasses/dictionary-types     (atom {})
      :desugar.typeclasses/dictionary-instances (atom {})}))
 
 (defn run
@@ -241,9 +232,10 @@
 (comment
 
   (do (println "\n–-—")
-      (-> "std/lang/option.lang"
-        (lang.compiler/run :until :type-checker)
+      (-> "examples/option.lang"
+        (lang.compiler/run :until :desugar)
         :definitions
-        #_module/surface-bindings))
+        #_(nth 2)))
+
 
   )

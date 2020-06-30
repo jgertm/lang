@@ -27,6 +27,23 @@
 (def conjv
   (fnil conj []))
 
+(defn deep-merge
+  [& maps]
+  (apply
+    (fn m [& maps]
+      (cond
+        (every? map? maps)
+        (apply merge-with m maps)
+
+        (every? set? maps)
+        (apply set/union maps)
+
+        (every? vector? maps)
+        (reduce into maps)
+
+        :else (last maps)))
+    maps))
+
 (defn spy
   [f v]
   (f v)

@@ -3,7 +3,7 @@
   (:require [clojure.core.match :refer [match]]
             [clojure.string :as str]
             [lang.type :as type]
-            [lang.utils :refer [undefined]]))
+            [lang.utils :as utils :refer [undefined]]))
 
 (def builtins
   (->>
@@ -70,7 +70,7 @@
                       :else k)
                     v]))
             (into {})))))
-    (reduce (partial merge-with merge))))
+    (apply utils/deep-merge)))
 
 (defn surface-typeclasses
   [module]
@@ -82,7 +82,7 @@
 
 (defn all-typeclasses
   [module]
-  (merge-with merge
+  (utils/deep-merge
     (imported-typeclasses module)
     (dequalifier surface-typeclasses module)))
 
@@ -223,6 +223,20 @@
     (imported-fields module)
     (dequalifier inner-fields module)
     (surface-fields module)))
+
+(defn surface-typeclass-dictionaries
+  [module]
+  @(:desugar.typeclasses/dictionary-instances module))
+
+(defn imported-typeclass-dictionaries
+  [module]
+  (importer surface-typeclass-dictionaries module))
+
+(defn all-typeclass-dictionaries
+  [module]
+  (merge
+    (surface-typeclass-dictionaries module)
+    (imported-typeclass-dictionaries module)))
 
 (defn surface-classes
   [module]

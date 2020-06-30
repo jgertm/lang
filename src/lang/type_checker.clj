@@ -21,6 +21,10 @@
 (declare subtyping:join)
 (declare subtyping:polarity)
 (declare subtype)
+(declare instantiate-to)
+
+(defn- bottom []
+  (throw (ex-info "bottom" {})))
 
 (defn- next-variable-id
   [module]
@@ -158,6 +162,25 @@
               _ nil)))
     (reduce (partial merge-with set/union))))
 
+(defn- unsolved?
+  [module existential-variable]
+  (not
+    (or
+      (contains? (existential-solutions module) existential-variable)
+      (contains? (existential-restrictions module) existential-variable))))
+
+(defn- restricted?
+  [module existential-variable]
+  (contains? (existential-restrictions module) existential-variable))
+
+(defn- equated?
+  [module universal-variable]
+  (contains? (universal-equations module) universal-variable))
+
+(defn- constrained?
+  [module universal-variable]
+  (contains? (universal-constraints module) universal-variable))
+
 (defn- local-bindings
   [module]
   (->> module
@@ -280,6 +303,7 @@
   ([module existential solution]
    (solve-existential module existential solution :kind/type))
   ([module existential solution kind]
+   {:pre [(int? existential) (map? solution)]}
    (let [current-fact (get (existential-facts module) existential)
          new-fact
          {:fact/solve-existential existential
@@ -295,14 +319,13 @@
   ([module existential constraints]
    (restrict-existential module existential constraints :kind/type))
   ([module existential constraints kind]
+   {:pre [(int? existential) (set? constraints)]}
    (let [current-fact (get (existential-facts module) existential)
          restrictions (get (existential-restrictions module) existential)
          new-fact
-         (if (seq restrictions)
-           (undefined ::restrict-existential.check-instance)
-           {:fact/restrict-existential existential
-            :kind                      kind
-            :constraints               constraints})]
+         {:fact/restrict-existential existential
+          :kind                      kind
+          :constraints               (set/union restrictions constraints)}]
      (swap! (:type-checker/facts module)
        #(walk/prewalk-replace
           {current-fact new-fact}
@@ -474,17 +497,147 @@
       (:atom atom))
     (throw (ex-info "Unrecognized atom" {:atom atom}))))
 
+(defn- incompatible-head-constructors?
+  [type-1 type-2]
+  (not= (:ast/type type-1) (:ast/type type-2)))
+
+(defn- unify
+  [module type-a type-b kind]
+  (when-not (and
+              (contains? #{:universal-variable :primitive :named} (:ast/type type-a))
+              (= type-a type-b)) ; ElimeqUvarRefl ElimeqUnit
+    (match [type-a type-b]
+      [{:ast/type :universal-variable :id alpha} _]
+      (cond
+        (and
+          (not (contains? (type/free-variables type-b) type-a))
+          (constrained? module alpha))
+        (undefined ::unify.uvar-l.constrained)
+
+        (and
+          (not (contains? (type/free-variables type-b) type-a))
+          (not (equated? module alpha))) ; ElimeqUvarL
+        (equate-universal module alpha type-b)
+
+        (and
+          (not= type-a type-b)
+          (contains? (type/free-variables type-b) type-a)) ; ElimeqUvarL⊥
+        (bottom))
+
+      [_ {:ast/type :universal-variable :id alpha}]
+      (cond
+        (and
+          (not (contains? (type/free-variables type-a) type-b))
+          (constrained? module alpha))
+        (undefined ::unify.uvar-r.constrained)
+
+        (and
+          (not (contains? (type/free-variables type-a) type-b))
+          (not (equated? module alpha))) ; ElimeqUvarR
+        (equate-universal module alpha type-a)
+
+        (and
+          (not= type-b type-a)
+          (contains? (type/free-variables type-a) type-b)) ; ElimeqUvarR⊥
+        (bottom))
+
+      [{:ast/type :function :domain domain-1 :return return-1}
+       {:ast/type :function :domain domain-2 :return return-2}] ; ElimeqBinF
+      (do (unify module domain-1 domain-2 kind)
+          (unify module (apply module return-1) (apply module return-2) kind))
+
+      [{:ast/type :record} {:ast/type :record}] ; ElimeqBinR
+      (undefined ::unify.record)
+
+      [{:ast/type :variant} {:ast/type :variant}] ; ElimeqBinV
+      (undefined ::unify.variant)
+
+      [{:ast/type :named :name name-1}
+       {:ast/type :named :name name-2}]
+      (when-not (= name-1 name-2)
+        (bottom))
+
+      [{:ast/type :application :operator operator-1 :parameters parameters-1}
+       {:ast/type :application :operator operator-2 :parameters parameters-2}]
+      (do (unify module operator-1 operator-2 kind)
+          (->>
+            (map vector parameters-1 parameters-2)
+            (run! (fn [[param-1 param-2]] (unify module param-1 param-2 kind)))))
+
+      [_ _] ; ElimeqClash
+      (if (incompatible-head-constructors? type-a type-b)
+        (bottom)
+        (undefined ::unify.fallthrough)))))
+
 (defn- proposition:instance
   [module proposition]
-  (run!
-    (fn [param]
-      (match param
-        {:ast/type :existential-variable :id alpha}
-        (restrict-existential module alpha #{proposition})
+  (letfn [(match-head [{:keys [parameters] :as proposition}
+                       {:keys [superclasses types] :as instance}]
+            (when
+                (->>
+                  (map vector types parameters)
+                  (every? (fn [[type parameter]]
+                            (unify module type (apply module parameter) :kind/type)
+                            true)))
+              (let [types
+                    (walk/prewalk
+                      (fn [node]
+                        (if-let [variable-name (and (type/is? node) (:reference node))]
+                          variable-name
+                          node)) types)]
+                [(assoc proposition :parameters types) superclasses])))
+          (match-superclasses [[instance superclasses]]
+            (->> superclasses
+              (mapcat (partial proposition:instance module))
+              (cons instance)
+              (doall)))
+          (init [{:keys [variables] :as instance}]
+            (run!
+              #(declare-universal module % :kind/type)
+              variables)
+            instance)
+          (find-chain [proposition instance]
+            (let [mark (fresh-mark module)]
+              (try
+                (->> instance
+                  (init)
+                  (match-head proposition)
+                  (match-superclasses))
+                (catch Exception e
+                  (drop module mark)
+                  nil))))]
+    (let [proposition (update proposition :parameters #(mapv (partial apply module) %))]
+      (match proposition
+        {:ast/constraint :instance :typeclass typeclass :parameters parameters}
+        (let [{:keys [instances superclasses] :as typeclass}
+              (-> module
+                (module/all-typeclasses)
+                (module/get typeclass))
+              instance-chain
+              (if (some (some-fn type/existential-variable? type/universal-variable?) parameters)
+                (do
+                  (run!
+                    (fn [param]
+                      (match param
+                        {:ast/type :existential-variable :id alpha}
+                        (restrict-existential module alpha #{proposition})
 
-        {:ast/type :universal-variable :id alpha}
-        (constrain-universal module alpha #{proposition})))
-    (:parameters proposition)))
+                        {:ast/type :universal-variable :id alpha}
+                        (constrain-universal module alpha #{proposition}))
+                      true)
+                    parameters)
+                  '())
+                (some
+                  (fn [instance] (find-chain proposition instance))
+                  instances))]
+          (when-not instance-chain
+            (throw (ex-info "Missing instance"
+                     {:typeclass  typeclass
+                      :parameters parameters})))
+          (when (not-empty instance-chain)
+            (swap! (:type-checker/instance-chains module)
+              assoc proposition instance-chain))
+          instance-chain)))))
 
 (defn- proposition:true
   "Γ ⊢ P true ⊣ Δ
@@ -611,17 +764,16 @@
         (throw (ex-info "Unknown injector" {:injector injector})))
 
       [{:ast/term :variant :variant {:injector injector}}
-       {:ast/type :existential-variable :id alpha}
+       ({:ast/type :existential-variable :id alpha} :as existential-type)
        _] ; +Iα^
       (let [current (zip/node @(:type-checker/facts module))
             _       (swap! (:type-checker/facts module)
                       zip/focus-left
-                      {:fact/declare-existential alpha
-                       :kind                     :kind/type})
+                      (get (existential-facts module) alpha))
             type
             (find-variant module injector)]
         (swap! (:type-checker/facts module) zip/focus-right current)
-        (solve-existential module alpha type)
+        (instantiate-to module existential-type [type :kind/type])
         (analysis:check module term [type principality]))
 
       [{:ast/term :record :fields fields}
@@ -697,25 +849,6 @@
     {:ast/type :exists} :positive
     _ :neutral))
 
-(defn- unsolved?
-  [module existential-variable]
-  (not
-    (or
-      (contains? (existential-solutions module) existential-variable)
-      (contains? (existential-restrictions module) existential-variable))))
-
-(defn- restricted?
-  [module existential-variable]
-  (contains? (existential-restrictions module) existential-variable))
-
-(defn- equated?
-  [module universal-variable]
-  (contains? (universal-equations module) universal-variable))
-
-(defn- constrained?
-  [module universal-variable]
-  (contains? (universal-constraints module) universal-variable))
-
 (defn- before?
   [module & vars]
   (let [get-existential
@@ -778,26 +911,15 @@
      _] ; InstSolve⊃
     (let [restrictions (get (existential-restrictions module) alpha)]
       (doseq [restriction restrictions]
-        (match restriction
-          {:ast/constraint :instance :typeclass typeclass :parameters parameters}
-          (let [instance (-> module
-                           (module/all-typeclasses)
-                           (module/get typeclass)
-                           (get-in [:instances (walk/prewalk-replace {type solution} parameters)]))]
-            (if (some? instance)
-              (solve-existential module alpha solution kind)
-              (throw (ex-info "Missing instance"
-                       {:typeclass typeclass
-                        :type      solution})))))))
+        (->> restriction
+          (walk/prewalk-replace {type solution})
+          (proposition:instance module))
+        (solve-existential module alpha solution kind)))
 
     [{:ast/type :existential-variable :id alpha} _]
     (let [solution (apply module solution)]
       ;; TODO: check for wellformedness
       (solve-existential module alpha solution kind)))) ; InstSolve
-
-(defn- incompatible-head-constructors?
-  [type-1 type-2]
-  (not= (:ast/type type-1) (:ast/type type-2)))
 
 (defn- subtyping:equivalent
   "Γ ⊢ A ≡ B ⊣ Δ
@@ -1344,29 +1466,103 @@
                              (universally-quantify-parameters params)
                              (apply module))]))
                    (into (empty fields)))]
-      {:fields fields})))
+      {:name       name
+       :parameters params
+       :fields     fields})))
 
 (defn- instantiate-typeclass
-  [module {:keys [name types] :as instance}]
+  "Check an instance declaration against the typeclass.
+
+  Checks the instance declaration against the type resulting from
+  substituting the specified parameters into the typeclass
+  declaration.
+
+  Takes care of detecting universal parameters and enforcing
+  superclass constraints."
+  [module {:keys [name superclasses types fields] :as instance}]
   (letfn [(strip-guard [type]
             (match type
               {:ast/type :guarded :body body}
               body
 
-              _ (throw (ex-info "Unguarded type" {:type type}))))]
-    (if-let [typeclass (-> module (module/all-typeclasses) (module/get name))]
-      (let [types (mapv (partial apply module) types)
-            module (assoc-in module [:typeclasses name :instances types] true)]
+              _ (throw (ex-info "Unguarded type" {:type type}))))
+          (abstract-parameters [types] 
+            ;; detect typeclass parameters that aren't real types, such as T in (Show (Option T)) and replace them with universal variables
+            (let [substitutions
+                  (reduce
+                    (fn [type->universal-variable type]
+                      (->> type
+                        (type/nodes)
+                        (keep (fn [type]
+                                (match type
+                                  {:ast/type :named}
+                                  (when (and
+                                          (not (:in (:name type)))
+                                          (not (contains? type->universal-variable type)))
+                                    [type (assoc (fresh-universal module) :reference type)])
+
+                                  _ nil)))
+                        (into {})
+                        (merge type->universal-variable)))
+                    nil
+                    types)]
+              [(walk/postwalk-replace substitutions types) (not-empty substitutions)]))
+          (constrain-superclasses [type superclasses]
+            ;; introduces typeclass constraints for typeclass field types for any superclasses of the instance
+            (reduce
+              (fn [type superclass]
+                {:ast/type :guarded
+                 :proposition superclass
+                 :body type})
+              type
+              superclasses))
+          
+          (introduce-universal-parameters [type universal-variables]
+            ;; introduces `:forall`s for any universal parameters, as detected by `abstract-parameters`
+            (reduce
+              (fn [type universal]
+                {:ast/type :forall
+                 :variable universal
+                 :body type})
+              type
+              universal-variables))]
+    (if-let [typeclass (-> module
+                         (module/all-typeclasses)
+                         (module/get name))]
+      (let [[types variables] (->> types
+                                (mapv (partial apply module))
+                                (abstract-parameters))
+            superclasses      (->> superclasses
+                                (map
+                                  (fn [[typeclass parameters]]
+                                    {:ast/constraint :instance
+                                     :typeclass      typeclass
+                                     :parameters     parameters}))
+                                (into #{})
+                                (walk/postwalk-replace variables)
+                                (not-empty))
+            instantiation     {:types        types
+                               :variables    variables
+                               :superclasses superclasses}
+            module            (update module :typeclasses
+                                (partial clojure.core/apply utils/deep-merge)
+                                {name {:instances #{instantiation}}}
+                                (map
+                                  (fn [{:keys [typeclass parameters]}]
+                                    {typeclass {:instances #{{:types parameters}}}})
+                                  superclasses))]
         (run!
           (fn [[field term]]
-            (let [type (-> typeclass
-                         (get-in [:fields field])
-                         (type/instantiate-universals types)
-                         (strip-guard))]
+            (let [type 
+                  (-> typeclass
+                    (get-in [:fields field])
+                    (type/instantiate-universals types)
+                    (strip-guard)
+                    (constrain-superclasses superclasses)
+                    (introduce-universal-parameters (vals variables)))]
               (analysis:check module term [type :principal])))
-          (:fields instance))
-        {:typeclass name
-         :types     types})
+          fields)
+        instantiation)
       (throw (ex-info "Unknown typeclass" {:typeclass name})))))
 
 (defn- init
@@ -1375,6 +1571,7 @@
   (merge module
     {:type-checker/current-variable (atom 0)
      :type-checker/facts            (atom zip/empty)
+     :type-checker/instance-chains  (atom {})
      :definitions                   []}))
 
 (defn run
@@ -1402,16 +1599,17 @@
             (update :definitions conj definition))
 
           {:ast/definition :typeclass-instance
+           :name           typeclass
            :types          types
            :fields         fields}
           (let [mark       (fresh-mark module)
                 definition (setup-annotations definition)
-                {:keys [typeclass types]}
+                {:keys [types] :as instantiation}
                 (instantiate-typeclass module definition)
                 definition (resolve-annotations module definition)]
             (drop module mark)
             (-> module
-              (assoc-in [:typeclasses typeclass :instances types] true)
+              (update-in [:typeclasses typeclass :instances] (fnil conj #{}) instantiation)
               (update :definitions conj definition)))
 
           {:ast/definition :constant
