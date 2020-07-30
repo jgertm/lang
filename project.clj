@@ -6,7 +6,7 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.blancas/kern "1.1.0"]
                  [org.clojure/core.match "0.3.0"]
-                 [insn "0.4.0"]
+                 [insn "0.4.0"]]
   :main ^:skip-aot lang.core
   :target-path "target/%s/"
   :profiles {:uberjar {:aot            :all
