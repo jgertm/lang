@@ -159,6 +159,8 @@ http://okmij.org/ftp/Computation/typeclass.html
 takeaway: dictionary passing still the way to go
 
 ** [[file:20200521171609-dunfield2018.org][Sound and Complete Bidirectional Typechecking for Higher-Rank Polymorphism with Existentials and Indexed Types]]
+https://arxiv.org/abs/1601.05106
+
 - typeclass constraints map to /guarded/ types: $P \supset A$
    
 ** TODO Implementation in PureScript
