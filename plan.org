@@ -1,0 +1,204 @@
+#+TITLE: lang
+
+https://www.famicol.in/language_checklist.html
+
+* lessons learned
+- ~insn.op/invokevirtual~ must not have the dispatch type in the signature
+- ~LazySeq~ is dangerous
+
+* avenues of further research
+** /Graydon Hoare/: What's Next?
+https://graydon2.dreamwidth.org/253769.html
+
+** /Jon Goodwin/: 2030: Programming Language Trends
+http://pling.jondgoodwin.com/post/2030-predictions/
+   
+** Effect systems
+*** Eff
+https://www.eff-lang.org/    
+    
+*** Koka
+https://www.microsoft.com/en-us/research/project/koka/
+    
+*** Frank
+https://arxiv.org/pdf/1611.09259.pdf
+
+** Automatic memory management
+  
+*** ASAP
+https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-908.pdf
+- described as "inline, smart GC"
+
+*** Oxide: The Essence of Rust
+https://arxiv.org/pdf/1903.00982.pdf
+
+*** Neut
+https://github.com/u2zv1wx/neut
+
+** Error handling
+*** The Error Model
+http://joeduffyblog.com/2016/02/07/the-error-model/#ambitions-and-learnings
+
+** Streams
+*** strymonas
+https://strymonas.github.io/
+
+* DONE test ~list/empty?~
+* DONE debug bool pattern body type 
+#+BEGIN_SRC clojure 
+:body
+{:ast/term          :symbol
+ :symbol            {:reference :variable :name "bool"}
+ :type-checker/type {:ast/type :existential-variable :id 5}}
+#+END_SRC
+ 
+* DONE wrap primitive types in references
+- primitive types don't play nice with the current ~FunctionalInterface~ types
+
+* DONE fix type reflection for ~java.lang.String/toString()~
+- ~return-type~ is nil
+- this was due to a combination of me writing the wrong type annotation of the parameter and the reflected methods using ~clojure.lang/Symbol~ in their types instead of ~java.lang.Class~
+
+* DONE fix wrong scope of universal quantifier in ~lang.option/default~
+#+BEGIN_SRC clojure
+{:ast/type :function
+ :domain
+ {:ast/type   :application
+  :operator
+  {:ast/type :named
+   :name
+   {:reference :type
+    :name      "Option"
+    :in        {:reference :module :name ["lang" "option"]}}}
+  :parameters [{:ast/type :universal-variable :id 16}]}
+ :return
+ {:ast/type :forall
+  :variable {:ast/type :universal-variable :id 16}
+  :body
+  {:ast/type :function
+   :domain   {:ast/type :universal-variable :id 16}
+   :return   {:ast/type :universal-variable :id 16}}}}
+#+END_SRC
+  
+- this regression was introduced by using ~repeatedly~ to generate type variables
+- fixed by forcing with ~vec~
+* DONE handle term level recursion
+ex: ~lang.list/map~
+- wrap defns in ~{:ast/term :recur}~
+* DONE annotate patterns with type during inference
+- needed for codesynthesis of inner types of variants
+
+* DONE store inner class of variants and lookup
+* DONE replace ~Integer~ with ~BigInteger~
+- construct using ~java.math.BigInteger/valueOf~
+  - alternatively, pass string representation to constructor
+- comparison using ~java.math.BigInteger/compareTo~
+* DONE ~_~ in numeric literals
+* DONE sequencing operation
+* TODO parse bare keywords as enums
+#+BEGIN_SRC lang
+(match option
+       :nil      1
+       [:some _] 0)
+#+END_SRC
+  
+- probably conflicts with labeled arguments
+
+* TODO replace special type constructor with applications [1/3]
+- [X] vector/array
+- [ ] quote
+- [ ] function?
+* TODO multiline strings
+- if introducing line is empty, consider indent of following line to be 0
+
+* TODO documentation search
+** Guo: /Program Synthesis by Type-Guided Abstraction Refinement/
+https://dl.acm.org/doi/10.1145/3371080
+   
+Hoogle on steroids: able to generate function compositions to match a queried type
+   
+* TODO labeled arguments
+#+BEGIN_SRC lang
+(defn do-flub
+  [foo :bar bar :baz baz]
+  nil)
+#+END_SRC
+
+* TODO variable arity (varargs)
+#+BEGIN_SRC lang
+(defn get-muk
+  [foo :bar bar :baz baz]
+  nil)
+
+(defn do-flub
+  [foo :bar & bars :baz baz]
+  nil)
+#+END_SRC
+
+** paper from the Typed Racket people
+https://www2.ccs.neu.edu/racket/pubs/esop09-sthf.pdf
+ 
+* TODO optional arguments
+#+BEGIN_SRC lang
+(defn do-flub
+  [foo ?bar]
+  nil)
+#+END_SRC
+* TODO let bindings
+* TODO typeclasses [1/4]
+- [X] parse declarations
+- [X] parse instances
+- [X] typecheck usages
+- [ ] codegen dictionary record
+- [ ] desugar guards to dictionary arguments
+- [ ] call with concrete dictionaries
+
+** DONE Implementing, and Understanding Type Classes
+http://okmij.org/ftp/Computation/typeclass.html
+   
+takeaway: dictionary passing still the way to go
+
+** [[file:20200521171609-dunfield2018.org][Sound and Complete Bidirectional Typechecking for Higher-Rank Polymorphism with Existentials and Indexed Types]]
+- typeclass constraints map to /guarded/ types: $P \supset A$
+   
+** TODO Implementation in PureScript
+[[file:~/Dropbox/purescript/src/Language/PureScript/TypeChecker/Subsumption.hs::subsumes' SElaborate (ConstrainedType _ con ty1) ty2 = do][Subsumption.hs]]
+
+** TODO COMP 150PLD-Programming Language Design lecture notes
+https://www.cs.tufts.edu/comp/150PLD/Notes/TypeClasses.pdf
+
+#+begin_quote
+From a type class declaration, the Haskell compiler generates a new dictionary type and corresponding accessor functions. From a type class instance declaration, the Haskell compiler generates a dictionary value. For each function definition with a qualified type, the Haskell compiler rewrites the function definition to take a dictionary parameter following the same pattern as we saw in the definition of ~poly2~. For each call to a function with a qualified type, the Haskell compiler inserts the appropriate dictionary as an extra argument.
+#+end_quote
+
+
+** TODO ML Modules and Haskell Type Classes: A Constructive Comparison
+http://www.stefanwehr.de/publications/Wehr_ML_modules_and_Haskell_type_classes.pdf
+https://github.com/mgsloan/instance-templates
+
+* TODO lambda variable capture
+* TODO extensible records & variants
+** Expresso
+https://github.com/willtim/Expresso/blob/master/src/Expresso/TypeCheck.hs
+
+#+begin_quote
+-- The row-types extension is based on ideas from the following papers:
+-- * "A Polymorphic Type System for Extensible Records and Variants" B. R. Gaster and M. P. Jones, 1996.
+-- * "Extensible records with scoped labels" D. Leijen, 2005.
+#+end_quote
+
+** Abstracting Extensible Data Types
+http://ittc.ku.edu/%7Egarrett/pubs/morris-popl2019-rows.pdf
+
+* TODO incremental compilation
+
+** Query-based compiler architectures
+https://ollef.github.io/blog/posts/query-based-compilers.html
+https://www.youtube.com/watch?v=N6b44kMS6OM
+https://petevilter.me/post/datalog-typechecking/
+
+* TODO unit-aware computing
+** Measurement Data(Archive Report)
+https://www.bkent.net/Doc/mdarchiv.pdf
+https://terrytao.wordpress.com/2012/12/29/a-mathematical-formalisation-of-dimensional-analysis/
+
