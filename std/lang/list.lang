@@ -22,11 +22,11 @@
     [:nil] init
     [:cons {:value n :next tl}] (op (fold op init tl) n)))
 
-(defn map
-  [f list]
-  (match list
-    [:nil] [:nil]
-    [:cons {:value el :next tl}] [:cons {:value (f el) :next (map f tl)}]))
+(definstance (Functor List)
+  (map [f list]
+    (match list
+      [:nil] [:nil]
+      [:cons {:value el :next tl}] [:cons {:value (f el) :next (map f tl)}])))
 
 ; (defn filter
 ;   [p list]

@@ -10,4 +10,4 @@
 (defn main
   [argv : (Array String)]
   (io/println (option/default ((fn [x] x) val) "Hello"))
-  (io/println (option/default (option/map (fn [x] "World") val) "fail")))
+  (io/println (option/default (map (fn [x] "World") val) "fail")))

@@ -1,6 +1,7 @@
 (ns lang.parser.definition
   (:refer-clojure :exclude [type])
   (:require [blancas.kern.core :refer :all]
+            [clojure.string :as str]
             [lang.parser.lexer :refer :all]
             [lang.parser.reference :as reference]
             [lang.parser.term :as term]
@@ -85,10 +86,70 @@
                :arguments      arguments
                :body           body}))))
 
+(def ^:private typeclass
+  (parens
+    (bind [_ (word "defclass")
+           [name params]
+           (parens (<*> reference/typeclass (many1 reference/type)))
+           fields
+           (<$> (partial into (array-map))
+             (many1 (parens (<*>
+                              reference/variable
+                              (>> (sym \:) type/expr)))))]
+      (return {:ast/definition :typeclass
+               :name           name
+               :params         params
+               :fields         fields}))))
+
+(def ^:private typeclass-instance
+  (let [field
+        (parens
+          (bind [name reference/variable
+                 arguments (brackets (many0 reference/variable))
+                 operations (many1 term/expr)]
+            (return [name
+                     (->> arguments
+                       (rseq)
+                       (reduce
+                         (fn [term arg]
+                           {:ast/term :lambda
+                            :argument arg
+                            :body     term})
+                         {:ast/term   :sequence
+                          :operations operations}))])))]
+    (parens
+      (bind [_ (word "definstance")
+             [name types]
+             (parens (<*> reference/typeclass (many1 type/expr)))
+             fields
+             (<$> (partial into (array-map))
+               (many1 field))]
+        (return {:ast/definition :typeclass-instance
+                 :name           name
+                 :types          types
+                 :fields         fields})))))
+
 (def expr
   (<|>
     (<:> module)
     (<:> type)
     (<:> constant)
     (<:> function)
-    (<:> macro)))
+    (<:> macro)
+    (<:> typeclass)
+    (<:> typeclass-instance)))
+
+(comment
+
+  (blancas.kern.core/run*
+    expr
+    (str/trim "
+(definstance (Show Bool)
+  (show [b]
+    (match b
+      true  \"true\"
+      false \"false\")))
+"))
+
+
+  )

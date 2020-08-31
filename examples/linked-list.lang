@@ -17,6 +17,6 @@
 
 (defn main
   [argv : (Array String)]
-  (match (list/map not lst)
+  (match (map not lst)
     [:list/nil] (io/println "NIL")
     [:list/cons {:list/value el}] (io/println (show el))))

@@ -1,8 +1,9 @@
 (ns lang.module
+  (:refer-clojure :exclude [find get])
   (:require [clojure.core.match :refer [match]]
             [clojure.string :as str]
-            [clojure.walk :as walk]
-            [lang.type :as type]))
+            [lang.type :as type]
+            [lang.utils :refer [undefined]]))
 
 (def builtins
   (->>
@@ -20,53 +21,96 @@
     (map (fn [[k v]] [(assoc k :in {:reference :module :name ["lang" "builtin"]}) v]))
     (into {})))
 
-(defn- importer
+(defn dequalifier
   [projection-fn module]
-  (letfn [(qualify-references [source type]
-            (walk/prewalk
-              (fn [node]
-                (match node
-                  {:ast/type :record}
-                  (update node :fields
-                    #(->> %
-                       (map (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v]))
-                       (into (empty %))))
+  (->> module
+    (projection-fn)
+    (mapcat (fn [[k v]]
+              (cond
+                (set? k) ; records/variants
+                (let [k* (into (empty k) (map #(dissoc % :in) k))]
+                  [[k* k]
+                   [k v]])
 
-                  {:ast/type :variant}
-                  (update node :injectors
-                    #(->> %
-                       (map (fn [[k v]] [(cond-> k (not (:in k)) (assoc :in source)) v]))
-                       (into (empty %))))
+                (vector? k) ; typeclass dictionary instance
+                [[k v]]
 
-                  _ node))
-              type))]
-    (->> module
-      :imports
-      (map
-        (fn [import]
+                :else 
+                (let [k* (dissoc k :in)]
+                  [[k* k]
+                   [k v]]))))
+    (into {})))
+
+(defn importer
+  [projection-fn module]
+  (->> module
+    :imports
+    (map
+      (fn [{:keys [name] :as import}]
+        (match import
+          {:open _}
+          (dequalifier projection-fn import)
+
+          {:alias alias}
           (->> import
-            (projection-fn)
-            (mapcat
-              (fn [[k v]]
-                (->> [(:alias import)
-                      (:name import)
-                      (when (:open import) :open)]
-                  (filter some?)
-                  (map (fn [m]
-                         [(cond
-                            (= :open m)
-                            k
+            (dequalifier projection-fn)
+            (map (fn [[k v]]
+                   [(if-not (:in k) (assoc k :in alias) k)
+                    v]))
+            (into {})))))
+    (reduce (partial merge-with merge))))
 
-                            (map? k)
-                            (assoc k :in m)
+(defn surface-typeclasses
+  [module]
+  (:typeclasses module))
 
-                            (set? k)
-                            (->> k
-                              (map #(assoc % :in m))
-                              (into (empty k))))
-                          (qualify-references m v)])))))
-            (into {}))))
-      (reduce merge))))
+(defn imported-typeclasses
+  [module]
+  (importer surface-typeclasses module))
+
+(defn all-typeclasses
+  [module]
+  (merge-with merge
+    (imported-typeclasses module)
+    (dequalifier surface-typeclasses module)))
+
+(defn surface-typeclass-fields
+  [module]
+  (->> module
+    :typeclasses
+    (vals)
+    (mapcat (fn [{:keys [fields]}]
+              (map (fn [[name type]] [name [type :principal]]) fields)))
+    (into {})))
+
+(defn imported-typeclass-fields
+  [module]
+  (importer surface-typeclass-fields module))
+
+(defn all-typeclass-fields
+  [module]
+  (merge
+    (imported-typeclass-fields module)
+    (dequalifier surface-typeclass-fields module)))
+
+(defn surface-macros
+  [module]
+  (:macros module))
+
+(defn imported-macros
+  [module]
+  (importer surface-macros module))
+
+(defn all-macros
+  [module]
+  (merge
+    (imported-macros module)
+    (dequalifier surface-macros module)))
+
+(defn macro?
+  [module symbol]
+  (contains? (all-macros module) symbol))
+
 
 (defn surface-bindings
   [module]
@@ -79,8 +123,10 @@
 (defn all-bindings
   [module]
   (merge
+    (all-typeclass-fields module)
+    (all-macros module)
     (imported-bindings module)
-    (surface-bindings module)))
+    (dequalifier surface-bindings module)))
 
 (defn surface-types
   [module]
@@ -88,14 +134,19 @@
 
 (defn imported-types
   [module]
-  (importer surface-types module))
+  (merge 
+    builtins
+    (->> builtins
+      (keys)
+      (map (fn [name] [(dissoc name :in) name]))
+      (into {}))
+    (importer surface-types module)))
 
 (defn all-types
   [module]
   (merge
-    builtins
     (imported-types module)
-    (surface-types module)))
+    (dequalifier surface-types module)))
 
 (defn surface-injectors
   [module]
@@ -115,7 +166,7 @@
   [module]
   (merge
     (imported-injectors module)
-    (surface-injectors module)))
+    (dequalifier surface-injectors module)))
 
 (defn surface-fields
   [module]
@@ -127,6 +178,28 @@
                 (map (fn [[field _]] [field {:ast/type :named :name name}])))))
     (into {})))
 
+(defn inner-fields
+  [module]
+  (->> module
+    :types
+    (mapcat
+      (fn [[name type]]
+        (->> type
+          (type/nodes)
+          (filter
+            (every-pred
+              (partial not= type)
+              #(-> % :ast/type (= :record))))
+          (mapcat
+            (fn [index inner-type]
+              (let [inner-type-name (update name :name #(format "%s$inner_%d" % index))]
+                (map
+                  (fn [inner-field]
+                    [inner-field {:ast/type :named :name inner-type-name}])
+                  (keys (type/fields inner-type)))))
+            (range)))))
+    (into {})))
+
 (defn imported-fields
   [module]
   (importer surface-fields module))
@@ -134,26 +207,10 @@
 (defn all-fields
   [module]
   (merge
+    (importer inner-fields module)
     (imported-fields module)
+    (dequalifier inner-fields module)
     (surface-fields module)))
-
-(defn surface-macros
-  [module]
-  (:macros module))
-
-(defn imported-macros
-  [module]
-  (importer surface-macros module))
-
-(defn all-macros
-  [module]
-  (merge
-    (surface-macros module)
-    (imported-macros module)))
-
-(defn macro?
-  [module symbol]
-  (contains? (all-macros module) symbol))
 
 (defn surface-classes
   [module]
@@ -183,13 +240,29 @@
     (surface-instructions module)
     (imported-instructions module)))
 
+(defn find
+  [table symbol]
+  (let [entry (clojure.core/get table symbol)]
+    (match entry
+      ({:reference _ :in _} :as qualified-reference)
+      (recur table qualified-reference)
+
+      nil nil
+
+      :else [symbol entry])))
+
+(defn get
+  [table symbol]
+  (second (find table symbol)))
+
 (defn signature
   [module]
   (let [name   (str/join "." (:name (:name module)))
-        macros (map (fn [[k v]] (format "  macro (%s %s)"
-                                  (:name k)
-                                  (str/join " " (map :name (:arguments v)))))
-                 (surface-macros module))
+        macros (->> module
+                 (surface-macros)
+                 (map (fn [[k v]] (format "  macro (%s %s)"
+                                    (:name k)
+                                    (str/join " " (map :name (:arguments v)))))))
         types  (map (fn [[k v]]
                       (if-let [params (type/parameters v)]
                         (format "  type (%s %s)"
@@ -197,15 +270,30 @@
                           (str/join " " (map (comp :name :reference) params)))
                         (format "  type %s" (:name k))))
                  (surface-types module))
-        values (map (fn [[k v]]
-                      (format "  %s : %s"
-                        (:name k)
-                        (type/print (first v))))
-                 (surface-bindings module))]
+        typeclasses (->> module
+                      (surface-typeclasses)
+                      (filter (fn [[k v]] (= (:in k) (:name module))))
+                      (mapcat (fn [[k v]]
+                                (cons
+                                  (format "  typeclass %s"
+                                    (:name k))
+                                  (map
+                                    (fn [[k v]]
+                                      (format "    %s : %s"
+                                        (:name k)
+                                        (type/print v)))
+                                    (:fields v))))))
+        values (->> module
+                 (surface-bindings)
+                 (map (fn [[k v]]
+                        (format "  %s : %s"
+                          (:name k)
+                          (type/print (first v))))))]
     (->>
       (concat
         macros
         types
+        typeclasses
         values)
       (cons name)
       (str/join "\n"))))

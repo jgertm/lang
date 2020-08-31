@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [lang.code-generator :as code-generator]
+            [lang.desugar :as desugar]
             [lang.name-resolution :as name-resolution]
             [lang.parser :as parser]
             [lang.type-checker :as type-checker]))
@@ -39,15 +40,17 @@
                                 (str ".lang")
                                 (io/file)))
                        module (run file :until phase)]
-                   (assoc module
-                     :alias alias
-                     :open open)))))))))
+                   (-> module
+                     (assoc
+                       :alias alias
+                       :open open)
+                     (dissoc :definitions))))))))))
 
 (defn run
   ([path]
    (run path :until :code-generator))
   ([path & {:keys [until]}]
-   (let [all-phases [:parser :name-resolution :dependency-analyzer :type-checker :code-generator]
+   (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
          phases     (conj
                       (->> all-phases
                         (take-while (partial not= until))
@@ -55,8 +58,8 @@
                       until)]
      (cond-> path
        (:parser phases)              (parser/run)
+       (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
        (:name-resolution phases)     (name-resolution/run)
-       (:dependency-analyzer phases) (resolve-dependencies
-                                       (or (:code-generator phases) :type-checker))
        (:type-checker phases)        (type-checker/run)
+       (:desugar phases)             (desugar/run)
        (:code-generator phases)      (code-generator/run)))))
