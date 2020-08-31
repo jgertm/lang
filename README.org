@@ -18,9 +18,9 @@ found in PureScript.
 - [X] macros
 - [ ] macros that actually work
 - [ ] labelled arguments
-- [ ] typeclasses
-- [ ] lenses
+- [X] typeclasses
 - [ ] superclass constraints
+- [ ] lenses
 - [X] sum and product types
 - [ ] structural records and variants
 - [X] JVM code generation
@@ -84,7 +84,6 @@ $ ./lang signature std/lang/option.lang
 lang.option
   type (Option T)
   default : (∀ α (-> (Option α) α α))
-  map : (∀ α β (-> (-> α β) (Option α) (Option β)))
   
 $ ./lang compile examples/option.lang
 ...

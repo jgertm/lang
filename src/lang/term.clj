@@ -1,5 +1,5 @@
 (ns lang.term
-  (:refer-clojure :exclude [symbol?]))
+  (:refer-clojure :exclude [symbol? type]))
 
 (defn is?
   [form]
@@ -16,3 +16,8 @@
 (defn symbol?
   [form]
   (-> form is? (= :symbol)))
+
+(defn type
+  [form]
+  {:pre [(is? form)]}
+  (:type-checker.term/type form))

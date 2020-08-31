@@ -531,8 +531,11 @@
     (match [term type principality]
       [{:ast/term :recur :reference reference :body body}
        _ _] ; Rec
-      (do (bind-symbol module reference type principality)
-          (analysis:check module body [type principality]))  
+      (let [marker (fresh-mark module)]
+        (bind-symbol module reference type principality)
+        (analysis:check module body [type principality])
+        ;; FIXME: paper says to, but we don't drop here, otherwise the resolved type annotations on typeclass member functions will contain original universals
+        #_(drop module marker))  
 
       [{:ast/term :atom :atom atom}
        {:ast/type :existential-variable :id alpha}
@@ -639,8 +642,14 @@
       (undefined ::analysis:check.record-exvar) 
 
       [_
-       {:ast/type :application
-        :operator ({:ast/type :named} :as operator)
+       {:ast/type :named :name name}
+       _]
+      (let [type* (lookup-type module name)]
+        (analysis:check module term [type* principality]))
+
+      [_
+       {:ast/type   :application
+        :operator   ({:ast/type :named} :as operator)
         :parameters parameters}
        _]
       (match operator
@@ -1065,6 +1074,8 @@
         (annotate-pattern pattern pattern-type)))))
 
 (defn- apply-spine
+  "Γ ⊢ s : A p ≫ C q ⊣ Δ
+  found on pg. 37"
   [module arguments [type principality]]
   (match [arguments type principality]
     [[] _ _] ; EmptySpine
@@ -1107,6 +1118,8 @@
         [function principality]))))
 
 (defn- recovering-apply-spine
+  "Γ ⊢ s : A p ≫ C ⌈q⌉ ⊣ Δ
+  found on pg. 37"
   [module arguments [type principality]]
   (let [[type principality*]
         (apply-spine module arguments [type principality])
@@ -1270,7 +1283,7 @@
                               (assoc :reference param))))
                     (zipmap (map (fn [param] {:ast/type :named :name param}) params)))]
               (->> params
-                (rseq)
+                (reverse)
                 (reduce
                   (fn [type param]
                     {:ast/type :forall
@@ -1292,7 +1305,7 @@
                               (assoc :reference param))))
                     (zipmap (map (fn [param] {:ast/type :named :name param}) params)))]
               (->> params
-                (rseq)
+                (reverse)
                 (reduce
                   (fn [type param]
                     {:ast/type :forall

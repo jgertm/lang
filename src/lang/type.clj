@@ -28,6 +28,7 @@
     (existentially-quantified? type)))
 
 (defn constraints
+  "Collects outer constraints of the type. Skips over foralls."
   [type]
   (match type
     {:ast/type :forall :body body}
