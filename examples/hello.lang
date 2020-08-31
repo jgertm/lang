@@ -5,12 +5,12 @@
 
 (deftype StringWrapper
   (| [:wrap String]
-     [:crap]))
+     [:nap]))
 
 (def greeting
      [:wrap "Hello world! This is in a completely separate def."])
 
 (defn main [_]
   (match greeting
-         [:crap] (println "crap")
+         [:nap] (println "nap")
          [:wrap text] (println text)))

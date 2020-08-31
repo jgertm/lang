@@ -4,20 +4,10 @@
 
 
 (def val
-  [:option/some "shiiiit"])
-
-
-(defn id
-  [x]
-  x)
-
-
-(defn apply
-  [f x]
-  (f x))
+  [:option/some "Planet"])
 
 
 (defn main
   [argv : (Array String)]
-  (io/println (option/default ((fn [x] x) val) "fuck"))
-  (io/println (option/default (option/map (fn [x] "shit") val) "fail")))
+  (io/println (option/default ((fn [x] x) val) "Hello"))
+  (io/println (option/default (option/map (fn [x] "World") val) "fail")))

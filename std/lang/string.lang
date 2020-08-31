@@ -1,0 +1,5 @@
+(defmodule lang.string)
+
+(defn concat
+  [a : String b : String]
+  (. a (java.lang.String/concat b)))
