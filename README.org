@@ -1,9 +1,9 @@
-#+TITLE: lang
+#+TITLE: Lang
 
-lang is a functional programming language with static types. It uses a
+Lang is a functional programming language with static types. It uses a
 modern, s-expression syntax and compiles to Java classfiles.
 
-It aims to be a language fusing the ease of development found in
+Lang aims to be a language fusing the ease of development found in
 Clojure, the type safety found in Haskell and the data extensibility
 found in PureScript.
 
