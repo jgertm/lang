@@ -7,16 +7,6 @@
   [:option/some "Planet"])
 
 
-(defn id
-  [x]
-  x)
-
-
-(defn apply
-  [f x]
-  (f x))
-
-
 (defn main
   [argv : (Array String)]
   (io/println (option/default ((fn [x] x) val) "Hello"))

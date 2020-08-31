@@ -1,0 +1,101 @@
+#+TITLE: lang
+
+lang is a functional programming language with static types. It uses a
+modern, s-expression syntax and compiles to Java classfiles.
+
+It aims to be a language fusing the ease of development found in
+Clojure, the type safety found in Haskell and the data extensibility
+found in PureScript.
+
+* Features
+
+- [X] lambdas
+- [ ] argument capture
+- [X] algebraic data types
+- [X] type inference
+- [X] modules
+- [X] arbitrary precision arithmetic
+- [X] macros
+- [ ] macros that actually work
+- [ ] labelled arguments
+- [ ] typeclasses
+- [ ] lenses
+- [ ] superclass constraints
+- [X] sum and product types
+- [ ] structural records and variants
+- [X] JVM code generation
+- [X] Java interop
+- [X] Emacs mode
+- [ ] powerful standard library
+- [ ] REPL
+- [ ] effect system
+
+As you can see, there is plenty of work to be done. If you would like
+to see any of the missing features completed, or any features not
+mentioned here at all, our policy is "PRs welcome!".
+
+* Examples
+
+** Option type with map and lambda
+#+BEGIN_SRC lang
+(defmodule examples.option
+  (:import [lang.io :as io]
+           [lang.string :as string]))
+  
+(deftype (Option T)
+  (| [:none]
+     [:some T]))
+
+(defn default
+  [option fallback]
+  (match option
+    [:none] fallback
+    [:some value] value))
+
+(defn map
+  [f option]
+  (match option
+    [:none] [:none]
+    [:some value] [:some (f value)]))
+    
+(defn main
+  [argv : (Array String)]
+  (io/println
+    (default
+      (map (fn [x] (string/concat x ", world!")) [:some "Hello"])
+      "fail")))
+#+END_SRC
+
+* Installation & usage
+
+The following requires git, a recent JDK and leiningen:
+
+#+BEGIN_SRC bash
+$ git clone https://github.com/jgertm/lang
+...
+
+$ cd lang
+
+$ lein uberjar
+
+$ export LANG_HOME=`pwd`/std
+
+$ ./lang signature std/lang/option.lang
+lang.option
+  type (Option T)
+  default : (∀ α (-> (Option α) α α))
+  map : (∀ α β (-> (-> α β) (Option α) (Option β)))
+  
+$ ./lang compile examples/option.lang
+...
+
+$ java -cp out examples.option
+Planet
+World
+#+END_SRC
+
+#+RESULTS:
+
+* Code of Conduct
+Don't be an ass. Seriously.
+
