@@ -6,13 +6,16 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.blancas/kern "1.1.0"]
                  [org.clojure/core.match "0.3.0"]
-                 [insn "0.4.0"]]
+                 [insn "0.4.0"]
+                 [potemkin "0.4.5"]]
   :main ^:skip-aot lang.core
   :target-path "target/%s/"
   :profiles {:uberjar {:aot            :all
                        :resource-paths ["config/uberjar"]}
              :dev     {:source-paths ["dev"]
-                       :dependencies [[com.gfredericks/debug-repl "0.0.11"]]
+                       :dependencies [[com.gfredericks/debug-repl "0.0.11"]
+                                      [midje "1.9.9"]
+                                      [nubank/matcher-combinators "3.1.1"]]
                        :resource-paths ["config/dev"]}} 
   :repl-options {:init-ns          lang.core
                  :nrepl-middleware [com.gfredericks.debug-repl/wrap-debug-repl]})
