@@ -10,7 +10,7 @@
   (letfn [(qualify-internal-references [expr]
             (walk/prewalk
               (fn [node]
-                (if (some-> node :reference #{:field :injector :variable})
+                (if (some-> node :reference #{:field :injector :constant})
                   (assoc node :in (:name module))
                   node))
               expr))]
@@ -49,7 +49,7 @@
                                ((case type
                                   :typeclass module/all-typeclasses
                                   :type      module/all-types
-                                  :variable  module/all-bindings
+                                  :constant  module/all-bindings
                                   :injector  module/all-injectors
                                   :field     module/all-fields
                                   (constantly nil))

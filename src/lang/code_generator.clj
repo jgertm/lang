@@ -568,7 +568,7 @@
                                 (push-arguments module)
                                 (->instructions module))
                               [[(return return-type)]])}
-                    reference      {:reference :variable :name (:name lambda-method)}]
+                    reference      {:reference :constant :name (:name lambda-method)}]
                 (swap! methods conj lambda-method)
                 (->> lambda-method
                   (make-callsite module)

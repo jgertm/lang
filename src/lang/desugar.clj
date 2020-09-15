@@ -57,7 +57,7 @@
                   (str/join "-"))
           name  (-> definition
                   :name
-                  (assoc :reference :variable)
+                  (assoc :reference :constant)
                   (update :name #(format "I:%s:%s" % types)))
           type  {:ast/type   :application
                  :operator   {:ast/type :named :name (typeclass-record-name (:name definition))}
@@ -123,7 +123,7 @@
                                (type/constraints (:type-checker.term/type node)))]
                       (reduce
                         (fn [term {:keys [typeclass parameters] :as constraint}]
-                          (let [argument      {:reference :variable :name (gensym (:name typeclass))}
+                          (let [argument      {:reference :constant :name (gensym (:name typeclass))}
                                 argument-type {:ast/type   :application
                                                :operator   {:ast/type :named :name (get (all-typeclass-dictionary-types module) typeclass)}
                                                :parameters parameters}]
