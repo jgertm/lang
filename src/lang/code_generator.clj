@@ -592,22 +592,14 @@
             [[:getstatic class name* type]])
         {:keys [methods term]} (promote-lambdas module name* body)
         field
-        (-> term
-          (match
-            {:ast/term :atom :atom (atom :guard #(-> % :atom (not= :integer)))}
-            {:value (:value atom)}
-
-            _
-            (do (swap! (get-in module [:code-generator/bytecode class :code-generator/static-initializer-instructions])
-                  utils/concatv
-                  (conj
-                    (->instructions module term)
-                    [:putstatic class name* type]))
-                {}))
-          (merge
-            {:flags #{:public :static :final}
-             :name  name*
-             :type  type}))]
+        {:flags #{:public :static :final}
+         :name  name*
+         :type  type}]
+    (swap! (get-in module [:code-generator/bytecode class :code-generator/static-initializer-instructions])
+              utils/concatv
+              (conj
+                (->instructions module term)
+                [:putstatic class name* type]))
     {class {:fields  [field]
             :methods methods}}))
 
