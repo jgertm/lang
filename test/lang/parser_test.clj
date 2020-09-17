@@ -7,6 +7,7 @@
   => (exactly
        {:ast/definition :module
         :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
+        :skip-implicits nil
         :imports        nil
         :definitions    []}))
 

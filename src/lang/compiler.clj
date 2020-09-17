@@ -25,7 +25,7 @@
 (defn- resolve-dependencies
   [module phase]
   (let [additional-imports
-        (when-not (contains? default-imports (:name module))
+        (when-not (:skip-implicits module)
           (map
             (fn [m] {:module m :open true})
             default-imports))]

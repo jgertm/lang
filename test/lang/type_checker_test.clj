@@ -5,7 +5,8 @@
 (fact "atoms typecheck"
   (->
     (run :type-checker
-      (defmodule lang.type-checker-test.atom-definitions)
+      (defmodule lang.type-checker-test.atom-definitions
+        (:skip-implicits))
       (def foo 2)
       (def bar "bar")
       (def baz true)
@@ -28,7 +29,8 @@
 (fact "functions typecheck"
   (->
     (run :type-checker
-      (defmodule lang.parser-test.lambda-definitions)
+      (defmodule lang.parser-test.lambda-definitions
+        (:skip-implicits))
       (defn id [x] x)
       (defn const [x y] x))
     :values)

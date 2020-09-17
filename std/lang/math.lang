@@ -1,4 +1,5 @@
-(defmodule lang.math)
+(defmodule lang.math
+  (:skip-implicits))
 
 
 (defn +
