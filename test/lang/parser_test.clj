@@ -4,11 +4,35 @@
 (fact "empty module parses"
   (run :parser
     (defmodule lang.parser-test.empty-module))
-  => (exactly
+  => (matches
        {:ast/definition :module
         :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
         :skip-implicits nil
         :imports        nil
+        :definitions    []})
+
+  (run :parser
+    (defmodule lang.parser-test.empty-module
+      (:skip-implicits)))
+  => (matches
+       {:ast/definition :module
+        :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
+        :skip-implicits true
+        :imports        nil
+        :definitions    []})
+
+  (run :parser
+    (defmodule lang.parser-test.empty-module
+      (:import [lang.io :as io]
+               [lang.option :as option])))
+  => (matches
+       {:ast/definition :module
+        :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
+        :skip-implicits nil
+        :imports        [{:module {:reference :module :name ["lang" "io"]}
+                          :alias  {:reference :module :name ["io"]}}
+                         {:module {:name ["lang" "option"]}
+                          :alias  {:name ["option"]}}]
         :definitions    []}))
 
 (fact "atoms parse"

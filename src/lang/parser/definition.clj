@@ -17,7 +17,7 @@
     (parens
       (bind [_ (word "defmodule")
              name reference/module
-             skip-implicits (optional (parens (>> (word ":skip-implicits") (return true))))
+             skip-implicits (optional (<:> (parens (>> (word ":skip-implicits") (return true)))))
              imports (optional (parens (>> (word ":import") (many import))))]
         (return {:ast/definition :module
                  :name           name

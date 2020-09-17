@@ -46,9 +46,9 @@
   (->> module
     :imports
     (map
-      (fn [{:keys [name] :as import}]
+      (fn [import]
         (match import
-          {:open _}
+          {:open true}
           (dequalifier projection-fn import)
 
           {:alias alias}
