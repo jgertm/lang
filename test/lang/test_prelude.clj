@@ -11,7 +11,9 @@
    fact facts
    provided
    contains just exactly
-   with-state-changes before after around])
+   with-state-changes before after around]
+  [matcher-combinators.matchers
+   equals embeds])
 
 (def matches matcher-combinators.midje/match)
 

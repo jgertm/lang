@@ -74,3 +74,23 @@
               definition (resolve-references module definition)]
           (update module :definitions conj definition)))
       (assoc module :definitions []))))
+
+(comment
+
+  (throw (ex-info "foo" {}))
+
+  (com.gfredericks.debug-repl/unbreak!!)
+
+  (com.gfredericks.debug-repl/unbreak!)
+
+  (filter (fn [[k _]] (re-matches #".*println.*" (str k)))
+  (-> "examples/arithmetic.lang"
+    (lang.compiler/run :until :name-resolution)
+    (module/all-bindings)))
+
+(-> "std/lang/io.lang"
+    (lang.compiler/run :until :name-resolution)
+    :definitions)
+
+
+  )
