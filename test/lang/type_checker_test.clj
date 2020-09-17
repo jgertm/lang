@@ -41,4 +41,15 @@
           :body {:ast/type :function
                  :domain {:ast/type :universal-variable}
                  :return {:ast/type :universal-variable}}}
+         :principal]
+        {:reference :constant :name "const"}
+        [{:ast/type :forall
+          :variable {:ast/type :universal-variable}
+          :body {:ast/type :forall
+                 :variable {:ast/type :universal-variable}
+                 :body {:ast/type :function
+                        :domain {:ast/type :universal-variable}
+                        :return {:ast/type :function
+                                 :domain {:ast/type :universal-variable}
+                                 :return {:ast/type :universal-variable}}}}}
          :principal]}))
