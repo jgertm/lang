@@ -13,11 +13,11 @@
          #_(def quux nil) ; TODO: implement Unit
          ))]
     (fact
-      (eval '(lang.code_generator_test.atom_definitions/foo))
+      (eval 'lang.code_generator_test.atom_definitions/foo)
       => 2
-      (eval '(lang.code_generator_test.atom_definitions/bar))
+      (eval 'lang.code_generator_test.atom_definitions/bar)
       => "bar"
-      (eval '(lang.code_generator_test.atom_definitions/baz))
+      (eval 'lang.code_generator_test.atom_definitions/baz)
       => true)))
 
 (fact "functions generate code"

@@ -12,6 +12,7 @@
    provided
    contains just exactly
    with-state-changes before after around]
+  [midje.repl autotest]
   [matcher-combinators.matchers
    equals embeds])
 
@@ -24,8 +25,3 @@
      (StringReader.)
      (compiler/run :until ~phase)))
 
-(comment
-
-  (midje.repl/autotest)
-
-  )
