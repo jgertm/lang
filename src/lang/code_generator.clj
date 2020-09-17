@@ -352,7 +352,7 @@
           invoke-insn
           [:invokeinterface
            interface
-           (str "apply" ct)
+           "apply"
            (utils/concatv
              (repeat ct Object)
              [(if (void? return-type) VOID Object)])]]
@@ -502,7 +502,7 @@
         return-type    (last desc)
         arity          (fn [s] (str s argument-count))]
     [[:invokedynamic
-      (arity "apply")
+      "apply"
       [(arity (if (void? return-type)
                 "lang.function.Consumer"
                 "lang.function.Function"))]
