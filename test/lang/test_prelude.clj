@@ -8,8 +8,10 @@
 
 (potemkin/import-vars
   [midje.sweet
-   fact
-   contains just exactly])
+   fact facts
+   provided
+   contains just exactly
+   with-state-changes before after around])
 
 (def matches matcher-combinators.midje/match)
 

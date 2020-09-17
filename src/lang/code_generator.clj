@@ -837,7 +837,7 @@
 (defn run
   [module]
   (let [module      (module->bytecode module)
-        classloader (ClassLoader/getSystemClassLoader)]
+        classloader (clojure.lang.DynamicClassLoader.)]
     (->> module
       :code-generator/bytecode
       (vals)
@@ -850,11 +850,11 @@
 (comment
 
   (-> "examples/option.lang"
-    (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker :code-generator})
+    (lang.compiler/run :until :code-generator)
     :code-generator/bytecode)
 
-  (-> "std/lang/option.lang"
-    (lang.compiler/run #{:parser :name-resolution :dependency-analyzer :type-checker :code-generator})
+  (-> "std/lang/core.lang"
+    (lang.compiler/run :until :code-generator)
     :code-generator/bytecode)
 
   (throw (ex-info "foo" {}))
