@@ -50,16 +50,20 @@
   ([path]
    (run path :until :code-generator))
   ([path & {:keys [until]}]
-   (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
-         phases     (conj
-                      (->> all-phases
-                        (take-while (partial not= until))
-                        (set))
-                      until)]
-     (cond-> path
-       (:parser phases)              (parser/run)
-       (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
-       (:name-resolution phases)     (name-resolution/run)
-       (:type-checker phases)        (type-checker/run)
-       (:desugar phases)             (desugar/run)
-       (:code-generator phases)      (code-generator/run)))))
+   (try
+     (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
+           phases     (conj
+                        (->> all-phases
+                          (take-while (partial not= until))
+                          (set))
+                        until)]
+       (cond-> path
+         (:parser phases)              (parser/run)
+         (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
+         (:name-resolution phases)     (name-resolution/run)
+         (:type-checker phases)        (type-checker/run)
+         (:desugar phases)             (desugar/run)
+         (:code-generator phases)      (code-generator/run)))
+     (catch Exception e
+       (println (format "Error while compiling %s" path))
+       (throw e)))))
