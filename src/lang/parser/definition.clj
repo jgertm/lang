@@ -53,9 +53,14 @@
                :name           name
                :body           body}))))
 
+(def ^:private annotation
+  (<|>
+    (<:> (word ":$")) ; for writing tests
+    (sym \:)))
+
 (def ^:private function
   (let [argument (bind [symbol reference/variable
-                        type (optional (>> (sym \:) type/expr))]
+                        type (optional (>> annotation type/expr))]
                    (return
                      (if type
                        (assoc symbol :type type)
@@ -101,7 +106,7 @@
            (<$> (partial into (array-map))
              (many1 (parens (<*>
                               reference/variable
-                              (>> (sym \:) type/expr)))))]
+                              (>> annotation type/expr)))))]
       (return {:ast/definition :typeclass
                :name           name
                :params         params
