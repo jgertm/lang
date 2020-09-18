@@ -829,14 +829,14 @@
 (defn run
   [module]
   (let [module      (module->bytecode module)
-        classloader (clojure.lang.DynamicClassLoader.)]
+        classloader (ClassLoader/getSystemClassLoader)]
     (->> module
       :code-generator/bytecode
       (vals)
       (run!
         #(let [class (insn/visit %)]
-           (insn/define classloader class)
-           (insn/write class "out/"))))
+          (insn/define classloader class)
+          (insn/write class "out/"))))
     module))
 
 (comment
