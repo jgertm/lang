@@ -55,7 +55,19 @@
           (->> import
             (dequalifier projection-fn)
             (map (fn [[k v]]
-                   [(if-not (:in k) (assoc k :in alias) k)
+                   [(cond
+                      (set? k) ; records/variants
+                      (->> k
+                        (map #(assoc % :in alias))
+                        (into (empty k)))
+
+                      (vector? k) ; typeclass dictionary instance
+                      k
+
+                      (not (:in k))
+                      (assoc k :in alias)
+
+                      :else k)
                     v]))
             (into {})))))
     (reduce (partial merge-with merge))))
