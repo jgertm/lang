@@ -1,4 +1,5 @@
-(defmodule lang.io)
+(defmodule lang.io
+  (:skip-implicits))
 
 (defn println
   [s : String]

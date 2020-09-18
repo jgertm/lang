@@ -22,7 +22,7 @@
 
 (def ^:private variable-name
   (let [local (bind [name identifier]
-                (return {:reference :variable :name name}))
+                (return {:reference :constant :name name}))
         qualified (bind [path module-name
                          _ (sym* \/)
                          name local]

@@ -1,4 +1,5 @@
-(defmodule lang.core)
+(defmodule lang.core
+  (:skip-implicits))
 
 
 (defmacro if

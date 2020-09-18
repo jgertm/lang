@@ -7,6 +7,8 @@
             [lang.parser.term :as term]
             [lang.parser.type :as type]))
 
+(declare expr)
+
 (def ^:private module
   (let [import (brackets
                  (bind [name reference/module
@@ -17,10 +19,14 @@
     (parens
       (bind [_ (word "defmodule")
              name reference/module
-             imports (optional (parens (>> (word ":import") (many import))))]
+             skip-implicits (optional (<:> (parens (>> (word ":skip-implicits") (return true)))))
+             imports (optional (<:> (parens (>> (word ":import") (many import)))))
+             definitions (many (fwd expr))]
         (return {:ast/definition :module
                  :name           name
-                 :imports        imports})))))
+                 :skip-implicits skip-implicits
+                 :imports        imports
+                 :definitions    definitions})))))
 
 (def ^:private type
   (let [concrete (bind [name reference/type]

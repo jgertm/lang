@@ -587,7 +587,7 @@
         (solve-existential module alpha function)
         (swap! (:type-checker/facts module) zip/focus-right current)
         (analysis:check module term [function :non-principal])
-        (solve-existential module alpha (generalize module mark function) :kind/type))
+        (solve-existential module alpha function :kind/type))
 
       [{:ast/term :match :body body :branches branches} _ _] ; Case
       (let [[pattern-type pattern-principality] (synthesize module body)]
