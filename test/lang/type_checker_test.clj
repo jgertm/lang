@@ -32,7 +32,6 @@
     (fact "quux" quux =>
       (matches [{:name {:name "Unit"}} :principal]))))
 
-
 (facts "functions typecheck"
   (let [{:strs [id const]}
         (->>
@@ -178,3 +177,103 @@
                        {:ast/type :application}
                        :return   {:ast/type :universal-variable}}}}}}
                   :principal])))))
+
+(facts "typeclasses typecheck"
+  (let [module
+        (run :type-checker
+          (defmodule lang.desugar.typeclasses-test.definitions
+            (:skip-implicits))
+          (defclass (Veracious T)
+            (true? :$ (-> T Bool)))
+          (definstance (Veracious Bool)
+            (true? [bool] bool))
+          (defn is-it-true? [x] (true? x)) ; works
+          (def nope (is-it-true? false))   ; works
+          )]
+
+    (facts "types"
+      (let [{:strs [is-it-true? nope]}
+            (->> module
+              :values
+              (map (fn [[k v]] [(:name k) v]))
+              (into {}))]
+
+        (fact "is-it-true?" is-it-true? =>
+          (matches [{:ast/type :forall
+                     :body
+                     {:ast/type :guarded
+                      :proposition
+                      {:ast/constraint :instance
+                       :typeclass {:name "Veracious"}}
+                      :body
+                      {:ast/type :function
+                       :domain {:ast/type :universal-variable}
+                       :return {:ast/type :named :name {:name "Bool"}}}}}
+                    :principal]))))
+
+    (facts "AST"
+      (let [[_ _ is-it-true? nope]
+            (:definitions module)]
+        (fact "is-it-true?" is-it-true? =>
+          (let [Bool {:ast/type :named
+                      :name     {:name "Bool"}}]
+            (matches {:ast/definition :constant
+                      :name           {:name "is-it-true?"}
+                      :body
+                      {:ast/term :recur
+                       :body
+                       {:ast/term               :lambda
+                        :argument {:name "x"}
+                        :body
+                        {:ast/term :sequence
+                         :operations
+                         [{:ast/term               :application
+                           :function
+                           {:type-checker.term/type
+                            {:ast/type :forall
+                             :body     {:ast/type :guarded
+                                        :proposition
+                                        {:ast/constraint :instance
+                                         :typeclass
+                                         {:reference :typeclass
+                                          :name      "Veracious"
+                                          :in
+                                          {:reference :module
+                                           :name      ["lang" "desugar" "typeclasses-test" "definitions"]}}
+                                         :parameters
+                                         [{:ast/type :universal-variable}]}
+                                        :body     {:ast/type :function
+                                                   :domain   {:ast/type :universal-variable}
+                                                   :return   Bool}}}}
+                           :arguments              [{:ast/term               :symbol
+                                                     :type-checker.term/type {:ast/type :universal-variable}}]
+                           :type-checker.term/type Bool}]}
+                        :type-checker.term/type {:ast/type :function
+                                                 :domain {:ast/type :universal-variable}
+                                                 :return Bool}}
+                       :type-checker.term/type {:ast/type :function}}})))
+
+        (fact "nope" nope =>
+          (matches {:ast/definition :constant
+                    :name           {:name "nope"}
+                    :body
+                    {:ast/term  :application
+                     :function  {:ast/term :symbol
+                                 :symbol   {:name "is-it-true?"}
+                                 :type-checker.term/type
+                                 {:ast/type :guarded
+                                  :proposition
+                                  {:ast/constraint :instance
+                                   :typeclass
+                                   {:reference :typeclass
+                                    :name      "Veracious"}
+                                   :parameters
+                                   [{:ast/type :named
+                                     :name     {:name "Bool"}}]}
+                                  :body     {:ast/type :function
+                                             :domain   {:ast/type :named
+                                                        :name     {:name "Bool"}}
+                                             :return   {:ast/type :named
+                                                        :name     {:name "Bool"}}}}}
+                     :arguments [{:ast/term :atom
+                                  :atom     {:atom :boolean :value false}}]}}))))))

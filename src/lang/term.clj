@@ -17,6 +17,10 @@
   [form]
   (-> form is? (= :symbol)))
 
+(defn atom?
+  [form]
+  (-> form is? (= :atom)))
+
 (defn type
   [form]
   {:pre [(is? form)]}

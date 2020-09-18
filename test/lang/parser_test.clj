@@ -94,3 +94,41 @@
                           :argument {:name "y"}
                           :body
                           {:operations [{:symbol {:name "x"}}]}}}}}]}))
+
+(fact "typeclasses parse"
+  (run :parser
+    (defmodule lang.desugar.typeclasses-test.definitions
+      (:skip-implicits))
+    (defclass (Veracious T)
+      (true? :$ (-> T Bool)))
+    (definstance (Veracious Bool)
+      (true? [bool] bool)))
+  => (matches
+       {:definitions
+        [{:ast/definition :typeclass
+          :name           {:reference :typeclass
+                           :name      "Veracious"}
+          :params
+          [{:reference :type :name "T"}]
+          :fields
+          {{:reference :constant :name "true?"}
+           {:ast/type :function
+            :domain   {:ast/type :named
+                       :name     {:reference :type :name "T"}}
+            :return   {:ast/type :named
+                       :name     {:reference :type :name "Bool"}}}}}
+         {:ast/definition :typeclass-instance
+          :name           {:reference :typeclass :name "Veracious"}
+          :types
+          [{:ast/type :named :name {:reference :type :name "Bool"}}]
+          :superclasses   nil
+          :fields
+          {{:reference :constant :name "true?"}
+           {:ast/term :lambda
+            :argument {:reference :constant :name "bool"}
+            :body
+            {:ast/term :sequence
+             :operations
+             [{:ast/term :symbol
+               :symbol
+               {:reference :constant :name "bool"}}]}}}}]}))

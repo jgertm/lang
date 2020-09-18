@@ -18,7 +18,7 @@
   "Returns the name of an instances' dictionary value."
   [module typeclass types]
   {:pre [(every? type/is? types)]}
-  {:reference :variable
+  {:reference :constant
    :name (format "I:%s:%s"
            (:name typeclass)
            (str/join "-" (mapv type/print types)))
@@ -43,6 +43,7 @@
   (let [dictionary
         (or
           (get @(:desugar.typeclasses/dictionary-arguments module) constraint)
+          (get @(:desugar.typeclasses/dictionary-instances module) constraint)
 
           (undefined ::lookup-dictionary-argument.chain)
 
@@ -58,68 +59,101 @@
           constraint
 
           )]
-    {:ast/term :symbol
-     :symbol   dictionary}))
+    dictionary))
 
 (defn- introduce-dictionary-arguments
   "Adds arguments for typeclass dictionaries to lambdas, according to
   the constraints in their type."
-  [module node]
-  (when-let [constraints (and (term/lambda? node) (type/constraints (term/type node)))]
-    #_(undefined ::introduce-dictionary-arguments)
-    (comment 
-      [(first constraints)
-       @(:type-checker/instance-chains module)]
-
-      (:name module)
-
-      (map :name (:imports module))
-
-      node)
-
-    (reduce
-      (fn [lambda {:keys [typeclass] :as constraint}]
-        (let [argument (dictionary-argument-name typeclass)]
-          (add-dictionary-argument module constraint argument)
-          {:ast/term :lambda
-           :argument argument
-           :body     lambda}))
-      node
-      constraints)))
+  [module definition]
+  (letfn [(nonterminal? [node]
+            (not ((some-fn term/symbol? term/atom?) node)))]
+    (let [constraints (and (nonterminal? definition)
+                           (type/constraints (term/type definition)))]
+      (let [constrained-parameters
+            (->>
+              (for [{:keys [parameters] :as constraint} constraints
+                    parameter                           parameters]
+                [parameter constraint])
+              (into {}))]
+        (walk/postwalk
+          (fn [node]
+            (if-let [constraint
+                     (and
+                       (term/lambda? node)
+                       (get constrained-parameters (:domain (term/type node))))]
+              (let [{:keys [typeclass]} constraint
+                    argument            (dictionary-argument-name typeclass)
+                    type                {:ast/type :named :name (dictionary-type-name typeclass)}]
+                (add-dictionary-argument module
+                  constraint
+                  {:ast/term               :symbol
+                   :symbol                 argument
+                   :type-checker.term/type type})
+                {:ast/term :lambda
+                 :argument argument
+                 :body     node
+                 :type-checker.term/type
+                 {:ast/type :function
+                  :domain   type
+                  :return   (:type-checker.term/type node)}})
+              node))
+          definition)))))
 
 (defn- pass-dictionary-arguments
   "Inserts a typeclass dictionary from scope into the arguments where
   expected according to the function's type."
-  [module {:keys [function] :as node}]
-  (when-let [constraints (and (term/application? node) (type/constraints (term/type function)))]
-    
+  [module definition]
+  (walk/postwalk
+    (fn [{:keys [function] :as node}]
+      (if-let [constraints (and (term/application? node)
+                                (type/constraints (term/type function)))]
+        (update node :arguments
+          (fn [arguments]
+            (into
+              (mapv (fn [constraint]
+                      (lookup-dictionary-argument module constraint)) constraints)
+              arguments)))
+        node))
+    definition))
 
-    [constraints
-
-     @(:desugar.typeclasses/dictionary-instances module)
-     (get 
-       @(:type-checker/instance-chains module)
-       (first constraints))
-     #_(map (partial find @(:type-checker/instance-chains module)) constraints)]
-
-
-    (update node :arguments
-      (fn [arguments]
-        (into (mapv (fn [constraint]
-                      (lookup-dictionary-argument module constraint)) constraints) arguments)))
-
-    ))
+(defn- inline-typeclass-members
+  "Replaces calls to typeclass member functions to accesses to the
+  corresponding dictionaries."
+  [module definition]
+  (letfn [(only [coll]
+            (if (= 1 (count coll))
+              (first coll)
+              nil))
+          (typeclass-member [{:keys [symbol] :as function}]
+            (when-let [{:keys [typeclass] :as constraint}
+                       (only (type/constraints (term/type function)))]
+              (let [{:keys [fields]}
+                    (-> module
+                      (module/all-typeclasses)
+                      (module/get typeclass))]
+                (find fields symbol))))]
+    (walk/postwalk
+      (fn [node]
+        (if-let [[member type]
+                 (and (term/application? node)
+                      (typeclass-member (:function node)))]
+          (let [field      (assoc member :reference :field)
+                dictionary (first (:arguments node))]
+            (-> node
+              (update :arguments next)
+              (assoc :function {:ast/term :extract
+                                :record dictionary
+                                :field field})))
+          node))
+      definition)))
 
 (defn- desugar-term
   [module form]
-  (reduce
-    (fn [form operation]
-      (walk/postwalk
-        #(or (operation module %) %)
-        form))
-    form
-    [introduce-dictionary-arguments
-     pass-dictionary-arguments]))
+  (let [module (assoc module :desugar.typeclasses/dictionary-arguments (atom {}))]
+    (->> form
+      (introduce-dictionary-arguments module)
+      (pass-dictionary-arguments module)
+      (inline-typeclass-members module))))
 
 (defn- desugar-declaration
   "Converts a typeclass declaration into a record type defintion."
@@ -149,7 +183,7 @@
       {:ast/constraint :instance
        :typeclass      name
        :parameters     types}
-      value-name)
+      {:ast/term :symbol :symbol value-name})
     (when superclasses (undefined ::superclasses))
 
     (comment
@@ -184,18 +218,17 @@
 
 (defn desugar
   [module definition]
-  (let [module (assoc module :desugar.typeclasses/dictionary-arguments (atom {}))]
-    (match definition
-      {:ast/definition :typeclass}
-      (desugar-declaration module definition)
+  (match definition
+    {:ast/definition :typeclass}
+    (desugar-declaration module definition)
 
-      {:ast/definition :typeclass-instance}
-      (desugar-instance module definition)
+    {:ast/definition :typeclass-instance}
+    (desugar-instance module definition)
 
-      {:ast/definition :constant}
-      (desugar-term module definition)
+    {:ast/definition :constant}
+    (desugar-term module definition)
 
-      _ definition)))
+    _ definition))
 
 (comment
 
