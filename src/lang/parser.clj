@@ -7,7 +7,7 @@
   (kern/bind [forms (kern/many definition/expr)]
     (match forms
       [({:ast/definition :module} :as module) & children]
-      (kern/return (assoc module :definitions children)))))
+      (kern/return (update module :definitions (fnil into []) children)))))
 
 (defn run
   [path]

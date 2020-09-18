@@ -35,6 +35,21 @@
                           :alias  {:name ["option"]}}]
         :definitions    []}))
 
+(fact "modules can be flat or contained"
+  (run :parser
+    (defmodule lang.parser-test.flat-module)
+    (def foo 1))
+  => (matches
+       {:ast/definition :module
+        :definitions [{:ast/definition :constant}]})
+
+  (run :parser
+    (defmodule lang.parser-test.contained-module
+      (def foo 1)))
+  => (matches
+       {:ast/definition :module
+        :definitions [{:ast/definition :constant}]}))
+
 (fact "atoms parse"
   (run :parser
     (defmodule lang.parser-test.atom-definitions)
