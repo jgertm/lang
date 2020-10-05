@@ -729,18 +729,18 @@
             _        (swap! (:type-checker/facts module)
                        zip/focus-left
                        {:fact/declare-existential alpha :kind :kind/type})
-            mark     (fresh-mark module)
             alpha-1  (or
                        (some->> argument :type (apply module))
                        (fresh-existential module))
             alpha-2  (fresh-existential module)
             function {:ast/type :function
                       :domain   alpha-1
-                      :return   alpha-2}]
+                      :return   alpha-2}
+            mark     (fresh-mark module)]
         (solve-existential module alpha function)
         (swap! (:type-checker/facts module) zip/focus-right current)
         (analysis:check module term [function :non-principal])
-        (solve-existential module alpha function :kind/type))
+        (solve-existential module alpha (generalize module mark function) :kind/type))
 
       [{:ast/term :match :body body :branches branches} _ _] ; Case
       (let [[pattern-type pattern-principality] (synthesize module body)]
