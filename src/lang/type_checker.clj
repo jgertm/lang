@@ -419,7 +419,7 @@
                         (let [value (deref promise)]
                           [k (cond->> value
                                (:ast/type value) (apply module))]))))
-              (into {})))))
+              (into (empty node))))))
       definition)))
 
 (defn- annotate-term
@@ -571,7 +571,12 @@
 
 (defn- proposition:instance
   [module proposition]
-  (letfn [(match-head [{:keys [parameters] :as proposition}
+  (letfn [(init [{:keys [variables] :as instance}]
+            (run!
+              #(declare-universal module % :kind/type)
+              variables)
+            instance)
+          (match-head [{:keys [parameters] :as proposition}
                        {:keys [superclasses types] :as instance}]
             (when
                 (->>
@@ -591,11 +596,6 @@
               (mapcat (partial proposition:instance module))
               (cons instance)
               (doall)))
-          (init [{:keys [variables] :as instance}]
-            (run!
-              #(declare-universal module % :kind/type)
-              variables)
-            instance)
           (find-chain [proposition instance]
             (let [mark (fresh-mark module)]
               (try
@@ -1204,11 +1204,10 @@
     [type principality]
 
     [_ {:ast/type :forall :variable universal-variable :body body} _] ; ∀Spine
-    (let [existential-variable (fresh-existential module)]
+    (let [existential-variable (fresh-existential module)
+          body (walk/prewalk-replace {universal-variable existential-variable} body)]
       (equate-universal module (:id universal-variable) existential-variable)
-      (apply-spine module
-        arguments
-        [(walk/prewalk-replace {universal-variable existential-variable} body) principality]))
+      (apply-spine module arguments [body principality]))
 
     [_ {:ast/type :guarded :proposition proposition :body body} _] ; ⊃Spine
     (do (proposition:true module proposition)

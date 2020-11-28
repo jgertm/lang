@@ -162,9 +162,13 @@
       {:ast/type :forall :body body}
       (contains? body child)
 
+      {:ast/type :guarded :body body}
+      (contains? body child)
+
       {:ast/type :fix :body body}
       (contains? body child)
 
+      ;; FIXME: this will bite me in the ass, dont have a fallthrough case!
       _ nil)))
 
 (defn free-variables

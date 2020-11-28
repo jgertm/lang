@@ -149,11 +149,10 @@
 
 (defn- desugar-term
   [module form]
-  (let [module (assoc module :desugar.typeclasses/dictionary-arguments (atom {}))]
-    (->> form
-      (introduce-dictionary-arguments module)
-      (pass-dictionary-arguments module)
-      (inline-typeclass-members module))))
+  (->> form
+    (introduce-dictionary-arguments module)
+    (pass-dictionary-arguments module)
+    (inline-typeclass-members module)))
 
 (defn- desugar-declaration
   "Converts a typeclass declaration into a record type defintion."
@@ -218,17 +217,18 @@
 
 (defn desugar
   [module definition]
-  (match definition
-    {:ast/definition :typeclass}
-    (desugar-declaration module definition)
+  (let [module (assoc module :desugar.typeclasses/dictionary-arguments (atom {}))]
+    (match definition
+      {:ast/definition :typeclass}
+      (desugar-declaration module definition)
 
-    {:ast/definition :typeclass-instance}
-    (desugar-instance module definition)
+      {:ast/definition :typeclass-instance}
+      (desugar-instance module definition)
 
-    {:ast/definition :constant}
-    (desugar-term module definition)
+      {:ast/definition :constant}
+      (desugar-term module definition)
 
-    _ definition))
+      _ definition)))
 
 (comment
 

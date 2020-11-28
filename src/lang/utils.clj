@@ -52,3 +52,6 @@
 (defn symmetric-difference
   [a b]
   (set/difference (set/union a b) (set/intersection a b)))
+
+(defn where []
+  (seq (.getStackTrace (Exception. "foo"))))
