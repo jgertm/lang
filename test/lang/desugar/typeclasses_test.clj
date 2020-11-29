@@ -93,3 +93,81 @@
                                              {:ast/term :atom
                                               :atom     {:atom :boolean :value false}}]}}))))
 
+(facts "chained typeclasses desugar"
+  (let [module
+        (run :desugar
+          (defmodule lang.desugar.typeclasses-test.chained-definitions
+            (:skip-implicits))
+          (defclass (Show T)
+            (show :$ (-> T String)))
+          (deftype (Identity T)
+              (| [:value T]))
+          (definstance (Show Integer)
+            (show [i]
+              (. i (java.math.BigInteger/toString))))
+          (definstance (Show (Identity T))
+            :when (Show T)
+            (show [identity]
+              (match identity
+                [:value val] (show val))))
+          (def just-a-number
+            (show [:value 42]))
+          (defn wrap-and-show
+            [value]
+            (show [:value value])))
+        [class type integer-instance identity-instance just-a-number wrap-and-show]
+        (:definitions module)]
+
+    (fact "higher-order instance" identity-instance =>
+      (matches {:ast/definition :constant
+                :body
+                {:ast/term :lambda
+                 :argument {:reference :dictionary}
+                 :body
+                 {:ast/term :record
+                  :fields   {{:reference :field :name "show"
+                              :in        {:reference :module :name ["lang" "desugar" "typeclasses-test" "chained-definitions"]}}
+                             {:ast/term :lambda
+                              :body
+                              {:ast/term :sequence
+                               :operations
+                               [{:ast/term :match
+                                 :branches
+                                 [{:action {:ast/term  :application
+                                            :function  {:ast/term :extract
+                                                        :record   {:reference :dictionary}}
+                                            :arguments [{:ast/term :symbol}]}}]}]}}}}}}))
+
+    (fact "just-a-number" just-a-number =>
+      (matches {:ast/definition :constant
+                :body
+                {:ast/term :application
+                 :function {:ast/term :extract
+                            :record   {:ast/term  :application
+                                       :function  {:ast/term :symbol
+                                                   :symbol   {:name "I:Show:(Identity α)"}}
+                                       :arguments [{:ast/term :symbol
+                                                    :symbol   {:name "I:Show:Integer"}}]}}}}))
+
+
+    (fact "wrap-and-show" wrap-and-show =>
+      (matches {:ast/definition :constant
+                :body
+                {:ast/term :recur
+                 :body
+                 {:ast/term :lambda
+                  :argument {:reference :dictionary}
+                  :body
+                  {:ast/term :lambda
+                   :argument {:reference :constant}
+                   :body
+                   {:ast/term :sequence
+                    :operations
+                    [{:ast/term :application
+                      :function {:ast/term :extract
+                                 :record   {:ast/term  :application
+                                            :function  {:ast/term :symbol
+                                                        :symbol   {:name "I:Show:(Identity α)"}}
+                                            :arguments [{:ast/term :symbol
+                                                         :symbol   {:reference :dictionary}}]}}
+                      :arguments [{:ast/term :variant}]}]}}}}}))))

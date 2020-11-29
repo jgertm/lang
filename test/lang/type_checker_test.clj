@@ -3,15 +3,16 @@
             [lang.module :as module]))
 
 (facts "atoms typecheck"
-  (let [{:strs [foo bar baz quux]}
-        (->>
-          (run :type-checker
-            (defmodule lang.type-checker-test.atom-definitions
-              (:skip-implicits))
-            (def foo 2)
-            (def bar "bar")
-            (def baz true)
-            (def quux nil))
+  (let [module
+        (run :type-checker
+          (defmodule lang.type-checker-test.atom-definitions
+            (:skip-implicits))
+          (def foo 2)
+          (def bar "bar")
+          (def baz true)
+          (def quux nil))
+        {:strs [foo bar baz quux]}
+        (->> module
           :values
           (map (fn [[k v]] [(:name k) v]))
           (into {}))]
@@ -24,13 +25,14 @@
                 :principal]))
 
     (fact "bar" bar =>
-      (matches [{:name {:name "String"}} :principal]))
+      (matches [{:ast/type :named :name {:name "String"}} :principal]))
 
     (fact "baz" baz =>
-      (matches [{:name {:name "Bool"}} :principal]))
+      (matches [{:ast/type :named :name {:name "Bool"}} :principal]))
 
     (fact "quux" quux =>
-      (matches [{:name {:name "Unit"}} :principal]))))
+      (matches [{:ast/type :named :name {:name "Unit"}} :principal]))))
+
 
 (facts "functions typecheck"
   (let [{:strs [id const]}

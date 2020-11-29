@@ -219,6 +219,7 @@
   (merge module
     {:definitions                              []
      :desugar.typeclasses/dictionary-types     (atom {})
+     :desugar.typeclasses/dictionary-arguments (atom {})
      :desugar.typeclasses/dictionary-instances (atom {})}))
 
 (defn run

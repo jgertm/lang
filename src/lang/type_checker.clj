@@ -58,6 +58,7 @@
 
 (defn- declare-universal
   [module {:keys [id] :as universal} kind]
+  {:pre [(map? universal) (some? id)]}
   (swap! (:type-checker/facts module)
     zip/insert-left
     {:fact/declare-universal id
@@ -442,13 +443,16 @@
                {:fact/keys [declare-existential restrict-existential]
                 :keys      [kind constraints]
                 :as        fact}]
-            (let [existential-variable-id (or declare-existential restrict-existential)]
+            (let [existential-variable-id (or declare-existential restrict-existential)
+                  existential-variable    {:ast/type :existential-variable
+                                           :id       existential-variable-id}]
               (if (and
                     (some? existential-variable-id)
-                    (type/contains? type
-                      {:ast/type :existential-variable
-                       :id       existential-variable-id}))
-                (let [universal-variable (fresh-universal module)]
+                    (type/contains? type existential-variable))
+                (let [universal-variable (fresh-universal module)
+                      constraints        (walk/prewalk-replace
+                                           {existential-variable universal-variable}
+                                           constraints)]
                   (swap! (:type-checker/facts module)
                     #(-> %
                        (zip/insert-right {:fact/solve-existential existential-variable-id
@@ -574,7 +578,7 @@
   (letfn [(init [{:keys [variables] :as instance}]
             (run!
               #(declare-universal module % :kind/type)
-              variables)
+              (vals variables))
             instance)
           (match-head [{:keys [parameters] :as proposition}
                        {:keys [superclasses types] :as instance}]
@@ -584,13 +588,7 @@
                   (every? (fn [[type parameter]]
                             (unify module type (apply module parameter) :kind/type)
                             true)))
-              (let [types
-                    (walk/prewalk
-                      (fn [node]
-                        (if-let [variable-name (and (type/is? node) (:reference node))]
-                          variable-name
-                          node)) types)]
-                [(assoc proposition :parameters types) superclasses])))
+              [(assoc proposition :parameters types) superclasses]))
           (match-superclasses [[instance superclasses]]
             (->> superclasses
               (mapcat (partial proposition:instance module))
@@ -626,7 +624,7 @@
                         (constrain-universal module alpha #{proposition}))
                       true)
                     parameters)
-                  '())
+                  (list proposition))
                 (some
                   (fn [instance] (find-chain proposition instance))
                   instances))]
@@ -735,12 +733,10 @@
             alpha-2  (fresh-existential module)
             function {:ast/type :function
                       :domain   alpha-1
-                      :return   alpha-2}
-            mark     (fresh-mark module)]
+                      :return   alpha-2}]
         (solve-existential module alpha function)
         (swap! (:type-checker/facts module) zip/focus-right current)
-        (analysis:check module term [function :non-principal])
-        (solve-existential module alpha (generalize module mark function) :kind/type))
+        (analysis:check module term [function :non-principal]))
 
       [{:ast/term :match :body body :branches branches} _ _] ; Case
       (let [[pattern-type pattern-principality] (synthesize module body)]
@@ -1164,8 +1160,7 @@
             (match:check module
               [(update branch :patterns next)]
               [(next pattern-types) pattern-principality]
-              return)
-            (drop module mark)) ; TODO: maybe remove `drop` since lots of typechecking work might occur before it
+              return)) 
 
           [{:ast/pattern :wildcard}
            _ _]                         ; MatchWild
@@ -1210,10 +1205,11 @@
       (apply-spine module arguments [body principality]))
 
     [_ {:ast/type :guarded :proposition proposition :body body} _] ; ⊃Spine
-    (do (proposition:true module proposition)
-        (apply-spine module
-          arguments
-          [(apply module body) principality]))
+    (let [result (apply-spine module
+                   arguments
+                   [(apply module body) principality])]
+      (proposition:true module proposition)
+      result)
 
     [[e & s] {:ast/type :function :domain domain :return return} _] ; →Spine
     (do (analysis:check module e [domain principality])
@@ -1515,7 +1511,6 @@
                  :body type})
               type
               superclasses))
-          
           (introduce-universal-parameters [type universal-variables]
             ;; introduces `:forall`s for any universal parameters, as detected by `abstract-parameters`
             (reduce
@@ -1580,79 +1575,82 @@
     :definitions
     (reduce
       (fn [module definition]
-        (match definition
-          {:ast/definition :type
-           :name           name}
-          (let [type*       (abstract-type module definition)
-                definition* (assoc definition :body type*)]
-            (-> module
-              (assoc-in [:types name] type*)
-              (update :definitions conj definition*)))
+        (let [definition (setup-annotations definition)
+              module
+              (match definition
+                {:ast/definition :type
+                 :name           name}
+                (let [type*       (abstract-type module definition)
+                      definition* (assoc definition :body type*)]
+                  (-> module
+                    (assoc-in [:types name] type*)
+                    (update :definitions conj definition*)))
 
-          {:ast/definition :typeclass
-           :name           name
-           :params         params
-           :fields         fields}
-          (-> module
-            (assoc-in [:typeclasses name] (abstract-typeclass module definition))
-            (update :definitions conj definition))
+                {:ast/definition :typeclass
+                 :name           name
+                 :params         params
+                 :fields         fields}
+                (-> module
+                  (assoc-in [:typeclasses name] (abstract-typeclass module definition))
+                  (update :definitions conj definition))
 
-          {:ast/definition :typeclass-instance
-           :name           typeclass
-           :types          types
-           :fields         fields}
-          (let [mark       (fresh-mark module)
-                definition (setup-annotations definition)
-                {:keys [types] :as instantiation}
-                (instantiate-typeclass module definition)
-                definition (resolve-annotations module definition)]
-            (drop module mark)
-            (-> module
-              (update-in [:typeclasses typeclass :instances] (fnil conj #{}) instantiation)
-              (update :definitions conj definition)))
+                {:ast/definition :typeclass-instance
+                 :name           typeclass
+                 :types          types
+                 :fields         fields}
+                (let [instantiation (instantiate-typeclass module definition)
+                      definition    (resolve-annotations module (merge definition instantiation))]
+                  (-> module
+                    (update-in [:typeclasses typeclass :instances] (fnil conj #{}) instantiation)
+                    (update :definitions conj definition)))
 
-          {:ast/definition :constant
-           :name           name
-           :body           expr}
-          (let [mark                (fresh-mark module)
-                expr                (setup-annotations expr)
-                [type principality] (synthesize module expr)
-                definition          (assoc definition
-                                      :body (resolve-annotations module expr)
-                                      :type-checker.term/type type)]
-            (drop module mark)
-            (swap! (:type-checker/facts module) zip/->end)
-            (-> module
-              (assoc-in [:values name] [type :principal])
-              (update :definitions conj definition)))
+                {:ast/definition :constant
+                 :name           name
+                 :body           expr}
+                (let [[type principality] (synthesize module expr)
+                      definition          (assoc definition
+                                            :body (resolve-annotations module expr)
+                                            :type-checker.term/type type)]
+                  (-> module
+                    (assoc-in [:values name] [type :principal])
+                    (update :definitions conj definition)))
 
-          {:ast/definition :macro
-           :name           name
-           :arguments      arguments
-           :body           body}
-          (let [mark        (fresh-mark module)
-                argument-types
-                (mapv (fn [argument]
-                        (let [alpha (fresh-existential module :kind/type)
-                              type  {:ast/type :quote :inner alpha}]
-                          (bind-symbol module argument type :non-principal)
-                          type))
-                  arguments)
-                return-type (fresh-existential module)
-                _           (analysis:check module body [return-type :non-principal])
-                type        [(->> return-type
-                               (conj argument-types)
-                               (type/function)
-                               (generalize module mark))
-                             :non-principal]]
-            (-> module
-              (assoc-in [:macros name]
-                {:type      type
-                 :arguments arguments
-                 :expand    (fn [application]
-                              (let [environment (zipmap arguments (:arguments application))]
-                                (interpreter/run environment body)))})
-              (update :definitions conj definition)))))
+                {:ast/definition :macro
+                 :name           name
+                 :arguments      arguments
+                 :body           body}
+                (let [mark (fresh-mark module)
+                      argument-types
+                      (mapv (fn [argument]
+                              (let [alpha (fresh-existential module :kind/type)
+                                    type  {:ast/type :quote :inner alpha}]
+                                (bind-symbol module argument type :non-principal)
+                                type))
+                        arguments)
+                      return-type (fresh-existential module)
+                      _           (analysis:check module body [return-type :non-principal])
+                      type        [(->> return-type
+                                     (conj argument-types)
+                                     (type/function)
+                                     (generalize module mark))
+                                   :non-principal]]
+                  (-> module
+                    (assoc-in [:macros name]
+                      {:type      type
+                       :arguments arguments
+                       :expand    (fn [application]
+                                    (let [environment (zipmap arguments (:arguments application))]
+                                      (interpreter/run environment body)))})
+                    (update :definitions conj definition))))]
+          (swap! (:type-checker/instance-chains module)
+                    (fn [chains]
+                      (walk/prewalk
+                        #(if (-> % :ast/type (= :existential-variable))
+                           (apply module %)
+                           %)
+                        chains)))
+          (reset! (:type-checker/facts module) zip/empty)
+          module))
       (init module))))
 
 
