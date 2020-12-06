@@ -9,6 +9,7 @@
             [lang.interpreter :as interpreter]
             [lang.jvm :as jvm]
             [lang.module :as module]
+            [lang.term :as term]
             [lang.type :as type]
             [lang.utils :as utils :refer [undefined]]
             [lang.zip :as zip])
@@ -22,6 +23,14 @@
 (declare subtyping:polarity)
 (declare subtype)
 (declare instantiate-to)
+
+(defn- principality?
+  [principality]
+  (contains? #{:principal :non-principal} principality))
+
+(defn- polarity?
+  [polarity]
+  (contains? #{:positive :negative :neutral} polarity))
 
 (defn- bottom []
   (throw (ex-info "bottom" {})))
@@ -335,6 +344,7 @@
 
 (defn- equate-universal
   [module universal solution]
+  {:pre [(int? universal) (type/is? solution)]}
   (swap! (:type-checker/facts module)
     zip/insert-left
     {:fact/equate-universal universal
@@ -343,6 +353,7 @@
 
 (defn- constrain-universal
   [module universal constraints]
+  {:pre [(int? universal) (set? constraints)]}
   ;; TODO: assert no equation
   (swap! (:type-checker/facts module)
     zip/insert-left
@@ -352,6 +363,7 @@
 
 (defn- clear-existential
   [module existential]
+  {:pre [(int? existential)]}
   (swap! (:type-checker/facts module)
     #(walk/prewalk
        (fn [node]
@@ -677,6 +689,8 @@
   "Γ ⊢ e ⇐ A p ⊣ Δ
   found on pg. 37"
   [module term [type principality]]
+  {:pre [(term/is? term)
+         (type/is? type) principality? principality?]}
   (let [type (apply module type)]
     (annotate-term term type)
     (match [term type principality]
@@ -921,6 +935,8 @@
   "Γ ⊢ A ≡ B ⊣ Δ
   found on pg. 42"
   [module type-a type-b]
+  {:pre [(type/is? type-a)
+         (type/is? type-b)]}
   (let [type-a (apply module type-a)
         type-b (apply module type-b)]
     (when (not= type-a type-b)
@@ -1026,6 +1042,9 @@
 
 (defn- subtype
   [module polarity type-a type-b]
+  {:pre [(polarity? polarity)
+         (type/is? type-a)
+         (type/is? type-b)]}
   (match [polarity type-a type-b]
     [_ (_ :guard (complement type/quantified?)) (_ :guard (complement type/quantified?))] ; <:Equiv
     (subtyping:equivalent module type-a type-b)
@@ -1064,6 +1083,11 @@
   "Γ ⊢ Π :: A^→ q ⇐ C p ⊣ Δ
   found on pg. 44"
   [module branches [pattern-types pattern-principality] [return-type return-principality]]
+  {:pre [(seq branches)
+         (every? :ast/pattern (mapcat :patterns branches))
+         (every? (comp term/is? :action) branches)
+         (every? type/is? pattern-types) (principality? pattern-principality)
+         (type/is? return-type) (principality? return-principality)]}
   (let [return [(apply module return-type) return-principality]]
     (doseq [branch branches] ; MatchSeq + MatchEmpty
       (let [pattern      (first (:patterns branch))
@@ -1194,8 +1218,10 @@
   "Γ ⊢ s : A p ≫ C q ⊣ Δ
   found on pg. 37"
   [module arguments [type principality]]
+  {:pre [(every? term/is? arguments)
+         (type/is? type) (principality? principality)]}
   (match [arguments type principality]
-    [[] _ _] ; EmptySpine
+    [[] _ _]                          ; EmptySpine
     [type principality]
 
     [_ {:ast/type :forall :variable universal-variable :body body} _] ; ∀Spine
@@ -1383,11 +1409,11 @@
           (let [alpha (fresh-existential module)]
             (analysis:check module term [alpha :non-principal])
             [(get (existential-solutions module) alpha alpha) :non-principal]))
-        type* (->> type
+        type (->> type
                 (generalize module mark)
                 (apply module))]
-    (annotate-term term type*)
-    [type* principality]))
+    (annotate-term term type)
+    [type principality]))
 
 (defn- abstract-type
   [module {:keys [name params body]}]
