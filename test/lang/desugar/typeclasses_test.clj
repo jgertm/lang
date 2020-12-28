@@ -47,12 +47,10 @@
                   {:ast/term :lambda
                    :argument {:reference :constant :name "bool"}
                    :body
-                   {:ast/term               :sequence
-                    :operations             [{:ast/term :symbol
-                                              :symbol   {:reference :constant :name "bool"}
-                                              :type-checker.term/type
-                                              {:ast/type :named :name {:name "Bool"}}}]
-                    :type-checker.term/type Bool}
+                   {:ast/term :symbol
+                    :symbol   {:reference :constant :name "bool"}
+                    :type-checker.term/type
+                    {:ast/type :named :name {:name "Bool"}}}
                    :type-checker.term/type
                    {:ast/type :function
                     :domain   Bool
@@ -73,12 +71,11 @@
                                     {:ast/term :lambda
                                      :argument argument
                                      :body
-                                     {:ast/term   :sequence
-                                      :operations [{:ast/term  :application
-                                                    :function  {:ast/term :extract
-                                                                :record   {:ast/term :symbol :symbol dictionary}
-                                                                :field    {:reference :field :name "true?"}}
-                                                    :arguments [{:ast/term :symbol :symbol argument}]}]}}}}})))
+                                     {:ast/term  :application
+                                      :function  {:ast/term :extract
+                                                  :record   {:ast/term :symbol :symbol dictionary}
+                                                  :field    {:reference :field :name "true?"}}
+                                      :arguments [{:ast/term :symbol :symbol argument}]}}}}})))
 
     (fact "nope" nope =>
       (matches {:ast/definition :constant
@@ -129,15 +126,13 @@
                               :in        {:reference :module :name ["lang" "desugar" "typeclasses-test" "chained-definitions"]}}
                              {:ast/term :lambda
                               :body
-                              {:ast/term :sequence
-                               :operations
-                               [{:ast/term :match
-                                 :branches
-                                 [{:action {:ast/term  :application
-                                            :function  {:ast/term :extract
-                                                        :record   {:ast/term :symbol
-                                                                   :symbol   {:reference :dictionary}}}
-                                            :arguments [{:ast/term :symbol}]}}]}]}}}}}}))
+                              {:ast/term :match
+                               :branches
+                               [{:action {:ast/term  :application
+                                          :function  {:ast/term :extract
+                                                      :record   {:ast/term :symbol
+                                                                 :symbol   {:reference :dictionary}}}
+                                          :arguments [{:ast/term :symbol}]}}]}}}}}}))
 
     (fact "just-a-number" just-a-number =>
       (matches {:ast/definition :constant
@@ -161,13 +156,11 @@
                   {:ast/term :lambda
                    :argument {:reference :constant}
                    :body
-                   {:ast/term :sequence
-                    :operations
-                    [{:ast/term  :application
-                      :function  {:ast/term :extract
-                                  :record   {:ast/term  :application
-                                             :function  {:ast/term :symbol
-                                                         :symbol   {:name "I:Show:(Identity α)"}}
-                                             :arguments [{:ast/term :symbol
-                                                          :symbol   {:reference :dictionary}}]}}
-                      :arguments [{:ast/term :variant}]}]}}}}}))))
+                   {:ast/term  :application
+                    :function  {:ast/term :extract
+                                :record   {:ast/term  :application
+                                           :function  {:ast/term :symbol
+                                                       :symbol   {:name "I:Show:(Identity α)"}}
+                                           :arguments [{:ast/term :symbol
+                                                        :symbol   {:reference :dictionary}}]}}
+                    :arguments [{:ast/term :variant}]}}}}}))))

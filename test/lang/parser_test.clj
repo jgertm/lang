@@ -69,7 +69,8 @@
   (run :parser
     (defmodule lang.parser-test.lambda-definitions)
     (defn id [x] x)
-    (defn const [x y] x))
+    (defn const [x y] x)
+    (defn fx! [x] (println x) x))
   => (matches
        {:definitions [{:ast/definition :constant
                        :name           {:reference :constant :name "id"}
@@ -80,9 +81,8 @@
                         {:ast/term :lambda
                          :argument {:reference :constant :name "x"}
                          :body
-                         {:ast/term   :sequence
-                          :operations [{:ast/term :symbol
-                                        :symbol   {:reference :constant :name "x"}}]}}}}
+                         {:ast/term :symbol
+                          :symbol   {:reference :constant :name "x"}}}}}
                       {:body
                        {:ast/term  :recur
                         :reference {:name "const"}
@@ -93,7 +93,18 @@
                          {:ast/term :lambda
                           :argument {:name "y"}
                           :body
-                          {:operations [{:symbol {:name "x"}}]}}}}}]}))
+                          {:symbol {:name "x"}}}}}}
+
+                      {:body 
+                       {:ast/term  :recur
+                        :reference {:name "fx!"}
+                        :body
+                        {:ast/term :lambda
+                         :body
+                         {:ast/term :sequence
+                          :operations
+                          [{:ast/term :application}
+                           {:ast/term :symbol}]}}}}]}))
 
 (fact "typeclasses parse"
   (run :parser
@@ -127,8 +138,6 @@
            {:ast/term :lambda
             :argument {:reference :constant :name "bool"}
             :body
-            {:ast/term :sequence
-             :operations
-             [{:ast/term :symbol
-               :symbol
-               {:reference :constant :name "bool"}}]}}}}]}))
+            {:ast/term :symbol
+             :symbol
+             {:reference :constant :name "bool"}}}}}]}))

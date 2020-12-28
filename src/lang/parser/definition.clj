@@ -83,8 +83,10 @@
                         {:ast/term :lambda
                          :argument arg
                          :body     term})
-                      {:ast/term   :sequence
-                       :operations operations}))}})))))
+                      (if (< 1 (count operations))
+                        {:ast/term   :sequence
+                         :operations operations}
+                        (first operations))))}})))))
 
 (def ^:private macro
   (parens
@@ -126,8 +128,10 @@
                            {:ast/term :lambda
                             :argument arg
                             :body     term})
-                         {:ast/term   :sequence
-                          :operations operations}))])))
+                         (if (< 1 (count operations))
+                           {:ast/term   :sequence
+                            :operations operations}
+                           (first operations))))])))
         instance (parens (<*> reference/typeclass (many1 type/expr)))]
     (parens
       (bind [_ (word "definstance")

@@ -227,29 +227,27 @@
                        {:ast/term               :lambda
                         :argument {:name "x"}
                         :body
-                        {:ast/term :sequence
-                         :operations
-                         [{:ast/term               :application
-                           :function
-                           {:type-checker.term/type
-                            {:ast/type :forall
-                             :body     {:ast/type :guarded
-                                        :proposition
-                                        {:ast/constraint :instance
-                                         :typeclass
-                                         {:reference :typeclass
-                                          :name      "Veracious"
-                                          :in
-                                          {:reference :module
-                                           :name      ["lang" "desugar" "typeclasses-test" "definitions"]}}
-                                         :parameters
-                                         [{:ast/type :universal-variable}]}
-                                        :body     {:ast/type :function
-                                                   :domain   {:ast/type :universal-variable}
-                                                   :return   Bool}}}}
-                           :arguments              [{:ast/term               :symbol
-                                                     :type-checker.term/type {:ast/type :universal-variable}}]
-                           :type-checker.term/type Bool}]}
+                        {:ast/term               :application
+                         :function
+                         {:type-checker.term/type
+                          {:ast/type :forall
+                           :body     {:ast/type :guarded
+                                      :proposition
+                                      {:ast/constraint :instance
+                                       :typeclass
+                                       {:reference :typeclass
+                                        :name      "Veracious"
+                                        :in
+                                        {:reference :module
+                                         :name      ["lang" "desugar" "typeclasses-test" "definitions"]}}
+                                       :parameters
+                                       [{:ast/type :universal-variable}]}
+                                      :body     {:ast/type :function
+                                                 :domain   {:ast/type :universal-variable}
+                                                 :return   Bool}}}}
+                         :arguments              [{:ast/term               :symbol
+                                                   :type-checker.term/type {:ast/type :universal-variable}}]
+                         :type-checker.term/type Bool}
                         :type-checker.term/type {:ast/type :function
                                                  :domain {:ast/type :universal-variable}
                                                  :return Bool}}
