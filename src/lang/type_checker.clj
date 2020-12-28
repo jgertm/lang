@@ -458,9 +458,7 @@
             (let [existential-variable-id (or declare-existential restrict-existential)
                   existential-variable    {:ast/type :existential-variable
                                            :id       existential-variable-id}]
-              (if (and
-                    (some? existential-variable-id)
-                    (type/contains? type existential-variable))
+              (if (some? existential-variable-id)
                 (let [universal-variable (fresh-universal module)
                       constraints        (walk/prewalk-replace
                                            {existential-variable universal-variable}
@@ -471,7 +469,10 @@
                                           :kind                   kind
                                           :type                   universal-variable})
                        (zip/right)))
-                  (conj universal-variables [universal-variable (or constraints :unrestricted)]))
+                  (conj universal-variables
+                    {:existential  existential-variable
+                     :universal    universal-variable
+                     :restrictions constraints}))
                 (do (swap! (:type-checker/facts module)
                       #(-> %
                          (zip/insert-right fact)
@@ -483,22 +484,25 @@
         (->> universal-variables
           (reverse)
           (reduce
-            (fn [type quantification]
-              (match quantification
-                [universal-variable :unrestricted]
-                {:ast/type :forall
-                 :variable universal-variable
-                 :body     type}
-
-                [universal-variable constraints]
-                (let [proposition (if (= 1 (count constraints)) ; FIXME: multiple constraints
-                                    (first constraints)
+            (fn [type {:keys [existential universal restrictions]}]
+              (cond
+                (and (type/contains? type existential)
+                     (not-empty restrictions))
+                (let [proposition (if (= 1 (count restrictions)) ; FIXME: multiple restrictions
+                                    (first restrictions)
                                     (undefined ::multiple-constraints))]
                   {:ast/type :forall
-                   :variable universal-variable
+                   :variable universal
                    :body     {:ast/type    :guarded
                               :proposition proposition
-                              :body        type}})))
+                              :body        type}})
+
+                (type/contains? type existential)
+                {:ast/type :forall
+                 :variable universal
+                 :body     type}
+
+                :else type))
             type)
           (apply module))]
     generalized-type))
@@ -803,6 +807,18 @@
        _] ; ×Iα^
       (undefined ::analysis:check.record-exvar) 
 
+      [{:ast/term :sequence :operations operations} _ _]
+      (let [return (last operations)]
+        (some->> operations
+          (butlast)
+          (run!
+            (fn [operation]
+              (let [alpha (fresh-existential module)]
+                (analysis:check module
+                  operation
+                  [alpha :non-principal])))))
+        (analysis:check module return [type principality]))
+
       [_
        {:ast/type :named :name name}
        _]
@@ -824,18 +840,6 @@
         {:ast/type :existential-variable}
         (do #_(undefined ::analysis:check.application.exvar)
             nil))
-
-      [{:ast/term :sequence :operations operations} _ _]
-      (let [return (last operations)]
-        (->> operations
-          (butlast)
-          (run!
-            (fn [operation]
-              (let [alpha (fresh-existential module)]
-                (analysis:check module
-                  operation
-                  [alpha :non-principal])))))
-        (analysis:check module return [type principality]))
 
       [_ _ _] ; Sub
       (let [[synth-type] (synthesize module term)
@@ -1231,11 +1235,10 @@
       (apply-spine module arguments [body principality]))
 
     [_ {:ast/type :guarded :proposition proposition :body body} _] ; ⊃Spine
-    (let [result (apply-spine module
-                   arguments
-                   [(apply module body) principality])]
-      (proposition:true module proposition)
-      result)
+    (do (proposition:true module proposition)
+        (apply-spine module
+          arguments
+          [(apply module body) principality]))
 
     [[e & s] {:ast/type :function :domain domain :return return} _] ; →Spine
     (do (analysis:check module e [domain principality])
@@ -1582,7 +1585,7 @@
                     (introduce-universal-parameters (vals variables)))]
               (analysis:check module term [type :principal])))
           fields)
-        instantiation)
+        (walk/postwalk #(if (type/is? %) (apply module %) %) instantiation))
       (throw (ex-info "Unknown typeclass" {:typeclass name})))))
 
 (defn- init

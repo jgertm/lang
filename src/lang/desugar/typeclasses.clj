@@ -7,12 +7,14 @@
             [lang.type :as type]
             [lang.utils :as utils :refer [undefined]]))
 
-(defn- dictionary-type-name
+(defn- dictionary-type
   "Returns the name of a typeclasses' dictionary type."
   [name]
-  (-> name
-    (assoc :reference :type)
-    (update :name #(format "D:%s" %))))
+  {:ast/type :named
+   :name
+   (-> name
+     (assoc :reference :type)
+     (update :name #(format "D:%s" %)))})
 
 (defn- instance-value-name
   "Returns the name of an instances' dictionary value."
@@ -21,7 +23,7 @@
   {:reference :constant
    :name (format "I:%s:%s"
            (:name typeclass)
-           (str/join "-" (mapv type/print types)))
+           (str/join "-" (map type/print types)))
    :in (:name module)})
 
 (defn- dictionary-argument-name
@@ -53,7 +55,8 @@
            :function expr
            :arguments [dictionary]})
         (first dictionaries)
-        (next dictionaries)))))
+        (next dictionaries))
+      (undefined))))
 
 (defn- introduce-dictionary-arguments
   "Adds arguments for typeclass dictionaries to lambdas, according to
@@ -79,7 +82,7 @@
                          constrained-parameters))]
               (let [{:keys [typeclass]} constraint
                     argument            (dictionary-argument-name typeclass)
-                    type                {:ast/type :named :name (dictionary-type-name typeclass)}]
+                    type                (dictionary-type typeclass)]
                 (add-dictionary-argument module
                   constraint
                   {:ast/term               :symbol
@@ -138,8 +141,12 @@
             (-> node
               (update :arguments next)
               (assoc :function {:ast/term :extract
-                                :record dictionary
-                                :field field})))
+                                :record   dictionary
+                                :field    field
+                                :type-checker.term/type
+                                (->> type
+                                  (iterate :body)
+                                  (some #(when-not (-> % :ast/type #{:forall :guarded}) %)))})))
           node))
       definition)))
 
@@ -153,7 +160,7 @@
 (defn- desugar-declaration
   "Converts a typeclass declaration into a record type defintion."
   [module {:keys [name params fields] :as declaration}]
-  (let [name (dictionary-type-name name)]
+  (let [{:keys [name]} (dictionary-type name)]
     ;; (swap! (:desugar.typeclasses/dictionary-types module) assoc (:name definition) name)
     {:ast/definition :type
      :name           name
@@ -161,8 +168,8 @@
      :body
      {:ast/type :record
       :fields   (->> fields
-                  (mapv (fn [[name type]]
-                          [(assoc name :reference :field) type]))
+                  (map (fn [[name type]]
+                         [(assoc name :reference :field) type]))
                   (into (empty fields)))}}))
 
 (defn- desugar-instance
@@ -170,9 +177,8 @@
   record value."
   [module {:keys [name types fields superclasses]}]
   (let [value-name (instance-value-name module name types)
-        type-name  (dictionary-type-name name)
         type       {:ast/type   :application
-                    :operator   {:ast/type :named :name type-name}
+                    :operator   (dictionary-type name)
                     :parameters types}]
     (add-dictionary-instance module
       {:ast/constraint :instance
@@ -184,12 +190,20 @@
      :body
      (->> superclasses
        (reduce
-         (fn [expr {:keys [typeclass] :as constraint}]
-           (let [argument (dictionary-argument-name typeclass)]
-             (add-dictionary-argument module constraint argument)
+         (fn [expr {:keys [typeclass parameters] :as constraint}]
+           (let [argument (dictionary-argument-name typeclass)
+                 type     {:ast/type   :application
+                           :operator   (dictionary-type typeclass)
+                           :parameters parameters}]
+             (add-dictionary-argument module constraint
+               {:ast/term :symbol :symbol argument})
              {:ast/term :lambda
               :argument argument
-              :body expr}))
+              :body     expr
+              :type-checker.term/type
+              {:ast/type :function
+               :domain   type
+               :return   (:type-checker.term/type expr)}}))
          {:ast/term :record
           :fields   (->> fields
                       (map (fn [[field term]]

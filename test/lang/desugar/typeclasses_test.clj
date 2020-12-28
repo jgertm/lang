@@ -51,7 +51,7 @@
                     :operations             [{:ast/term :symbol
                                               :symbol   {:reference :constant :name "bool"}
                                               :type-checker.term/type
-                                              {:ast/type :primitive :primitive :boolean}}]
+                                              {:ast/type :named :name {:name "Bool"}}}]
                     :type-checker.term/type Bool}
                    :type-checker.term/type
                    {:ast/type :function
@@ -135,7 +135,8 @@
                                  :branches
                                  [{:action {:ast/term  :application
                                             :function  {:ast/term :extract
-                                                        :record   {:reference :dictionary}}
+                                                        :record   {:ast/term :symbol
+                                                                   :symbol   {:reference :dictionary}}}
                                             :arguments [{:ast/term :symbol}]}}]}]}}}}}}))
 
     (fact "just-a-number" just-a-number =>
@@ -148,7 +149,6 @@
                                                    :symbol   {:name "I:Show:(Identity α)"}}
                                        :arguments [{:ast/term :symbol
                                                     :symbol   {:name "I:Show:Integer"}}]}}}}))
-
 
     (fact "wrap-and-show" wrap-and-show =>
       (matches {:ast/definition :constant
@@ -163,11 +163,11 @@
                    :body
                    {:ast/term :sequence
                     :operations
-                    [{:ast/term :application
-                      :function {:ast/term :extract
-                                 :record   {:ast/term  :application
-                                            :function  {:ast/term :symbol
-                                                        :symbol   {:name "I:Show:(Identity α)"}}
-                                            :arguments [{:ast/term :symbol
-                                                         :symbol   {:reference :dictionary}}]}}
+                    [{:ast/term  :application
+                      :function  {:ast/term :extract
+                                  :record   {:ast/term  :application
+                                             :function  {:ast/term :symbol
+                                                         :symbol   {:name "I:Show:(Identity α)"}}
+                                             :arguments [{:ast/term :symbol
+                                                          :symbol   {:reference :dictionary}}]}}
                       :arguments [{:ast/term :variant}]}]}}}}}))))
