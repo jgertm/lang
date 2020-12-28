@@ -135,7 +135,7 @@
               (->> node
                 (vals)
                 (filter is?))))]
-    (set (tree-seq branch? children type))))
+    (tree-seq branch? children type)))
 
 (defn contains?
   [type child]

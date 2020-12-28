@@ -1,8 +1,11 @@
 (ns lang.name-resolution
   (:require [clojure.core.match :refer [match]]
+            [clojure.set :as set]
             [clojure.walk :as walk]
             [lang.ast :as ast]
             [lang.module :as module]
+            [lang.pattern :as pattern]
+            [lang.term :as term]
             [lang.utils :as utils :refer [undefined]]))
 
 (defn- absorb-definition
@@ -63,6 +66,51 @@
   [module definition]
   (walk/prewalk (partial resolve-reference module) definition))
 
+(defn annotate-captures
+  ;; FIXME(tjgr): this is jank AF
+  [definition]
+  (letfn [(restrict [node symbols]
+            (cond
+              (term/lambda? node)
+              (disj symbols (:argument node))
+
+              (term/match? node)
+              (->> node
+                :branches
+                (mapcat :patterns)
+                (mapcat pattern/nodes)
+                (keep :symbol)
+                (set)
+                (set/difference symbols))
+
+              :else symbols))]
+    (->> definition
+      (walk/postwalk
+        (fn [node]
+          (cond
+            (not (term/is? node)) node
+
+            (term/symbol? node)
+            (assoc node :name-resolution/captured-symbols #{(:symbol node)})
+
+            :else
+            (->> node
+              (term/children)
+              (map :name-resolution/captured-symbols)
+              (reduce set/union)
+              (restrict node)
+              (assoc node :name-resolution/captured-symbols)))))
+      (walk/prewalk
+        (fn [node]
+          (cond
+            (not (term/is? node)) node
+
+            (term/lambda? node)
+            node
+
+            :else
+            (dissoc node :name-resolution/captured-symbols)))))))
+
 (defn run
   [module]
   {:pre [(ast/module? module)]}
@@ -71,7 +119,9 @@
     (reduce
       (fn [module definition]
         (let [module     (absorb-definition module definition)
-              definition (resolve-references module definition)]
+              definition (->> definition
+                           (resolve-references module)
+                           (annotate-captures))]
           (update module :definitions conj definition)))
       (assoc module :definitions []))))
 

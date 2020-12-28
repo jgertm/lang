@@ -5,7 +5,8 @@
             [lang.module :as module]
             [lang.term :as term]
             [lang.type :as type]
-            [lang.utils :as utils :refer [undefined]]))
+            [lang.utils :as utils :refer [undefined]]
+            [lang.name-resolution :as name-resolution]))
 
 (defn- dictionary-type
   "Returns the name of a typeclasses' dictionary type."
@@ -155,7 +156,8 @@
   (->> form
     (introduce-dictionary-arguments module)
     (pass-dictionary-arguments module)
-    (inline-typeclass-members module)))
+    (inline-typeclass-members module)
+    (name-resolution/annotate-captures)))
 
 (defn- desugar-declaration
   "Converts a typeclass declaration into a record type defintion."
@@ -213,7 +215,8 @@
           :type-checker.term/type
           type})
        (pass-dictionary-arguments module)
-       (inline-typeclass-members module))}))
+       (inline-typeclass-members module)
+       (name-resolution/annotate-captures))}))
 
 (defn desugar
   [module definition]

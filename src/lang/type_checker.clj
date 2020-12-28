@@ -1517,6 +1517,7 @@
                     (fn [type->universal-variable type]
                       (->> type
                         (type/nodes)
+                        (distinct)
                         (keep (fn [type]
                                 (match type
                                   {:ast/type :named}
