@@ -399,6 +399,24 @@
        :parameters parameters}
       type)))
 
+(defn- find-record
+  [module fields]
+  (let [types      (map
+                (partial get (module/all-fields module))
+                (keys fields))
+        _          (assert (clojure.core/apply = types))
+        type       (first types)
+        parameters (->> type
+                     :name
+                     (lookup-type module)
+                     (type/parameters)
+                     (mapv (fn [_] (fresh-existential module))))]
+    (if (seq parameters)
+      {:ast/type   :application
+       :operator   type
+       :parameters parameters}
+      type)))
+
 (defn- setup-annotations
   [form]
   (walk/prewalk
@@ -1179,6 +1197,23 @@
             (throw (ex-info "Unknown record"
                      {:fields (keys pattern-fields)
                       :module (:name module)})))
+
+          [{:ast/pattern :record :fields fields}
+           {:ast/type :existential-variable :id alpha} ; Match×α^
+           :non-principal]
+          (let [current (zip/node @(:type-checker/facts module))
+                _       (swap! (:type-checker/facts module)
+                          zip/focus-left
+                          {:fact/declare-existential alpha
+                           :kind                     :kind/type})
+                type
+                (find-record module fields)]
+            (swap! (:type-checker/facts module) zip/focus-right current)
+            (solve-existential module alpha type)
+            (match:check module
+              branches
+              [(cons type (next pattern-types)) pattern-principality]
+              return))
 
           [{:ast/pattern :symbol :symbol symbol}
            pattern-type

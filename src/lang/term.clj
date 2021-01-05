@@ -1,5 +1,5 @@
 (ns lang.term
-  (:refer-clojure :exclude [symbol? type])
+  (:refer-clojure :exclude [symbol? type record?])
   (:require [clojure.core.match :refer [match]]))
 
 (defn is?
@@ -26,9 +26,13 @@
   [form]
   (-> form is? (= :match)))
 
+(defn record?
+  [form]
+  (-> form is? (= :record)))
+
 (defn type
   [form]
-  {:pre [(is? form)]}
+  ;; {:pre [(is? form)]}
   (:type-checker.term/type form))
 
 (defn children

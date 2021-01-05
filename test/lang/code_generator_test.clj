@@ -54,10 +54,10 @@
          (def none [:none])
          (def some [:some 1])))]
     (fact
-      (eval '(lang.code_generator_test.type_definitions/which_is_it
+      (eval '(lang.code_generator_test.type_definitions/which-is-it
                lang.code_generator_test.type_definitions/none))
       => "just a none."
-      (eval '(lang.code_generator_test.type_definitions/which_is_it
+      (eval '(lang.code_generator_test.type_definitions/which-is-it
                lang.code_generator_test.type_definitions/some))
       => "it's a some!"
       (eval '(lang.code_generator_test.type_definitions/default
@@ -68,3 +68,53 @@
                2
                lang.code_generator_test.type_definitions/some))
       => 1)))
+
+(facts "typeclasses generate code"
+  (with-state-changes
+    [(before :facts
+       (run :code-generator
+         (defmodule lang.code-generator-test.typeclasses
+           (:skip-implicits))
+         (defclass (Veracious T)
+           (true? :$ (-> T Bool)))
+         (definstance (Veracious Bool)
+           (true? [bool] bool))
+         (defn is-it-true? [x] (true? x))
+         (def nope (is-it-true? false))))]
+    (fact
+      (eval 'lang.code_generator_test.typeclasses/nope)
+      => false)))
+
+(facts "imports generate code"
+  (with-state-changes
+    [(before :facts
+       (run :code-generator
+         (defmodule lang.code-generator-test.imports
+           (:skip-implicits)
+           (:import [lang.io :as io]))
+         (defn print [arg]
+           (io/println "foofoo"))))]
+    (fact
+      (eval '(lang.code_generator_test.imports/print 0))
+      => nil)))
+
+(facts "recursive types generate code"
+  (with-state-changes
+    [(before :facts
+       (run :code-generator
+         (defmodule lang.code-generator-test.list)
+         (deftype (List T)
+             (| [:nil]
+               [:cons {:value T :next (List T)}]))
+         (defn fold
+           [op init list]
+           (match list
+             [:nil] init
+             [:cons {:value n :next tl}] (op (fold op init tl) n)))
+         (def some-list
+           [:cons {:value 1 :next [:cons {:value 3 :next [:nil]}]}])))])
+  (eval `(lang.code_generator_test.list/fold
+           lang.math/_PLUS_
+           ~(biginteger 0)
+           lang.code_generator_test.list/some_list))
+  => 4)

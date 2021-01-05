@@ -54,7 +54,9 @@
         (fn [expr dictionary]
           {:ast/term :application
            :function expr
-           :arguments [dictionary]})
+           :arguments [dictionary]
+           :type-checker.term/type
+           (:return (:type-checker.term/type expr))})
         (first dictionaries)
         (next dictionaries))
       (undefined))))
@@ -88,7 +90,8 @@
                   constraint
                   {:ast/term               :symbol
                    :symbol                 argument
-                   :type-checker.term/type type})
+                   :type-checker.term/type
+                   type})
                 {:ast/term :lambda
                  :argument argument
                  :body     node
@@ -103,18 +106,39 @@
   "Inserts a typeclass dictionary from scope into the arguments where
   expected according to the function's type."
   [module definition]
-  (walk/postwalk
-    (fn [{:keys [function] :as node}]
-      (if-let [constraints (and (term/application? node)
-                                (type/constraints (term/type function)))]
-        (update node :arguments
-          (fn [arguments]
-            (into
-              (mapv (fn [constraint]
-                      (lookup-dictionary module constraint)) constraints)
-              arguments)))
-        node))
-    definition))
+  (letfn [(prepend-dict-types [type constraints]
+            (match type
+              {:ast/type :function}
+              (->> constraints
+                (map
+                  (fn [constraint]
+                    (->> constraint
+                      (lookup-dictionary module)
+                      :type-checker.term/type)))
+                (reduce
+                  (fn [function-type dictionary-type]
+                    {:ast/type :function
+                     :domain   dictionary-type
+                     :return   function-type})
+                  type))
+
+              {:ast/type (:or :forall :guarded)}
+              (update type :body prepend-dict-types constraints)))]
+    (walk/postwalk
+      (fn [{:keys [function] :as node}]
+        (if-let [constraints (and (term/application? node)
+                                  (type/constraints (term/type function)))]
+          (-> node
+            (update-in [:function :type-checker.term/type]
+              prepend-dict-types constraints)
+            (update :arguments
+              (fn [arguments]
+                (into
+                  (mapv (fn [constraint]
+                          (lookup-dictionary module constraint)) constraints)
+                  arguments))))
+          node))
+      definition)))
 
 (defn- inline-typeclass-members
   "Replaces calls to typeclass member functions to accesses to the
@@ -168,55 +192,76 @@
      :name           name
      :params         params
      :body
-     {:ast/type :record
-      :fields   (->> fields
-                  (map (fn [[name type]]
-                         [(assoc name :reference :field) type]))
-                  (into (empty fields)))}}))
+     (reduce
+       (fn [type param]
+         (let [universal
+               {:ast/type  :universal-variable
+                :id        (gensym)
+                :reference param}]
+           {:ast/type :forall
+            :variable universal
+            :body
+            (walk/prewalk-replace
+              {{:ast/type :named :name param} universal}
+              type)}))
+       {:ast/type :record
+        :fields   (->> fields
+                    (map (fn [[name type]]
+                           [(assoc name :reference :field) type]))
+                    (into (empty fields)))}
+       params)}))
 
 (defn- desugar-instance
   "Converts a typeclass instance declaration into a global dictionary
   record value."
   [module {:keys [name types fields superclasses]}]
-  (let [value-name (instance-value-name module name types)
-        type       {:ast/type   :application
-                    :operator   (dictionary-type name)
-                    :parameters types}]
+  (let [value-name  (instance-value-name module name types)
+        record-type {:ast/type   :application
+                     :operator   (dictionary-type name)
+                     :parameters types}
+        term
+        (->> superclasses
+          (reduce
+            (fn [expr {:keys [typeclass parameters] :as constraint}]
+              (let [argument (dictionary-argument-name typeclass)
+                    superclass-type
+                    {:ast/type   :application
+                     :operator   (dictionary-type typeclass)
+                     :parameters parameters}]
+                (add-dictionary-argument module constraint
+                  {:ast/term :symbol
+                   :symbol   argument
+                   :type-checker.term/type
+                   superclass-type})
+                {:ast/term :lambda
+                 :argument argument
+                 :body     expr
+                 :type-checker.term/type
+                 {:ast/type :function
+                  :domain   superclass-type
+                  :return   (:type-checker.term/type expr)}}))
+            {:ast/term :record
+             :fields   (->> fields
+                         (map (fn [[field term]]
+                                [(assoc field :reference :field)
+                                 term]))
+                         (into (empty fields)))
+             :type-checker.term/type
+             record-type})
+          (pass-dictionary-arguments module)
+          (inline-typeclass-members module)
+          (name-resolution/annotate-captures))]
     (add-dictionary-instance module
       {:ast/constraint :instance
        :typeclass      name
        :parameters     types}
-      {:ast/term :symbol :symbol value-name})
+      {:ast/term :symbol
+       :symbol   value-name
+       :type-checker.term/type
+       (:type-checker.term/type term)})
     {:ast/definition :constant
      :name           value-name
-     :body
-     (->> superclasses
-       (reduce
-         (fn [expr {:keys [typeclass parameters] :as constraint}]
-           (let [argument (dictionary-argument-name typeclass)
-                 type     {:ast/type   :application
-                           :operator   (dictionary-type typeclass)
-                           :parameters parameters}]
-             (add-dictionary-argument module constraint
-               {:ast/term :symbol :symbol argument})
-             {:ast/term :lambda
-              :argument argument
-              :body     expr
-              :type-checker.term/type
-              {:ast/type :function
-               :domain   type
-               :return   (:type-checker.term/type expr)}}))
-         {:ast/term :record
-          :fields   (->> fields
-                      (map (fn [[field term]]
-                             [(assoc field :reference :field)
-                              term]))
-                      (into (empty fields)))
-          :type-checker.term/type
-          type})
-       (pass-dictionary-arguments module)
-       (inline-typeclass-members module)
-       (name-resolution/annotate-captures))}))
+     :body           term}))
 
 (defn desugar
   [module definition]

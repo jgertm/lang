@@ -6,8 +6,9 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.blancas/kern "1.1.0"]
                  [org.clojure/core.match "0.3.0"]
-                 [insn "0.4.0"]
-                 [potemkin "0.4.5"]]
+                 [insn "0.5.0"]
+                 [potemkin "0.4.5"]
+                 [com.taoensso/timbre "5.1.0"]]
   :main ^:skip-aot lang.core
   :target-path "target/%s/"
   :java-source-paths ["tmp"]

@@ -25,15 +25,19 @@
                 :name           {:reference :type :name "D:Veracious"}
                 :params         [{:name "T"}]
                 :body 
-                {:ast/type :record
-                 :fields
-                 {{:reference :field
-                   :name      "true?"
-                   :in        module}
-                  {:ast/type :function
-                   :domain   {:ast/type :named :name {:reference :type :name "T"}}
-                   :return
-                   Bool}}}}))
+                {:ast/type :forall
+                 :variable {:ast/type :universal-variable
+                            :reference {:name "T"}}
+                 :body     {:ast/type :record
+                            :fields
+                            {{:reference :field
+                              :name      "true?"
+                              :in        module}
+                             {:ast/type :function
+                              :domain   {:ast/type :universal-variable
+                                         :reference {:reference :type :name "T"}}
+                              :return
+                              Bool}}}}}))
 
     (fact "instance" instance =>
       (matches {:ast/definition :constant

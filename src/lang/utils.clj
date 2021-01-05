@@ -44,11 +44,6 @@
         :else (last maps)))
     maps))
 
-(defn spy
-  [f v]
-  (f v)
-  v)
-
 (defn symmetric-difference
   [a b]
   (set/difference (set/union a b) (set/intersection a b)))

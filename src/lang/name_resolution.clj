@@ -72,7 +72,7 @@
   (letfn [(restrict [node symbols]
             (cond
               (term/lambda? node)
-              (disj symbols (:argument node))
+              (disj symbols (select-keys (:argument node) [:reference :name]))
 
               (term/match? node)
               (->> node
@@ -90,7 +90,7 @@
           (cond
             (not (term/is? node)) node
 
-            (term/symbol? node)
+            (and (term/symbol? node) (not (:in (:symbol node))))
             (assoc node :name-resolution/captured-symbols #{(:symbol node)})
 
             :else

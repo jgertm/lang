@@ -1,7 +1,7 @@
 (ns lang.compiler
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [lang.code-generator :as code-generator]
+            [lang.code-generator.jvm :as code-generator]
             [lang.desugar :as desugar]
             [lang.name-resolution :as name-resolution]
             [lang.parser :as parser]
@@ -63,7 +63,7 @@
          (:name-resolution phases)     (name-resolution/run)
          (:type-checker phases)        (type-checker/run)
          (:desugar phases)             (desugar/run)
-         (:code-generator phases)      (code-generator/run)))
+         (:code-generator phases)      (code-generator/run :emit!)))
      (catch Exception e
        (println (format "Error while compiling %s" path))
        (throw e)))))
