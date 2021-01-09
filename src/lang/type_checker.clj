@@ -1203,6 +1203,7 @@
           (let [type (-> module
                        (lookup-type (:name operator))
                        (type/instantiate-universals parameters))]
+            (annotate-pattern pattern pattern-type)
             (match:check module
               branches
               [(cons type (next pattern-types)) pattern-principality]
@@ -1212,6 +1213,7 @@
            {:ast/type :named :name name}
            _]
           (let [type (lookup-type module name)]
+            (annotate-pattern pattern pattern-type)
             (match:check module
               branches
               [(cons type (next pattern-types)) pattern-principality]
