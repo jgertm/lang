@@ -764,7 +764,7 @@
           [type principality])
         nil)
 
-      [{:ast/term :variant :variant {:injector injector :value value}}
+      [{:ast/term :variant :injector injector :value value}
        {:ast/type :variant :injectors injectors}
        _] ; +I
       (cond
@@ -777,7 +777,7 @@
         :default ; injector isn't defined
         (throw (ex-info "Unknown injector" {:injector injector})))
 
-      [{:ast/term :variant :variant {:injector injector}}
+      [{:ast/term :variant :injector injector}
        ({:ast/type :existential-variable :id alpha} :as existential-type)
        _] ; +Iα^
       (let [current (zip/node @(:type-checker/facts module))
@@ -1126,7 +1126,7 @@
               [(cons type (next pattern-types)) :principal]
               return))
 
-          [{:ast/pattern :variant :variant {:injector injector :value value}}
+          [{:ast/pattern :variant :injector injector :value value}
            {:ast/type :variant :injectors injectors}
            _]                           ; Match+ₖ
           (cond
@@ -1145,7 +1145,7 @@
             :default
             (throw (ex-info "Unknown injector" {:injector injector})))
 
-          [{:ast/pattern :variant :variant {:injector injector}}
+          [{:ast/pattern :variant :injector injector}
            {:ast/type :existential-variable :id alpha} ; Match+ₖα^
            :non-principal]
           (let [current (zip/node @(:type-checker/facts module))

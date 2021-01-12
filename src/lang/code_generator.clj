@@ -278,7 +278,7 @@
               (compare-atoms atom)
               [[:ifne next]])
 
-            {:ast/pattern :variant :variant {:injector injector :value sub-pattern}}
+            {:ast/pattern :variant :injector injector :value sub-pattern}
             (let [{:keys [outer inner]} (lookup-injector module injector)]
               (utils/concatv
                 load-body
@@ -401,7 +401,7 @@
     {:ast/term :symbol :symbol symbol}
     (lookup-binding module symbol)
 
-    {:ast/term :variant :variant {:injector injector :value value}}
+    {:ast/term :variant :injector injector :value value}
     (let [{:keys [outer inner]} (lookup-injector module injector)]
       (utils/concatv
         [[:new outer]

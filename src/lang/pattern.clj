@@ -8,8 +8,8 @@
 (defn children
   [node]
   (match node
-    {:ast/pattern :variant :variant variant}
-    (filter some? [(:value variant)])
+    {:ast/pattern :variant :value value}
+    (filter some? [value])
 
     {:ast/pattern :record :fields fields}
     (vals fields)

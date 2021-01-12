@@ -20,8 +20,8 @@
            value (optional (fwd expr))]
       (return
         {:ast/pattern :variant
-         :variant     {:injector injector
-                       :value    value}}))))
+         :injector    injector
+         :value       value}))))
 
 (def ^:private record
   (braces
