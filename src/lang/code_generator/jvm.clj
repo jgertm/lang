@@ -5,6 +5,7 @@
             [clojure.walk :as walk]
             [insn.core :as insn]
             [insn.util :refer [label]]
+            [lang.definition :as definition]
             [lang.jvm :as jvm]
             [lang.module :as module]
             [lang.pattern :as pattern]
@@ -705,7 +706,7 @@
   [state {:keys [name] :as definition}]
   (match definition
     {:ast/definition :module :definitions definitions}
-    (do (log/debug "compiling module" name)
+    (do (log/debug "emitting module" (definition/name definition))
         (-> state
           (push-class {:name name})
           (reduce-state compile-definition definitions)
@@ -714,7 +715,7 @@
     {:ast/definition :constant :body ({:type-checker.term/type type} :as body)}
     (let [class (:name (current-class state))
           type  (as-jvm-class state type)]
-      (log/debug "compiling constant" name)
+      (log/debug "emitting constant" (definition/name definition))
       (-> state
         (bind-symbols {name {:instruction [:getstatic class (munge (:name name)) type]
                              :class       type}})
@@ -725,7 +726,7 @@
         (pop-field)))
 
     {:ast/definition :type :body body}
-    (do (log/debug "compiling type" name)
+    (do (log/debug "emitting type" (definition/name definition))
         (-> state
           (push-class {:flags #{:public :final}
                        :name  name})
@@ -753,7 +754,7 @@
      (when emit?
        (run!
          (fn [class]
-           (log/debug "emitting class" (:name class))
+           (log/debug "writing classfile" (:name class))
            (let [class (insn/visit class)]
              (insn/define classloader class)
              (insn/write class "out/")))

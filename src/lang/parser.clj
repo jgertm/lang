@@ -1,7 +1,8 @@
 (ns lang.parser
   (:require [blancas.kern.core :as kern]
             [clojure.core.match :refer [match]]
-            [lang.parser.definition :as definition]))
+            [lang.parser.definition :as definition]
+            [taoensso.timbre :as log]))
 
 (def ^:private file
   (kern/bind [forms (kern/many definition/expr)]
@@ -11,6 +12,7 @@
 
 (defn run
   [path]
+  (log/debug "parsing file" path)
   (let [result (kern/parse-file file path)]
     (if (:ok result)
       (:value result)

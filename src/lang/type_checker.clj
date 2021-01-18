@@ -12,7 +12,9 @@
             [lang.term :as term]
             [lang.type :as type]
             [lang.utils :as utils :refer [undefined]]
-            [lang.zip :as zip])
+            [lang.zip :as zip]
+            [taoensso.timbre :as log]
+            [lang.definition :as definition])
   (:import java.lang.Class))
 
 (declare apply)
@@ -1638,6 +1640,7 @@
 (defn run
   [module]
   {:pre [(ast/module? module)]}
+  (log/debug "type-checking" (definition/name module))
   (->> module
     :definitions
     (reduce

@@ -5,7 +5,8 @@
             [lang.desugar :as desugar]
             [lang.name-resolution :as name-resolution]
             [lang.parser :as parser]
-            [lang.type-checker :as type-checker]))
+            [lang.type-checker :as type-checker]
+            [taoensso.timbre :as log]))
 
 (declare run)
 
@@ -51,19 +52,22 @@
    (run path :until :code-generator))
   ([path & {:keys [until]}]
    (try
+     (log/debug "compiling module" path)
      (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
            phases     (conj
                         (->> all-phases
                           (take-while (partial not= until))
                           (set))
-                        until)]
-       (cond-> path
-         (:parser phases)              (parser/run)
-         (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
-         (:name-resolution phases)     (name-resolution/run)
-         (:type-checker phases)        (type-checker/run)
-         (:desugar phases)             (desugar/run)
-         (:code-generator phases)      (code-generator/run :emit!)))
+                        until)
+           result (cond-> path
+                    (:parser phases)              (parser/run)
+                    (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
+                    (:name-resolution phases)     (name-resolution/run)
+                    (:type-checker phases)        (type-checker/run)
+                    (:desugar phases)             (desugar/run)
+                    (:code-generator phases)      (code-generator/run :emit!))]
+       (log/debug "done compiling" path)
+       result)
      (catch Exception e
        (println (format "Error while compiling %s" path))
        (throw e)))))

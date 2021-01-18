@@ -3,10 +3,12 @@
             [clojure.set :as set]
             [clojure.walk :as walk]
             [lang.ast :as ast]
+            [lang.definition :as definition]
             [lang.module :as module]
             [lang.pattern :as pattern]
             [lang.term :as term]
-            [lang.utils :as utils :refer [undefined]]))
+            [lang.utils :as utils :refer [undefined]]
+            [taoensso.timbre :as log]))
 
 (defn- absorb-definition
   [module {:keys [name] :as definition}]
@@ -114,6 +116,7 @@
 (defn run
   [module]
   {:pre [(ast/module? module)]}
+  (log/debug "resolving names" (definition/name module))
   (->> module
     :definitions
     (reduce

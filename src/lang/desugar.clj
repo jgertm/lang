@@ -1,13 +1,8 @@
 (ns lang.desugar
-  (:require [clojure.core.match :refer [match]]
-            [clojure.string :as str]
-            [clojure.walk :as walk]
+  (:require [lang.definition :as definition]
             [lang.desugar.macros :as macros]
             [lang.desugar.typeclasses :as typeclasses]
-            [lang.module :as module]
-            [lang.term :as term]
-            [lang.type :as type]
-            [lang.utils :as utils :refer [undefined]]))
+            [taoensso.timbre :as log]))
 
 (defn- desugar
   [module definition]
@@ -25,6 +20,7 @@
 
 (defn run
   [module]
+  (log/debug "desugaring" (definition/name module))
   (reduce
     (fn [module definition]
       (update module :definitions conj (desugar module definition)))
