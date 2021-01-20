@@ -12,6 +12,7 @@
   :main ^:skip-aot lang.core
   :target-path "target/%s/"
   :java-source-paths ["tmp"]
+  :resource-paths ["std"]
   :profiles {:uberjar {:aot            :all
                        :resource-paths ["config/uberjar"]}
              :dev     {:source-paths ["dev"]

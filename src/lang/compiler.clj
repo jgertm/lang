@@ -10,11 +10,6 @@
 
 (declare run)
 
-(def lang-home 
-  (or
-    (System/getenv "LANG_HOME")
-    (throw (ex-info "Could not find stdlib" {}))))
-
 (def ^:private default-imports
   (->> [["lang" "core"]
         ["lang" "math"]]
@@ -37,9 +32,9 @@
           (map (fn [{:keys [module alias open]}]
                  (let [file (when (= "lang" (first (:name module)))
                               (-> "/"
-                                (str/join (cons lang-home (:name module)))
+                                (str/join (:name module))
                                 (str ".lang")
-                                (io/file)))
+                                (io/resource)))
                        module (run file :until phase)]
                    (-> module
                      (assoc
