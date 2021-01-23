@@ -12,6 +12,7 @@
      {:reference :type :name "Integer"} {:ast/type :primitive :primitive :integer}
      {:reference :type :name "int"}     {:ast/type :primitive :primitive :int}
      {:reference :type :name "Bool"}    {:ast/type :primitive :primitive :boolean}
+     {:reference :type :name "bool"}    {:ast/type :primitive :primitive :bool}
      {:reference :type :name "Object"}  {:ast/type :primitive :primitive :object}
      {:reference :type :name "Array"}
      (let [universal-variable (gensym)]

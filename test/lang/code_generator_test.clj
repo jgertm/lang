@@ -113,8 +113,48 @@
              [:cons {:value n :next tl}] (op (fold op init tl) n)))
          (def some-list
            [:cons {:value 1 :next [:cons {:value 3 :next [:nil]}]}])))])
-  (eval `(lang.code_generator_test.list/fold
-           lang.math/_PLUS_
-           ~(biginteger 0)
-           lang.code_generator_test.list/some_list))
-  => 4)
+  (fact 
+    (eval `(lang.code_generator_test.list/fold
+             lang.math/_PLUS_
+             ~(biginteger 0)
+             lang.code_generator_test.list/some_list))
+    => 4))
+
+(facts "really complicated types generate code"
+  (with-state-changes
+    [(before :facts
+       (run :code-generator
+         (defmodule lang.code-generator-test.alist
+           (:import [lang.io :as io]))
+         (deftype (Alist T)
+             (| [:nil]
+                [:cons {:current T :next (Alist T)}]))
+         (deftype (Entry K V)
+             {:key K :value V})
+         (deftype (Option T)
+             (| [:none]
+                [:some T]))
+         (defclass (Eq T)
+           (= :$ (-> T T Bool)))
+         (definstance (Eq Integer)
+           (= [a b]
+             (. (. a (java.math.BigInteger/equals b))
+               (java.lang.Boolean/valueOf))))
+         (defn insert [alist key value]
+           [:cons {:current {:key key :value value} :next alist}])
+         (defn get [alist key]
+           (match alist
+             [:nil] [:none]
+             [:cons {:current {:key k :value v} :next next}]
+             (if (= k key)
+               [:some v]
+               (get next key))))
+         (defn retrieve [arg]
+           (get (insert (insert (insert [:nil] 1 "one") 2 "two") 3 "three") 2))
+         (defn main [arv :$ (Array String)]
+           (match (retrieve 1)
+             [:some res] (io/println res)
+             [:none] (io/println "FAIL")))))])
+  (fact 
+    (.value (eval `(lang.code_generator_test.alist/retrieve nil)))
+    => "two"))

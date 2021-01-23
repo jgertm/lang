@@ -74,7 +74,11 @@
   (letfn [(restrict [node symbols]
             (cond
               (term/lambda? node)
-              (disj symbols (select-keys (:argument node) [:reference :name]))
+              (reduce
+                (fn [symbols argument]
+                  (disj symbols (select-keys argument [:reference :name])))
+                symbols
+                (:arguments node))
 
               (term/match? node)
               (->> node

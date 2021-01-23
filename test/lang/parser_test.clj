@@ -13,22 +13,13 @@
 
   (run :parser
     (defmodule lang.parser-test.empty-module
-      (:skip-implicits)))
-  => (matches
-       {:ast/definition :module
-        :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
-        :skip-implicits true
-        :imports        nil
-        :definitions    []})
-
-  (run :parser
-    (defmodule lang.parser-test.empty-module
+      (:skip-implicits)
       (:import [lang.io :as io]
                [lang.option :as option])))
   => (matches
        {:ast/definition :module
         :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
-        :skip-implicits nil
+        :skip-implicits true
         :imports        [{:module {:reference :module :name ["lang" "io"]}
                           :alias  {:reference :module :name ["io"]}}
                          {:module {:name ["lang" "option"]}
@@ -79,7 +70,7 @@
                         :reference {:reference :constant :name "id"}
                         :body
                         {:ast/term :lambda
-                         :argument {:reference :constant :name "x"}
+                         :arguments [{:reference :constant :name "x"}]
                          :body
                          {:ast/term :symbol
                           :symbol   {:reference :constant :name "x"}}}}}
@@ -88,12 +79,9 @@
                         :reference {:name "const"}
                         :body
                         {:ast/term :lambda
-                         :argument {:name "x"}
+                         :arguments [{:name "x"} {:name "y"}]
                          :body
-                         {:ast/term :lambda
-                          :argument {:name "y"}
-                          :body
-                          {:symbol {:name "x"}}}}}}
+                         {:symbol {:name "x"}}}}}
 
                       {:body 
                        {:ast/term  :recur
@@ -136,7 +124,7 @@
           :fields
           {{:reference :constant :name "true?"}
            {:ast/term :lambda
-            :argument {:reference :constant :name "bool"}
+            :arguments [{:reference :constant :name "bool"}]
             :body
             {:ast/term :symbol
              :symbol

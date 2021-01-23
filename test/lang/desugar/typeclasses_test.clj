@@ -26,7 +26,7 @@
                 :params         [{:name "T"}]
                 :body 
                 {:ast/type :forall
-                 :variable {:ast/type :universal-variable
+                 :variable {:ast/type  :universal-variable
                             :reference {:name "T"}}
                  :body     {:ast/type :record
                             :fields
@@ -34,7 +34,7 @@
                               :name      "true?"
                               :in        module}
                              {:ast/type :function
-                              :domain   {:ast/type :universal-variable
+                              :domain   {:ast/type  :universal-variable
                                          :reference {:reference :type :name "T"}}
                               :return
                               Bool}}}}}))
@@ -48,8 +48,8 @@
                  {{:reference :field
                    :name      "true?"
                    :in        module}
-                  {:ast/term :lambda
-                   :argument {:reference :constant :name "bool"}
+                  {:ast/term  :lambda
+                   :arguments [{:reference :constant :name "bool"}]
                    :body
                    {:ast/term :symbol
                     :symbol   {:reference :constant :name "bool"}
@@ -69,17 +69,14 @@
                   :name           {:name "is-it-true?"}
                   :body           {:ast/term :recur
                                    :body
-                                   {:ast/term :lambda
-                                    :argument dictionary
+                                   {:ast/term  :lambda
+                                    :arguments [dictionary argument]
                                     :body
-                                    {:ast/term :lambda
-                                     :argument argument
-                                     :body
-                                     {:ast/term  :application
-                                      :function  {:ast/term :extract
-                                                  :record   {:ast/term :symbol :symbol dictionary}
-                                                  :field    {:reference :field :name "true?"}}
-                                      :arguments [{:ast/term :symbol :symbol argument}]}}}}})))
+                                    {:ast/term  :application
+                                     :function  {:ast/term :extract
+                                                 :record   {:ast/term :symbol :symbol dictionary}
+                                                 :field    {:reference :field :name "true?"}}
+                                     :arguments [{:ast/term :symbol :symbol argument}]}}}})))
 
     (fact "nope" nope =>
       (matches {:ast/definition :constant
@@ -123,7 +120,7 @@
       (matches {:ast/definition :constant
                 :body
                 {:ast/term :lambda
-                 :argument {:reference :dictionary}
+                 :arguments [{:reference :dictionary}]
                  :body
                  {:ast/term :record
                   :fields   {{:reference :field :name "show"
@@ -155,16 +152,13 @@
                 {:ast/term :recur
                  :body
                  {:ast/term :lambda
-                  :argument {:reference :dictionary}
+                  :arguments [{:reference :dictionary} {:reference :constant}]
                   :body
-                  {:ast/term :lambda
-                   :argument {:reference :constant}
-                   :body
-                   {:ast/term  :application
-                    :function  {:ast/term :extract
-                                :record   {:ast/term  :application
-                                           :function  {:ast/term :symbol
-                                                       :symbol   {:name "I:Show:(Identity α)"}}
-                                           :arguments [{:ast/term :symbol
-                                                        :symbol   {:reference :dictionary}}]}}
-                    :arguments [{:ast/term :variant}]}}}}}))))
+                  {:ast/term  :application
+                   :function  {:ast/term :extract
+                               :record   {:ast/term  :application
+                                          :function  {:ast/term :symbol
+                                                      :symbol   {:name "I:Show:(Identity α)"}}
+                                          :arguments [{:ast/term :symbol
+                                                       :symbol   {:reference :dictionary}}]}}
+                   :arguments [{:ast/term :variant}]}}}}))))

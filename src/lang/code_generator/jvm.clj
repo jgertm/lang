@@ -1,6 +1,7 @@
 (ns lang.code-generator.jvm
   (:refer-clojure :exclude [emit-term])
   (:require [clojure.core.match :refer [match]]
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.walk :as walk]
             [insn.core :as insn]
@@ -235,7 +236,12 @@
 
         {:ast/type :application :operator operator :parameters parameters}
         (if (array? operator)
-          (Class/forName (format "[L%s;" (as-jvm-class state (first parameters))))
+          (->> parameters
+            (first)
+            (as-jvm-class state)
+            (.getName)
+            (format "[L%s;")
+            (Class/forName))
           (recur state operator))
 
         {:ast/type :function}
@@ -270,11 +276,11 @@
   (let [argument-count (count (butlast desc))
         return-type    (last desc)
         interface-name      (format "lang.function.%s%d"
-                              (if (= 'void return-type)
+                              (if (= Void/TYPE return-type)
                                 "Consumer"
                                 "Function")
                               argument-count)
-        interface-desc (mapv #(if (not= % 'void) Object %) desc)]
+        interface-desc (mapv #(if (not= % Void/TYPE) Object %) desc)]
     {:interface-name interface-name
      :interface-desc interface-desc}))
 
@@ -289,7 +295,7 @@
       (-> state
         (push-method {:flags #{:static}
                       :name  :clinit
-                      :desc  ['void]})
+                      :desc  [Void/TYPE]})
         (emit bytecode)
         (pop-method))
       (update-in state (conj path :emit) (fnil into []) bytecode))))
@@ -330,15 +336,17 @@
              [:ifne next]]))))
 
 (defmethod emit-pattern :record
-  [state {:keys [body next]} {:keys [fields type-checker.pattern/type] :as form}]
+  [state {:keys [body next]} {:keys [fields] :as form}]
   (reduce-state state
-    (fn [state [field sub-pattern]]
+    (fn [state [field {:keys [type-checker.pattern/type] :as sub-pattern}]]
       (let [{:keys [class field inner-class]}
             (lookup-type-info state field)
-            inner-register (register! state)]
+            inner-register     (register! state)
+            actual-inner-class (as-jvm-class state type)]
         (-> state
           (emit [body
                  [:getfield class field inner-class]
+                 [:checkcast actual-inner-class]
                  [:astore inner-register]])
           (emit-pattern
             {:next next :body [:aload inner-register]}
@@ -373,52 +381,41 @@
   (fn [state form] (term/is? form)))
 
 (defmethod emit-term :lambda
-  [state {:keys [name name-resolution/captured-symbols type-checker.term/type] :as form}]
-  (let [captured-symbols
-        (vec captured-symbols)
+  [state {:keys [name arguments body name-resolution/captured-symbols type-checker.term/type] :as form}]
+  (let [captured-symbols (vec captured-symbols)
+        capture-desc     (mapv #(:class (lookup-symbol-info state %)) captured-symbols)
+        lambda-desc      (as-jvm-desc state type)
         capture-bindings
-        (->> (range)
-          (map
-            (fn [symbol register]
-              [symbol (merge
-                        (lookup-symbol-info state symbol)
-                        {:instruction [:aload register]})])
-            captured-symbols)
-          (into {}))
-        {:keys [arguments body]}
-        (->> form
-          (iterate #(when (term/lambda? %) (:body %)))
-          (take-while some?)
-          (reduce
-            (fn [acc {:keys [ast/term argument type-checker.term/type] :as form}]
-              (case term
-                :lambda (update acc :arguments (fnil conj []) [argument (:domain (specialize-type type))])
-                (assoc acc :body form)))
-            nil))
-        argument-bindings
-        (->> arguments
+        (map
+          (fn [symbol]
+            [symbol (lookup-symbol-info state symbol)])
+          captured-symbols)
+        lambda-bindings
+        (map
+          (fn [symbol class]
+            [(select-keys symbol [:reference :name])
+             {:class class}])
+          arguments
+          lambda-desc)
+        bindings     
+        (->>
+          (concat capture-bindings lambda-bindings)
           (map-indexed
-            (fn [index [symbol type]]
-              [(select-keys symbol [:reference :name])
-               {:instruction [:aload (+ index (count captured-symbols))]
-                :class       (as-jvm-class state type)}]))
+            (fn [index [symbol props]]
+              [symbol (assoc props :instruction [:aload index])]))
           (into {}))
-        class        (:name (current-class state))
-        method-name  (munge (or (:name name) (gensym "fn")))
-        bindings     (merge capture-bindings argument-bindings)
-        capture-desc (mapv #(:class (lookup-symbol-info state %)) captured-symbols)
-        lambda-desc  (as-jvm-desc state type)
-        desc         (into capture-desc lambda-desc)
-        return-type  (last lambda-desc)
-        return-insn  (case return-type
-                       'void :return
-                       :areturn)
+        class            (:name (current-class state))
+        method-name      (munge (or (:name name) (gensym "fn")))
+        desc             (into capture-desc lambda-desc)
+        return-type      (last lambda-desc)
+        return-insn      (condp = return-type ; NOTE: https://stackoverflow.com/questions/12028944/clojure-case-statement-with-classes/12029256#12029256
+                           Void/TYPE :return
+                           ;; TODO(tjgr): primitive returns
+                           :areturn)
         method-interface
         (as-function-interface state desc)
         callsite-interface
-        (->> type
-          (as-jvm-desc state)
-          (as-function-interface state))]
+        (as-function-interface state lambda-desc)]
     (-> state
       (cond-> (some? name) ; initial type for the field has no knowlege of captures
         (-> 
@@ -509,7 +506,7 @@
       (emit [[:mark failure]
              [:new Exception] ; TODO(tjgr): more specific exception class
              [:dup]
-             [:invokespecial Exception :init ['void]]
+             [:invokespecial Exception :init [Void/TYPE]]
              [:athrow]
              [:mark success]]))))
 
@@ -529,7 +526,7 @@
       [[:new BigInteger]
        [:dup]
        [:ldc value]
-       [:invokespecial BigInteger :init [String 'void]]])
+       [:invokespecial BigInteger :init [String Void/TYPE]]])
 
     :string
     (emit state
@@ -586,13 +583,15 @@
   [state {:keys [object field] :as form}]
   (match field
     {:ast/term :application :function function :arguments arguments}
-    (let [class     (->> function :symbol :in :name (str/join "."))
-          method    (:name (:symbol function))
-          signature (:signature (:type-checker.term/type function))]
+    (let [class          (->> function :symbol :in :name (str/join "."))
+          method         (:name (:symbol function))
+          signature      (:signature (:type-checker.term/type function))
+          static-method? (empty? arguments) ; FIXME: jank, some instance methods take no arguments as well
+          invoke-insn    (if static-method? :invokestatic :invokevirtual)]
       (-> state
         (emit-term object)
         (reduce-state emit-term arguments)
-        (emit [[:invokevirtual class method signature]])))))
+        (emit [[invoke-insn class method signature]])))))
 
 (defmethod emit-term :default ; FIXME(tjgr): rm
   [state form]
@@ -606,7 +605,7 @@
 
 (defmethod compile-type :variant
   [state {:keys [injectors]}]
-  (let [super-ctor-desc ['void]]
+  (let [super-ctor-desc [Void/TYPE]]
     (-> state
       (register-type {:ctor-desc super-ctor-desc})
       (update-unit update :flags
@@ -638,7 +637,7 @@
                 inner-class        (if (realized? inner-class-name)
                                      @inner-class-name
                                      (some->> inner-type (as-jvm-class state)))
-                injector-ctor-desc (filterv some? [inner-class 'void])]
+                injector-ctor-desc (filterv some? [inner-class Void/TYPE])]
             (-> state
               (register-injector {:ctor-desc   injector-ctor-desc
                                   :inner-class inner-class})
@@ -667,7 +666,7 @@
   [state {:keys [fields]}]
   (let [ctor-desc (conj
                     (mapv (partial as-jvm-class state) (vals fields))
-                    'void)]
+                    Void/TYPE)]
     (-> state
       (register-type {:ctor-desc ctor-desc})
       (reduce-state
@@ -684,7 +683,7 @@
                     :name :init
                     :desc ctor-desc})
       (emit [[:aload 0]
-             [:invokespecial :super :init ['void]]])
+             [:invokespecial :super :init [Void/TYPE]]])
       (reduce-state
         (fn [state [index [{:keys [name]} inner-type]]]
           (let [inner-class (as-jvm-class state inner-type)]
@@ -735,6 +734,59 @@
 
     _ state))
 
+(defn resort
+  [classes]
+  (let [class-names (->> classes
+                      (vals)
+                      (map :name)
+                      (set))]
+    (letfn [(referenced-classes [class]
+              (let [constructions
+                    (->> class
+                      :methods
+                      (vals)
+                      (mapcat
+                        #(->> %
+                           :emit
+                           (filter (fn [insn]
+                                     (and (= :new (first insn))
+                                          (string? (second insn)))))
+                           (map second)))
+                      (set))
+                    super (some-> class :super (hash-set))]
+                (set/intersection
+                  (set/union
+                    constructions
+                    super)
+                  class-names)))
+            (index-by-dependencies [classes]
+              (->> classes
+                (group-by referenced-classes)
+                (map (fn [[refs classes]]
+                       [refs
+                        (set (map :name classes))]))
+                (into {})))
+            (topological-sort [acc input]
+              (if (empty? input)
+                acc
+                (let [classes (get input #{})]
+                  (recur
+                    (into acc classes)
+                    (->>
+                      (dissoc input #{})
+                      (reduce-kv
+                        (fn [acc k v]
+                          (update acc
+                            (set/difference k classes)
+                            set/union v))
+                        {}))))))]
+
+      (->> classes
+        (vals)
+        (index-by-dependencies)
+        (topological-sort [])
+        (map (fn [name] (get classes name)))))))
+
 (defn run
   ([module]
    (run module false))
@@ -744,7 +796,7 @@
          state       (compile-definition (new-state) module)
          bytecode    (->> state
                        :classes
-                       (valsv)
+                       (resort)
                        (mapv
                          (fn [class]
                            (-> class
@@ -784,6 +836,8 @@
 
 
   (com.gfredericks.debug-repl/unbreak!!)
+
+  (com.gfredericks.debug-repl/unbreak!)
 
   )
 

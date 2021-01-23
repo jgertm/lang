@@ -206,11 +206,11 @@
                      {:ast/type :guarded
                       :proposition
                       {:ast/constraint :instance
-                       :typeclass {:name "Veracious"}}
+                       :typeclass      {:name "Veracious"}}
                       :body
                       {:ast/type :function
-                       :domain {:ast/type :universal-variable}
-                       :return {:ast/type :named :name {:name "Bool"}}}}}
+                       :domain   {:ast/type :universal-variable}
+                       :return   {:ast/type :named :name {:name "Bool"}}}}}
                     :principal]))))
 
     (facts "AST"
@@ -222,10 +222,10 @@
             (matches {:ast/definition :constant
                       :name           {:name "is-it-true?"}
                       :body
-                      {:ast/term :recur
+                      {:ast/term               :recur
                        :body
-                       {:ast/term               :lambda
-                        :argument {:name "x"}
+                       {:ast/term  :lambda
+                        :arguments [{:name "x"}]
                         :body
                         {:ast/term               :application
                          :function
@@ -245,13 +245,18 @@
                                       :body     {:ast/type :function
                                                  :domain   {:ast/type :universal-variable}
                                                  :return   Bool}}}}
-                         :arguments              [{:ast/term               :symbol
-                                                   :type-checker.term/type {:ast/type :universal-variable}}]
+                         :arguments
+                         [{:ast/term               :symbol
+                           :type-checker.term/type {:ast/type :universal-variable}}]
                          :type-checker.term/type Bool}
-                        :type-checker.term/type {:ast/type :function
-                                                 :domain {:ast/type :universal-variable}
-                                                 :return Bool}}
-                       :type-checker.term/type {:ast/type :function}}})))
+                        :type-checker.term/type
+                        {:ast/type :forall
+                         :body
+                         {:ast/type :guarded
+                          :body     {:ast/type :function
+                                     :domain   {:ast/type :universal-variable}
+                                     :return   Bool}}}}
+                       :type-checker.term/type {:ast/type :forall}}})))
 
         (fact "nope" nope =>
           (matches {:ast/definition :constant

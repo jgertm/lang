@@ -217,7 +217,7 @@
                (some->>
                  (select-keys symbol [:reference :name :in])
                  (module/get (all-bindings module)))]
-      [(apply module type) principality])
+      [type principality])
     (throw (ex-info "Unknown binding"
              {:symbol symbol
               :module (:name module)}))))
@@ -505,24 +505,28 @@
           (reverse)
           (reduce
             (fn [type {:keys [existential universal restrictions]}]
-              (cond
-                (and (type/contains? type existential)
-                     (not-empty restrictions))
-                (let [proposition (if (= 1 (count restrictions)) ; FIXME: multiple restrictions
-                                    (first restrictions)
-                                    (undefined ::multiple-constraints))]
+              (let [restrictions
+                    (->> restrictions
+                      (map #(update % :parameters (partial mapv (partial apply module))))
+                      (into (empty restrictions)))]
+                (cond
+                  (and (type/contains? type existential)
+                       (not-empty restrictions))
+                  (let [proposition (if (= 1 (count restrictions)) ; FIXME: multiple restrictions
+                                      (first restrictions)
+                                      (undefined ::multiple-constraints))]
+                    {:ast/type :forall
+                     :variable universal
+                     :body     {:ast/type    :guarded
+                                :proposition proposition
+                                :body        type}})
+
+                  (type/contains? type existential)
                   {:ast/type :forall
                    :variable universal
-                   :body     {:ast/type    :guarded
-                              :proposition proposition
-                              :body        type}})
+                   :body     type}
 
-                (type/contains? type existential)
-                {:ast/type :forall
-                 :variable universal
-                 :body     type}
-
-                :else type))
+                  :else type)))
             type)
           (apply module))]
     generalized-type))
@@ -709,6 +713,17 @@
     {:ast/term :variant} true
     _ false))
 
+(defn- denominalize
+  [module type]
+  (match type
+    {:ast/type :named :name name}
+    (lookup-type module name)
+
+    {:ast/type   :application
+     :operator   operator
+     :parameters parameters}
+    (type/instantiate-universals (denominalize  module operator) parameters)))
+
 (defn- analysis:check
   "Γ ⊢ e ⇐ A p ⊣ Δ
   found on pg. 37"
@@ -752,29 +767,45 @@
         (analysis:check module term [(apply module body) :principal])
         nil)
 
-      [{:ast/term :lambda :argument argument :body body}
-       {:ast/type :function :domain domain :return return}
+      [{:ast/term :lambda :arguments arguments :body body}
+       {:ast/type :function}
        _] ; →I
-      (do (bind-symbol module argument domain principality)
+      (let [return
+            (reduce
+              (fn [type argument]
+                (match type
+                  {:ast/type :function :domain domain :return return}
+                  (do (bind-symbol module argument domain principality)
+                      return)))
+              type
+              arguments)]
           (analysis:check module body [return principality]))
 
-      [{:ast/term :lambda :argument argument :body body}
+      [{:ast/term :lambda :arguments arguments :body body}
        ({:ast/type :existential-variable :id alpha} :as alpha-type)
        :non-principal] ; →Iα^
-      (let [current  (zip/node @(:type-checker/facts module))
-            _        (swap! (:type-checker/facts module)
-                       zip/focus-left
-                       {:fact/declare-existential alpha :kind :kind/type})
-            alpha-1  (or
-                       (some->> argument :type (apply module))
-                       (fresh-existential module))
-            alpha-2  (fresh-existential module)
-            function {:ast/type :function
-                      :domain   alpha-1
-                      :return   alpha-2}]
-        (solve-existential module alpha function)
+      (let [current         (zip/node @(:type-checker/facts module))
+            _               (swap! (:type-checker/facts module)
+                              zip/focus-left
+                              {:fact/declare-existential alpha :kind :kind/type})
+            mark (fresh-mark module)
+            argument-alphas (mapv
+                              (fn [arg]
+                                (or (some->> arg :type (apply module))
+                                    (fresh-existential module)))
+                              arguments)
+            return-alpha    (fresh-existential module)
+            function        (reduce
+                              (fn [return argument]
+                                {:ast/type :function
+                                 :domain   argument
+                                 :return   return})
+                              return-alpha
+                              argument-alphas)]
+        (solve-existential module alpha function) ; rm?
         (swap! (:type-checker/facts module) zip/focus-right current)
-        (analysis:check module term [function :non-principal]))
+        (analysis:check module term [function :non-principal])
+        (solve-existential module alpha (generalize module mark function)))
 
       [{:ast/term :match :body body :branches branches} _ _] ; Case
       (let [[pattern-type pattern-principality] (synthesize module body)]
@@ -808,7 +839,7 @@
             (find-variant module injector)]
         (swap! (:type-checker/facts module) zip/focus-right current)
         (instantiate-to module existential-type [type :kind/type])
-        (analysis:check module term [type principality]))
+        (analysis:check module term [(denominalize module type) principality]))
 
       [{:ast/term :record :fields fields}
        {:ast/type :record :fields rows}
@@ -822,10 +853,18 @@
         :else
         (undefined ::analysis:check.record-type)) 
 
-      [{:ast/term :record}
-       {:ast/type :existential-variable}
+      [{:ast/term :record :fields fields}
+       ({:ast/type :existential-variable :id alpha} :as existential-type)
        _] ; ×Iα^
-      (undefined ::analysis:check.record-exvar) 
+      (let [current (zip/node @(:type-checker/facts module))
+            _       (swap! (:type-checker/facts module)
+                      zip/focus-left
+                      (get (existential-facts module) alpha))
+            type
+            (find-record module fields)]
+        (swap! (:type-checker/facts module) zip/focus-right current)
+        (instantiate-to module existential-type [type :kind/type])
+        (analysis:check module term [(denominalize module type) principality]))
 
       [{:ast/term :sequence :operations operations} _ _]
       (let [return (last operations)]
@@ -838,28 +877,6 @@
                   operation
                   [alpha :non-principal])))))
         (analysis:check module return [type principality]))
-
-      [_
-       {:ast/type :named :name name}
-       _]
-      (let [type* (lookup-type module name)]
-        (analysis:check module term [type* principality]))
-
-      [_
-       {:ast/type   :application
-        :operator   ({:ast/type :named} :as operator)
-        :parameters parameters}
-       _]
-      (match operator
-        {:ast/type :named :name name}
-        (let [type* (-> module
-                      (lookup-type name)
-                      (type/instantiate-universals parameters))]
-          (analysis:check module term [type* principality]))
-
-        {:ast/type :existential-variable}
-        (do #_(undefined ::analysis:check.application.exvar)
-            nil))
 
       [_ _ _] ; Sub
       (let [[synth-type] (synthesize module term)
@@ -937,8 +954,40 @@
                (vals injectors))))
 
     [{:ast/type :existential-variable :id alpha}
-     [{:ast/type (:or :function :record)} _]] ; InstBin
-    (undefined :instantiate-to/inst-bin.plus)
+     [{:ast/type :record :fields fields} _]] ; InstBin
+    (let [_ (swap! (:type-checker/facts module)
+              zip/focus-left
+              {:fact/declare-existential alpha :kind :kind/type})
+          fields* ; TODO(tjgr): recycle exvars
+          (->> fields
+            (map (fn [[field value]]
+                   [field (fresh-existential module)]))
+            (into (empty fields)))]
+      (solve-existential module alpha (assoc solution :fields fields*))
+      (swap! (:type-checker/facts module) zip/->end)
+      (dorun (map
+               (fn [alpha-n tau-n]
+                 (when (some? alpha-n)
+                   (instantiate-to module alpha-n [(apply module tau-n) :kind/type])))
+               (vals fields*)
+               (vals fields))))
+
+    [{:ast/type :existential-variable :id alpha}
+     [{:ast/type :function :domain domain :return return} _]] ; InstBin
+    (let [_ (swap! (:type-checker/facts module)
+              zip/focus-left
+              {:fact/declare-existential alpha :kind :kind/type})
+          domain* (when-not (type/existential-variable? domain) (fresh-existential module))
+          return* (when-not (type/existential-variable? return) (fresh-existential module))]
+      (solve-existential module alpha
+        {:ast/type :function
+         :domain (or domain* domain)
+         :return (or return* return)})
+      (swap! (:type-checker/facts module) zip/->end)
+      (when domain*
+        (instantiate-to module domain* [(apply module domain) :kind/type]))
+      (when return* 
+        (instantiate-to module return* [(apply module return) :kind/type])))
 
     [({:ast/type :existential-variable :id alpha}
       :guard #(->> % :id (contains? (existential-restrictions module))))
@@ -1234,6 +1283,7 @@
             [(next pattern-types) pattern-principality]
             return)
 
+          ;; TODO: denominalize
           [_
            {:ast/type :application :operator operator :parameters parameters}
            _] 
@@ -1339,16 +1389,24 @@
 
 (defn- from-jvm-type
   [type]
-  {:ast/type :named
-   :name     {:reference :type
-              :in        {:reference :module :name ["lang" "builtin"]}
-              :name      (match type
-                           'void                 "Unit"
-                           'int                  "int"
-                           'java.lang.String     "String"
-                           'java.math.BigInteger "Integer"
-                           'java.lang.Boolean    "Bool"
-                           'java.lang.Object     "Object")}})
+  (get
+    (merge
+      (->> {Boolean    "Bool"
+            String     "String"
+            BigInteger "Integer"
+            Void/TYPE  "Unit"}
+        (map (fn [[k v]] [k {:ast/type :named
+                             :name     {:reference :type
+                                        :name      v
+                                        :in        {:reference :module :name ["lang" "builtin"]}}}]))
+        (into {}))
+      (->> {Boolean/TYPE :bool
+            Integer/TYPE :int
+            Object       :object}
+        (map (fn [[k v]] [k {:ast/type  :primitive
+                             :primitive v}]))
+        (into {})))
+    type))
 
 (defn expand-macro
   [module term]
@@ -1361,6 +1419,49 @@
       (deliver (:type-checker.macro/expands-to term) term*)
       term*)))
 
+(defn- reflect
+  [class]
+  (letfn [(name->class [name]
+            (or
+              (get
+                (->> [Boolean/TYPE
+                      Byte/TYPE
+                      Character/TYPE
+                      Double/TYPE
+                      Float/TYPE
+                      Integer/TYPE
+                      Long/TYPE
+                      Short/TYPE
+                      Void/TYPE]
+                  (map #(vector (.getName %) %))
+                  (into {}))
+                name)
+              (when-let [[_ inner-class] (re-matches #"^(.+)<>$" name)]
+                (-> inner-class
+                  (name->class)
+                  (make-array 0)
+                  (clojure.core/type)))
+              (Class/forName name)))
+          (symbol->class [sym]
+            (some-> sym (name) (name->class)))
+          (symbols->classes [syms]
+            (->> syms (map symbol->class) (into (empty syms))))]
+    (-> class
+      (clojure.reflect/reflect)
+      (update :bases symbols->classes)
+      (update :members
+        #(->> %
+           (map
+             (fn [member]
+               (-> member
+                 (update :name name)
+                 (update :type symbol->class)
+                 (update :return-type symbol->class)
+                 (update :declaring-class symbol->class)
+                 (update :parameter-types symbols->classes)
+                 (update :exception-types symbols->classes))))
+           (into (empty %)))))))
+
 (defn synthesize
   "Γ ⊢ e ⇒ A p ⊣ Δ
   found on pg. 37"
@@ -1372,8 +1473,11 @@
           (let [class (->> symbol :in :name
                         (str/join ".")
                         (java.lang.Class/forName)
-                        (clojure.reflect/reflect))
-                field (first (filter #(= (:name symbol) (name (:name %))) (:members class)))]
+                        (reflect))
+                field (->> class
+                        :members
+                        (filter #(= (:name symbol) (:name %)))
+                        (first))]
             [{:ast/type :object :class (:type field)}
              :principal])
 
@@ -1396,39 +1500,47 @@
            :field    {:ast/term  :application
                       :function  function
                       :arguments arguments}} ; instance method
-          (let [object-type           (->> object
-                                        (synthesize module)
-                                        (first)
-                                        (to-jvm-type module))
-                object-bases (->> object-type
-                               (name)
-                               (Class/forName)
-                               (bases)
-                               (map (fn [class] (symbol (. class Class/getName))))
-                               (set))
-                parameter-types       (mapv
-                                        #(->> %
-                                           (synthesize module)
-                                           (first)
-                                           (to-jvm-type module))
-                                        arguments)
-                {:keys [return-type]} (->> function :symbol :in :name
-                                        (str/join ".")
-                                        (java.lang.Class/forName)
-                                        (clojure.reflect/reflect)
-                                        :members
-                                        (filter (fn [member]
-                                                  (and
-                                                    (contains? (conj object-bases object-type) (:declaring-class member))
-                                                    (contains? (:flags member) :public)
-                                                    (= (name (:name member)) (:name (:symbol function)))
-                                                    (= (:parameter-types member) parameter-types))))
-                                        (first))]
+          (let [object-type
+                (->> object
+                  (synthesize module)
+                  (first)
+                  (to-jvm-type module))
+                object-bases
+                (->> object-type
+                  (bases)
+                  (map (fn [class] (symbol (. class Class/getName))))
+                  (set))
+                parameter-types
+                (mapv
+                  #(->> %
+                     (synthesize module)
+                     (first)
+                     (to-jvm-type module))
+                  arguments)
+                member
+                (->> function :symbol :in :name
+                  (str/join ".")
+                  (java.lang.Class/forName)
+                  (reflect)
+                  :members
+                  (filter
+                    (fn [member]
+                      (and
+                        #_(contains? (conj object-bases object-type) (:declaring-class member))
+                        (contains? (:flags member) :public)
+                        (= (:name member) (:name (:symbol function)))
+                        (jvm/subclass?
+                          (:parameter-types member)
+                          (cond->> parameter-types
+                            (contains? (:flags member) :static)
+                            (into [object-type]))))))
+                  (sort-by :parameter-types jvm/subclass?)
+                  (last))]
             (annotate-term function
               {:ast/type  :method
                :class     object-type
-               :signature (conj parameter-types return-type)})
-            [(from-jvm-type return-type) :principal])
+               :signature (conj (:parameter-types member) (:return-type member))})
+            [(from-jvm-type (:return-type member)) :principal])
 
           {:ast/term :access
            :object   object} ; static field
@@ -1450,12 +1562,9 @@
           {:ast/term _}
           (let [alpha (fresh-existential module)]
             (analysis:check module term [alpha :non-principal])
-            [(get (existential-solutions module) alpha alpha) :non-principal]))
-        type (->> type
-                (generalize module mark)
-                (apply module))]
+            [(get (existential-solutions module) alpha alpha) :non-principal]))]
     (annotate-term term type)
-    [type principality]))
+    [(generalize module mark type) principality]))
 
 (defn- abstract-type
   [module {:keys [name params body]}]

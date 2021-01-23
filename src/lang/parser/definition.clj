@@ -19,6 +19,7 @@
     (parens
       (bind [_ (word "defmodule")
              name reference/module
+             ;; TODO(tjgr): order-independent module options
              skip-implicits (optional (<:> (parens (>> (word ":skip-implicits") (return true)))))
              imports (optional (<:> (parens (>> (word ":import") (many import)))))
              definitions (many (fwd expr))]
@@ -76,17 +77,13 @@
                  {:ast/term  :recur
                   :reference name
                   :body
-                  (->> arguments
-                    (rseq)
-                    (reduce
-                      (fn [term arg]
-                        {:ast/term :lambda
-                         :argument arg
-                         :body     term})
-                      (if (< 1 (count operations))
-                        {:ast/term   :sequence
-                         :operations operations}
-                        (first operations))))}})))))
+                  {:ast/term  :lambda
+                   :arguments arguments
+                   :body
+                   (if (< 1 (count operations))
+                     {:ast/term   :sequence
+                      :operations operations}
+                     (first operations))}}})))))
 
 (def ^:private macro
   (parens
@@ -121,17 +118,13 @@
                  arguments (brackets (many0 reference/variable))
                  operations (many1 term/expr)]
             (return [name
-                     (->> arguments
-                       (rseq)
-                       (reduce
-                         (fn [term arg]
-                           {:ast/term :lambda
-                            :argument arg
-                            :body     term})
-                         (if (< 1 (count operations))
-                           {:ast/term   :sequence
-                            :operations operations}
-                           (first operations))))])))
+                     {:ast/term  :lambda
+                      :arguments arguments
+                      :body
+                      (if (< 1 (count operations))
+                        {:ast/term   :sequence
+                         :operations operations}
+                        (first operations))}])))
         instance (parens (<*> reference/typeclass (many1 type/expr)))]
     (parens
       (bind [_ (word "definstance")

@@ -32,19 +32,19 @@
 (fact "captured variables are recorded"
   (run :name-resolution
     (defmodule lang.name-resolution-test.capture)
-    (defn foo [bar baz] bar))
+    (defn foo [foo bar] (fn [baz] bar)))
   => (matches {:definitions
                [{:ast/definition :constant
                  :body
                  {:ast/term :recur
                   :body
-                  {:ast/term :lambda
-                   :argument {:name "bar"}
+                  {:ast/term  :lambda
+                   :arguments [{:name "foo"} {:name "bar"}]
                    :name-resolution/captured-symbols
                    (equals #{})
                    :body
-                   {:ast/term :lambda
-                    :argument {:name "baz"}
+                   {:ast/term  :lambda
+                    :arguments [{:name "baz"}]
                     :name-resolution/captured-symbols
                     #{{:name "bar"}}
-                    :body     {:ast/term :symbol :symbol {:name "bar"}}}}}}]}))
+                    :body      {:ast/term :symbol :symbol {:name "bar"}}}}}}]}))
