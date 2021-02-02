@@ -56,6 +56,31 @@
                       {:body {:atom {:atom :boolean :value true}}}
                       {:body {:atom {:atom :unit :value nil}}}]}))
 
+(fact "constructors parse"
+  (run :parser
+    (defmodule lang.parser-test.constructor-definitions)
+    (def variant [:foo 1])
+    (def qualified-variant [:foo/bar 2])
+    (def record {:quux 3})
+    (def qualified-record {:quux/baz 4}))
+  => (matches
+       {:definitions [{:ast/definition :constant
+                       :body           {:ast/term :variant
+                                        :injector {:reference :injector
+                                                   :name      "foo"}}}
+                      {:body {:injector {:name "bar"
+                                         :in   {:name ["foo"]}}}}
+                      {:body {:ast/term :record
+                              :fields   {{:reference :field
+                                          :name      "quux"}
+                                         {}}}}
+                      {:body {:ast/term :record
+                              :fields   {{:reference :field
+                                          :name      "baz"
+                                          :in        {:reference :module
+                                                      :name      ["quux"]}}
+                                         {}}}}]}))
+
 (fact "functions parse"
   (run :parser
     (defmodule lang.parser-test.lambda-definitions)

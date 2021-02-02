@@ -20,8 +20,9 @@
 
 (defmacro run
   [phase & fs]
-  `(-> (str/join " " (map pr-str (quote ~fs)))
-     (str/replace #"[,]" "")
-     (StringReader.)
-     (compiler/run :until ~phase)))
+  `(binding [*print-namespace-maps* false]
+       (-> (str/join " " (map pr-str (quote ~fs)))
+         (str/replace #"[,]" "")
+         (StringReader.)
+         (compiler/run :until ~phase))))
 
