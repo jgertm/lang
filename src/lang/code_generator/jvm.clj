@@ -355,21 +355,46 @@
 
 (defmethod emit-pattern :variant
   [state {:keys [next body]} {:keys [injector value type-checker.pattern/type] :as form}]
-  (let [{:keys [class inner-class]} (lookup-type-info state injector)
-        inner-register              (when (some? value) (register! state))] 
+  (let [{:keys       [class]
+         :inner/keys [pseudorecord single]}
+        (lookup-type-info state injector)
+        inner-register (when (some? value) (register! state))] 
     (-> state
       (emit [body
              [:instanceof class]
              [:ifeq next]])
-      (cond-> (some? value)
-        (->
-          (emit [body
-                 [:checkcast class]
-                 [:getfield class :value inner-class]
-                 [:astore inner-register]])
-          (emit-pattern
-            {:next next :body [:aload inner-register]}
-            value))))))
+      (as-> $
+          (cond
+            (and pseudorecord (pattern/record? value))
+            (-> $
+              (reduce-state
+                (fn [state [field {:keys [type-checker.pattern/type] :as sub-pattern}]]
+                  (let [inner-class        (get pseudorecord field)
+                        actual-inner-class (as-jvm-class state type)
+                        inner-register     (register! state)
+                        field              (munge (:name field))]
+                    (-> state
+                      (emit [body
+                             [:checkcast class]
+                             [:getfield class field inner-class]
+                             [:checkcast actual-inner-class]
+                             [:astore inner-register]])
+                      (emit-pattern
+                        {:next next :body [:aload inner-register]}
+                        sub-pattern))))
+                (:fields value)))
+
+            single 
+            (-> $
+              (emit [body
+                     [:checkcast class]
+                     [:getfield class :value single]
+                     [:astore inner-register]])
+              (emit-pattern
+                {:next next :body [:aload inner-register]}
+                value))
+
+            :else $)))))
 
 (defmethod emit-pattern :default ; FIXME(tjgr): rm
   [state _next form]
@@ -539,27 +564,35 @@
 
 (defmethod emit-term :record
   [state {:keys [fields type-checker.term/type] :as form}]
-  (let [class        (->> type (as-jvm-class state) (get-class state))
-        record-class (:name class)
-        ctor-desc    (get-in class [:methods :init :desc])]
+  (let [{:keys [class ctor-desc]}
+        (lookup-type-info state (as-type-reference type))]
     (-> state
-      (emit [[:new record-class]
+      (emit [[:new class]
              [:dup]])
       (reduce-state
         (fn [state [_field value]]
           (emit-term state value))
         fields)
-      (emit [[:invokespecial record-class :init ctor-desc]]))))
+      (emit [[:invokespecial class :init ctor-desc]]))))
 
 (defmethod emit-term :variant
   [state {:keys [injector value] :as form}]
-  (let [{:keys [class ctor-desc]} (lookup-type-info state (:injector form))]
+  (let [{:keys       [class ctor-desc]
+         :inner/keys [pseudorecord single]}
+        (lookup-type-info state injector)]
     (-> state
       (emit
         [[:new class]
          [:dup]])
-      (cond-> (some? value)
-        (emit-term value))
+      (as-> $
+          (cond
+            pseudorecord
+            (reduce-state $ emit-term (vals (:fields value)))
+
+            single
+            (emit-term $ value)
+
+            :else $))
       (emit
         [[:invokespecial class :init ctor-desc]]))))
 
@@ -621,43 +654,45 @@
       (pop-method)
       (reduce-state
         (fn [state [injector inner-type]]
-          (let [inner-class-name   (promise)
-                state
-                (-> state
-                  (push-subclass {:name injector})
-                  (cond->
-                      (-> inner-type :ast/type (= :record))
-                    (-> 
-                      (push-class {:name {:reference :type
-                                          :name      (str (gensym "type"))
-                                          :in        injector}})
-                      (update-unit (fn [class] (deliver inner-class-name (:name class)) class))
-                      (compile-type inner-type)
-                      (pop-class))))
-                inner-class        (if (realized? inner-class-name)
-                                     @inner-class-name
-                                     (some->> inner-type (as-jvm-class state)))
-                injector-ctor-desc (filterv some? [inner-class Void/TYPE])]
+          (let [fields    (when inner-type
+                            (->> (or (:fields inner-type)
+                                     {{:name "value"} inner-type})
+                              (map (fn [[k v]] [k (as-jvm-class state v)]))
+                              (into {})))
+                ctor-desc (conj (vec (vals fields)) Void/TYPE)]
             (-> state
-              (register-injector {:ctor-desc   injector-ctor-desc
-                                  :inner-class inner-class})
-              (cond-> inner-class
-                (->
-                  (push-field {:flags #{:public :final}
-                               :name  :value
-                               :type  inner-class})
-                  (pop-field)))
+              (push-subclass {:name injector})
+              (register-injector
+                (merge {:ctor-desc ctor-desc}
+                  (match inner-type
+                    {:ast/type :record}
+                    {:inner/pseudorecord fields}
+
+                    {:ast/type _}
+                    {:inner/single (as-jvm-class state inner-type)}
+
+                    nil nil)))
+              (reduce-state
+                (fn [state [{:keys [name]} inner-class]]
+                  (-> state
+                    (push-field {:flags #{:public :final}
+                                 :name  (munge name)
+                                 :type  inner-class})
+                    (pop-field)))
+                fields)
               (push-method {:flags #{:public}
                             :name  :init
-                            :desc  injector-ctor-desc})
-              (emit
-                [[:aload 0]
-                 [:invokespecial :super :init super-ctor-desc]]
-                (when inner-type
-                  [[:aload 0]
-                   [:aload 1]
-                   [:putfield :this :value inner-class]])
-                [[:return]])
+                            :desc  ctor-desc})
+              (emit [[:aload 0]
+                     [:invokespecial :super :init [Void/TYPE]]])
+              (reduce-state
+                (fn [state [index [{:keys [name]} inner-class]]]
+                  (emit state
+                    [[:aload 0]
+                     [:aload (inc index)]
+                     [:putfield :this (munge name) inner-class]]))
+                (map vector (range) fields))
+              (emit [[:return]])
               (pop-method)
               (pop-class))))
         injectors))))

@@ -1,9 +1,14 @@
 (ns lang.pattern
+  (:refer-clojure :exclude [record?])
   (:require [clojure.core.match :refer [match]]))
 
 (defn is?
   [form]
   (and (map? form) (:ast/pattern form)))
+
+(defn record?
+  [form]
+  (-> form is? (= :record)))
 
 (defn children
   [node]

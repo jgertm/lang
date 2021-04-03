@@ -57,6 +57,12 @@
     {:ast/type :universal-variable} true
     _ false))
 
+(defn function?
+  [type]
+  (match type
+    {:ast/type :function} true
+    _ false))
+
 (defn polarity
   [type]
   (case (:ast/type type)

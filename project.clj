@@ -11,7 +11,7 @@
                  [com.taoensso/timbre "5.1.0"]]
   :main ^:skip-aot lang.core
   :target-path "target/%s/"
-  :java-source-paths ["tmp"]
+  ;; :java-source-paths ["tmp"] ; slows down lein startup a lot
   :resource-paths ["std"]
   :profiles {:uberjar {:aot            :all
                        :resource-paths ["config/uberjar"]}

@@ -1164,11 +1164,10 @@
   (let [return [(apply module return-type) return-principality]]
     (doseq [branch branches] ; MatchSeq + MatchEmpty
       (let [pattern      (first (:patterns branch))
-            pattern-type (some->> pattern-types
-                           (first)
-                           (apply module))]
+            pattern-type (first pattern-types)]
+        (annotate-pattern pattern pattern-type)
         (match [pattern
-                pattern-type
+                (some->> pattern-type (apply module))
                 pattern-principality]
           [nil nil _]                   ; MatchBase
           (analysis:check module
@@ -1228,7 +1227,7 @@
             (solve-existential module alpha type)
             (match:check module
               branches
-              [(cons type (next pattern-types)) pattern-principality]
+              [(cons (denominalize module type) (next pattern-types)) pattern-principality]
               return))
 
           [{:ast/pattern :record :fields pattern-fields}
@@ -1263,7 +1262,7 @@
             (solve-existential module alpha type)
             (match:check module
               branches
-              [(cons type (next pattern-types)) pattern-principality]
+              [(cons (denominalize module type) (next pattern-types)) pattern-principality]
               return))
 
           [{:ast/pattern :symbol :symbol symbol}
@@ -1304,8 +1303,7 @@
             (match:check module
               branches
               [(cons type (next pattern-types)) pattern-principality]
-              return)))
-        (annotate-pattern pattern pattern-type)))))
+              return)))))))
 
 (defn- apply-spine
   "Γ ⊢ s : A p ≫ C q ⊣ Δ
@@ -1373,7 +1371,7 @@
 
       :else (undefined ::recovering-apply-spine))))
 
-(defn to-jvm-type
+(defn- to-jvm-type
   [module type]
   (match type
     {:ast/type :named :name name}
@@ -1856,13 +1854,23 @@
 
   (com.gfredericks.debug-repl/unbreak!)
 
-  (-> "examples/linked-list.lang"
-    (lang.compiler/run :until :type-checker)
-    :values)
+  (-> "std/lang/core.lang"
+    (lang.compiler/run :until :code-generator)
+    :bytecode)
+
+  (-> "std/lang/list.lang"
+    (lang.compiler/run :until :code-generator)
+    :bytecode)
+
+  (-> "examples/alist.lang"
+    (lang.compiler/run :until :code-generator)
+    :bytecode)
+
 
   (do (println "\n–-—")
-      (-> "std/lang/option.lang"
+      (-> "examples/alist.lang"
         (lang.compiler/run :until :type-checker)
-        (module/surface-bindings)))
+        module/signature
+        #_(module/surface-bindings)))
 
   )

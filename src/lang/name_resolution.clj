@@ -145,9 +145,10 @@
     (lang.compiler/run :until :name-resolution)
     (module/all-bindings)))
 
-(-> "std/lang/io.lang"
+(-> "examples/alist.lang"
     (lang.compiler/run :until :name-resolution)
-    :definitions)
+    module/all-typeclasses
+    (module/get {:name "Eq", :reference :typeclass}))
 
 
   )

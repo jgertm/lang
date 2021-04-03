@@ -105,7 +105,7 @@
          (defmodule lang.code-generator-test.list)
          (deftype (List T)
              (| [:nil]
-               [:cons {:value T :next (List T)}]))
+                [:cons {:value T :next (List T)}]))
          (defn fold
            [op init list]
            (match list
