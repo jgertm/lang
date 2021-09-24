@@ -17,7 +17,6 @@
                        :resource-paths ["config/uberjar"]}
              :dev     {:source-paths ["dev"]
                        :dependencies [[com.gfredericks/debug-repl "0.0.11"]
-                                      [midje "1.9.9"]
                                       [nubank/matcher-combinators "3.1.1"]]
                        :resource-paths ["config/dev"]}} 
   :repl-options {:init-ns          lang.core

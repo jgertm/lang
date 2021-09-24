@@ -1,69 +1,67 @@
 (ns lang.parser-test
-  (:require [lang.test-prelude :refer :all]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [lang.test-prelude :refer :all]
+            matcher-combinators.test))
 
-(fact "empty module parses"
-  (run :parser
-    (defmodule lang.parser-test.empty-module))
-  => (matches
+(deftest empty-module
+  (is (match?
        {:ast/definition :module
         :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
         :skip-implicits nil
         :imports        nil
-        :definitions    []})
+        :definitions    []}
+       (run :parser
+         (defmodule lang.parser-test.empty-module))))
 
-  (run :parser
-    (defmodule lang.parser-test.empty-module
-      (:skip-implicits)
-      (:import [lang.io :as io]
-               [lang.option :as option])))
-  => (matches
+  (is (match?
        {:ast/definition :module
-        :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
+        :name           {:reference :module :name ["lang" "parser-test" "empty-module-w-imports"]}
         :skip-implicits true
         :imports        [{:module {:reference :module :name ["lang" "io"]}
                           :alias  {:reference :module :name ["io"]}}
                          {:module {:name ["lang" "option"]}
                           :alias  {:name ["option"]}}]
-        :definitions    []}))
+        :definitions    []}
 
-(fact "modules can be flat or contained"
-  (run :parser
-    (defmodule lang.parser-test.flat-module)
-    (def foo 1))
-  => (matches
+       (run :parser
+         (defmodule lang.parser-test.empty-module-w-imports
+           (:skip-implicits)
+           (:import [lang.io :as io]
+                    [lang.option :as option]))))))
+
+(deftest nested-modules
+  (is (match?
        {:ast/definition :module
-        :definitions [{:ast/definition :constant}]})
+        :definitions [{:ast/definition :constant}]}
+       (run :parser
+         (defmodule lang.parser-test.flat-module)
+         (def foo 1))))
 
-  (run :parser
-    (defmodule lang.parser-test.contained-module
-      (def foo 1)))
-  => (matches
-       {:ast/definition :module
-        :definitions [{:ast/definition :constant}]}))
+  (is
+   (match?
+    {:ast/definition :module
+     :definitions [{:ast/definition :constant}]}
+    (run :parser
+      (defmodule lang.parser-test.contained-module
+        (def foo 1))))))
 
-(fact "atoms parse"
-  (run :parser
-    (defmodule lang.parser-test.atom-definitions)
-    (def foo 2)
-    (def bar "bar")
-    (def baz true)
-    (def quux nil))
-  => (matches
+(deftest parse-atoms
+  (is (match?
        {:definitions [{:ast/definition :constant
                        :name           {:reference :constant :name "foo"}
                        :body           {:ast/term :atom :atom {:atom :integer :value "2"}}}
                       {:body {:atom {:atom :string :value "bar"}}}
                       {:body {:atom {:atom :boolean :value true}}}
-                      {:body {:atom {:atom :unit :value nil}}}]}))
+                      {:body {:atom {:atom :unit :value nil}}}]}
+       (run :parser
+         (defmodule lang.parser-test.atom-definitions)
+         (def foo 2)
+         (def bar "bar")
+         (def baz true)
+         (def quux nil)))))
 
-(fact "constructors parse"
-  (run :parser
-    (defmodule lang.parser-test.constructor-definitions)
-    (def variant [:foo 1])
-    (def qualified-variant [:foo/bar 2])
-    (def record {:quux 3})
-    (def qualified-record {:quux/baz 4}))
-  => (matches
+(deftest parse-constructors
+  (is (match?
        {:definitions [{:ast/definition :constant
                        :body           {:ast/term :variant
                                         :injector {:reference :injector
@@ -79,15 +77,16 @@
                                           :name      "baz"
                                           :in        {:reference :module
                                                       :name      ["quux"]}}
-                                         {}}}}]}))
+                                         {}}}}]}
+       (run :parser
+         (defmodule lang.parser-test.constructor-definitions)
+         (def variant [:foo 1])
+         (def qualified-variant [:foo/bar 2])
+         (def record {:quux 3})
+         (def qualified-record {:quux/baz 4})))))
 
-(fact "functions parse"
-  (run :parser
-    (defmodule lang.parser-test.lambda-definitions)
-    (defn id [x] x)
-    (defn const [x y] x)
-    (defn fx! [x] (println x) x))
-  => (matches
+(deftest parse-functions
+  (is (match?
        {:definitions [{:ast/definition :constant
                        :name           {:reference :constant :name "id"}
                        :body
@@ -108,7 +107,7 @@
                          :body
                          {:symbol {:name "x"}}}}}
 
-                      {:body 
+                      {:body
                        {:ast/term  :recur
                         :reference {:name "fx!"}
                         :body
@@ -117,17 +116,15 @@
                          {:ast/term :sequence
                           :operations
                           [{:ast/term :application}
-                           {:ast/term :symbol}]}}}}]}))
+                           {:ast/term :symbol}]}}}}]}
+       (run :parser
+         (defmodule lang.parser-test.lambda-definitions)
+         (defn id [x] x)
+         (defn const [x y] x)
+         (defn fx! [x] (println x) x)))))
 
-(fact "typeclasses parse"
-  (run :parser
-    (defmodule lang.desugar.typeclasses-test.definitions
-      (:skip-implicits))
-    (defclass (Veracious T)
-      (true? :$ (-> T Bool)))
-    (definstance (Veracious Bool)
-      (true? [bool] bool)))
-  => (matches
+(deftest parse-typeclasses
+  (is (match?
        {:definitions
         [{:ast/definition :typeclass
           :name           {:reference :typeclass
@@ -153,4 +150,11 @@
             :body
             {:ast/term :symbol
              :symbol
-             {:reference :constant :name "bool"}}}}}]}))
+             {:reference :constant :name "bool"}}}}}]}
+       (run :parser
+         (defmodule lang.desugar.typeclasses-test.definitions
+           (:skip-implicits))
+         (defclass (Veracious T)
+           (true? :$ (-> T Bool)))
+         (definstance (Veracious Bool)
+           (true? [bool] bool))))))

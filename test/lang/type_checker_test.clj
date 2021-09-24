@@ -1,8 +1,10 @@
 (ns lang.type-checker-test
-  (:require [lang.test-prelude :refer :all]
-            [lang.module :as module]))
+  (:require [clojure.test :refer [deftest is testing]]
+            [lang.module :as module]
+            [lang.test-prelude :refer :all]
+            matcher-combinators.test))
 
-(facts "atoms typecheck"
+(deftest typecheck-atoms
   (let [module
         (run :type-checker
           (defmodule lang.type-checker-test.atom-definitions
@@ -17,24 +19,27 @@
           (map (fn [[k v]] [(:name k) v]))
           (into {}))]
 
-    (fact "foo" foo =>
-      (matches [{:ast/type :named
+    (is (match?
+         [{:ast/type :named
                  :name     {:reference :type
                             :name      "Integer"
                             :in        {:reference :module :name ["lang" "builtin"]}}}
-                :principal]))
+          :principal]
+         foo))
 
-    (fact "bar" bar =>
-      (matches [{:ast/type :named :name {:name "String"}} :principal]))
+    (is (match?
+         [{:ast/type :named :name {:name "String"}} :principal]
+         bar))
 
-    (fact "baz" baz =>
-      (matches [{:ast/type :named :name {:name "Bool"}} :principal]))
+    (is (match?
+         [{:ast/type :named :name {:name "Bool"}} :principal]
+         baz))
 
-    (fact "quux" quux =>
-      (matches [{:ast/type :named :name {:name "Unit"}} :principal]))))
+    (is (match?
+         [{:ast/type :named :name {:name "Unit"}} :principal]
+         quux))))
 
-
-(facts "functions typecheck"
+(deftest typecheck-functions
   (let [{:strs [id const]}
         (->>
           (run :type-checker
@@ -46,28 +51,30 @@
           (map (fn [[k v]] [(:name k) v]))
           (into {}))]
 
-    (fact "id" id =>
-      (matches [{:ast/type :forall
-                 :variable {:ast/type :universal-variable}
-                 :body     {:ast/type :function
-                            :domain   {:ast/type :universal-variable}
-                            :return   {:ast/type :universal-variable}}}
-                :principal]))
+    (is (match?
+         [{:ast/type :forall
+           :variable {:ast/type :universal-variable}
+           :body     {:ast/type :function
+                      :domain   {:ast/type :universal-variable}
+                      :return   {:ast/type :universal-variable}}}
+          :principal]
+         id))
 
-    (fact "const" const =>
-      (matches [{:ast/type :forall
-                 :variable {:ast/type :universal-variable}
-                 :body     {:ast/type :forall
-                            :variable {:ast/type :universal-variable}
-                            :body     {:ast/type :function
-                                       :domain   {:ast/type :universal-variable}
-                                       :return   {:ast/type :function
-                                                  :domain   {:ast/type :universal-variable}
-                                                  :return   {:ast/type :universal-variable}}}}}
-                :principal]))))
+    (is (match?
+         [{:ast/type :forall
+                  :variable {:ast/type :universal-variable}
+                  :body     {:ast/type :forall
+                             :variable {:ast/type :universal-variable}
+                             :body     {:ast/type :function
+                                        :domain   {:ast/type :universal-variable}
+                                        :return   {:ast/type :function
+                                                   :domain   {:ast/type :universal-variable}
+                                                   :return   {:ast/type :universal-variable}}}}}
+          :principal]
+         const))))
 
-(facts "typedefs typecheck"
-  (facts "Option"
+(deftest typecheck-typedefs
+  (testing "Option"
     (let [{:strs [default map]}
           (->>
             (run :type-checker
@@ -90,39 +97,41 @@
             (map (fn [[k v]] [(:name k) v]))
             (into {}))]
 
-      (fact "default" default =>
-        (matches [{:ast/type :forall
-                   :variable {:ast/type :universal-variable}
-                   :body     {:ast/type :function
-                              :domain
-                              {:ast/type   :application
-                               :operator   {:ast/type :named :name {:name "Option"}}
-                               :parameters [{:ast/type :universal-variable}]}
-                              :return
-                              {:ast/type :function
-                               :domain   {:ast/type :universal-variable}
-                               :return   {:ast/type :universal-variable}}}}
-                  :principal]))
+      (is (match?
+           [{:ast/type :forall
+             :variable {:ast/type :universal-variable}
+             :body     {:ast/type :function
+                        :domain
+                        {:ast/type   :application
+                         :operator   {:ast/type :named :name {:name "Option"}}
+                         :parameters [{:ast/type :universal-variable}]}
+                        :return
+                        {:ast/type :function
+                         :domain   {:ast/type :universal-variable}
+                         :return   {:ast/type :universal-variable}}}}
+            :principal]
+           default))
 
-      (fact "map" map =>
-        (matches [{:ast/type :forall
-                   :body
-                   {:ast/type :forall
-                    :body
-                    {:ast/type :function
-                     :domain   {:ast/type :function
-                                :domain   {:ast/type :universal-variable}
-                                :return   {:ast/type :universal-variable}}
-                     :return   {:ast/type :function
-                                :domain   {:ast/type   :application
-                                           :operator   {:ast/type :named :name {:name "Option"}}
-                                           :parameters [{:ast/type :universal-variable}]}
-                                :return   {:ast/type   :application
-                                           :operator   {:ast/type :named :name {:name "Option"}}
-                                           :parameters [{:ast/type :universal-variable}]}}}}}
-                  :principal]))))
+      (is (match?
+           [{:ast/type :forall
+             :body
+             {:ast/type :forall
+              :body
+              {:ast/type :function
+               :domain   {:ast/type :function
+                          :domain   {:ast/type :universal-variable}
+                          :return   {:ast/type :universal-variable}}
+               :return   {:ast/type :function
+                          :domain   {:ast/type   :application
+                                     :operator   {:ast/type :named :name {:name "Option"}}
+                                     :parameters [{:ast/type :universal-variable}]}
+                          :return   {:ast/type   :application
+                                     :operator   {:ast/type :named :name {:name "Option"}}
+                                     :parameters [{:ast/type :universal-variable}]}}}}}
+            :principal]
+           map))))
 
-  (facts "List"
+  (testing "List"
     (let [{:strs [map fold]}
           (->>
             (run :type-checker
@@ -145,42 +154,44 @@
             (map (fn [[k v]] [(:name k) v]))
             (into {}))]
 
-      (fact "map" map =>
-        (matches [{:ast/type :forall
-                   :body
-                   {:ast/type :forall
-                    :body
-                    {:ast/type :function
-                     :domain   {:ast/type :function}
-                     :return   {:ast/type :function
-                                :domain   {:ast/type :application}
-                                :return   {:ast/type :application}}}}}
-                  :principal]))
+      (is (match?
+           [{:ast/type :forall
+             :body
+             {:ast/type :forall
+              :body
+              {:ast/type :function
+               :domain   {:ast/type :function}
+               :return   {:ast/type :function
+                          :domain   {:ast/type :application}
+                          :return   {:ast/type :application}}}}}
+            :principal]
+           map))
 
-      (fact "fold" fold =>
-        (matches [{:ast/type :forall
-                   :body
-                   {:ast/type :forall
-                    :body
-                    {:ast/type :function
-                     :domain
-                     {:ast/type :function
-                      :domain   {:ast/type :universal-variable}
-                      :return
-                      {:ast/type :function
-                       :domain   {:ast/type :universal-variable}
-                       :return   {:ast/type :universal-variable}}}
-                     :return
-                     {:ast/type :function
-                      :domain   {:ast/type :universal-variable}
-                      :return
-                      {:ast/type :function
-                       :domain
-                       {:ast/type :application}
-                       :return   {:ast/type :universal-variable}}}}}}
-                  :principal])))))
+      (is (match?
+           [{:ast/type :forall
+             :body
+             {:ast/type :forall
+              :body
+              {:ast/type :function
+               :domain
+               {:ast/type :function
+                :domain   {:ast/type :universal-variable}
+                :return
+                {:ast/type :function
+                 :domain   {:ast/type :universal-variable}
+                 :return   {:ast/type :universal-variable}}}
+               :return
+               {:ast/type :function
+                :domain   {:ast/type :universal-variable}
+                :return
+                {:ast/type :function
+                 :domain
+                 {:ast/type :application}
+                 :return   {:ast/type :universal-variable}}}}}}
+            :principal]
+           fold)))))
 
-(facts "typeclasses typecheck"
+(deftest typecheck-typeclasses
   (let [module
         (run :type-checker
           (defmodule lang.desugar.typeclasses-test.definitions
@@ -189,37 +200,42 @@
             (true? :$ (-> T Bool)))
           (definstance (Veracious Bool)
             (true? [bool] bool))
-          (defn is-it-true? [x] (true? x)) ; works
-          (def nope (is-it-true? false))   ; works
-          )]
+          (defn is-it-true? [x] (true? x))
+          (def nope (is-it-true? false)))]
 
-    (facts "types"
+    (testing "types"
       (let [{:strs [is-it-true? nope]}
             (->> module
               :values
               (map (fn [[k v]] [(:name k) v]))
               (into {}))]
 
-        (fact "is-it-true?" is-it-true? =>
-          (matches [{:ast/type :forall
-                     :body
-                     {:ast/type :guarded
-                      :proposition
-                      {:ast/constraint :instance
-                       :typeclass      {:name "Veracious"}}
-                      :body
-                      {:ast/type :function
-                       :domain   {:ast/type :universal-variable}
-                       :return   {:ast/type :named :name {:name "Bool"}}}}}
-                    :principal]))))
+        (is (match?
+             [{:ast/type :forall
+               :body
+               {:ast/type :guarded
+                :proposition
+                {:ast/constraint :instance
+                 :typeclass      {:name "Veracious"}}
+                :body
+                {:ast/type :function
+                 :domain   {:ast/type :universal-variable}
+                 :return   {:ast/type :named :name {:name "Bool"}}}}}
+              :principal]
+             is-it-true?))
 
-    (facts "AST"
+        (is (match?
+             [{:ast/type :named :name {:name "Bool"}}
+              :principal]
+             nope))))
+
+    #_(testing "AST"
       (let [[_ _ is-it-true? nope]
             (:definitions module)]
         (fact "is-it-true?" is-it-true? =>
           (let [Bool {:ast/type :named
                       :name     {:name "Bool"}}]
-            (matches {:ast/definition :constant
+            (match? {:ast/definition :constant
                       :name           {:name "is-it-true?"}
                       :body
                       {:ast/term               :recur
@@ -259,7 +275,7 @@
                        :type-checker.term/type {:ast/type :forall}}})))
 
         (fact "nope" nope =>
-          (matches {:ast/definition :constant
+          (match? {:ast/definition :constant
                     :name           {:name "nope"}
                     :body
                     {:ast/term  :application
