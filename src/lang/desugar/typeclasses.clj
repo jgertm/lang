@@ -46,7 +46,7 @@
   [module constraint]
   (or
     (get @(:desugar.typeclasses/dictionary-arguments module) constraint)
-    (get @(:desugar.typeclasses/dictionary-instances module) constraint)
+    (get (module/all-typeclass-dictionaries module) constraint)
     (if-let [dictionaries
              (some->> constraint
                (get @(:type-checker/instance-chains module))

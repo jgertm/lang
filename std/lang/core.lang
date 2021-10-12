@@ -13,37 +13,37 @@
 
 ;; Show ------------
 
-; (defclass (Show T)
-;   (show : (-> T String)))
+(defclass (Show T)
+  (show : (-> T String)))
 
 
-; (definstance (Show Bool)
-;   (show [b]
-;     (if b "true" "false")))
+(definstance (Show Bool)
+  (show [b]
+    (if b "true" "false")))
 
 
-; (definstance (Show Integer)
-;   (show [i]
-;     (. i (java.math.BigInteger/toString))))
+(definstance (Show Integer)
+  (show [i]
+    (. i (java.math.BigInteger/toString))))
 
 
 ;; Eq --------------
 
-; (defclass (Eq T)
-;   (= : (-> T T Bool)))
+(defclass (Eq T)
+  (= : (-> T T Bool)))
 
 
-; (definstance (Eq Integer)
-;   (= [a b]
-;      (. (. a (java.math.BigInteger/equals b)) (java.lang.Boolean/valueOf))))
+(definstance (Eq Integer)
+  (= [a b]
+     (. (. a (java.math.BigInteger/equals b)) (java.lang.Boolean/valueOf))))
 
 
-; (definstance (Eq String)
-;   (= [a b]
-;      (. (. a (java.lang.String/equals b)) (java.lang.Boolean/valueOf))))
+(definstance (Eq String)
+  (= [a b]
+     (. (. a (java.lang.String/equals b)) (java.lang.Boolean/valueOf))))
 
 
-; ;; Functor ---------
+;; Functor ---------
 
-; (defclass (Functor F)
-;   (map : (-> (-> A B) (F A) (F B))))
+(defclass (Functor F)
+  (map : (-> (-> A B) (F A) (F B))))

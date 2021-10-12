@@ -100,34 +100,29 @@
 (deftest nested-typedef-codegen
        (do (run :code-generator
              (defmodule lang.code-generator-test.alist
-               (:import [lang.io :as io]))
+               (:import [lang.io :as io]
+                        [lang.option :as option]))
              (deftype (Alist T)
                  (| [:nil]
                     [:cons {:current T :next (Alist T)}]))
              (deftype (Entry K V)
                  {:key K :value V})
-             (deftype (Option T)
+             #_(deftype (Option T)
                  (| [:none]
                     [:some T]))
-             ;; (defclass (Eq T)
-             ;;   (= :$ (-> T T Bool)))
-             ;; (definstance (Eq Integer)
-             ;;   (= [a b]
-             ;;     (. (. a (java.math.BigInteger/equals b))
-             ;;       (java.lang.Boolean/valueOf))))
              (defn insert [alist key value]
                [:cons {:current {:key key :value value} :next alist}])
              (defn get [alist key]
                (match alist
-                      [:nil] [:none]
+                      [:nil] [:option/none]
                       [:cons {:current {:key k :value v} :next next}]
-                      (if (= k key)
-                        [:some v]
-                        (get next key))))
+                      (match (= k key)
+                        true [:option/some v]
+                        false (get next key))))
              (defn retrieve [arg]
                (get (insert (insert (insert [:nil] 1 "one") 2 "two") 3 "three") 2))
-             #_(defn main [arv :$ (Array String)]
-                 (match (retrieve 1)
-                        [:some res] (io/println res)
-                        [:none] (io/println "FAIL"))))
-           (is (= "two" (.value (eval `(lang.code_generator_test.alist/retrieve nil)))))))
+             (defn retrieve2 [arg]
+               (get (insert (insert [:nil] [:option/some 1] "one") [:option/some 2] "two") [:option/some 1])))
+
+           (is (= "two" (.value (eval `(lang.code_generator_test.alist/retrieve nil)))))
+           (is (= "one" (.value (eval `(lang.code_generator_test.alist/retrieve2 nil)))))))

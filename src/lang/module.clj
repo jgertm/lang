@@ -231,7 +231,10 @@
 
 (defn imported-typeclass-dictionaries
   [module]
-  (importer surface-typeclass-dictionaries module))
+  (->> module
+       (importer surface-typeclass-dictionaries)
+       (map (fn [[k v]] [(dissoc k :in) v]))
+       (into {})))
 
 (defn all-typeclass-dictionaries
   [module]

@@ -27,3 +27,11 @@
     (match option
       [:none]     "[:none]"
       [:some val] (string/concat (string/concat "[:some" (show val)) "]"))))
+
+
+(definstance (Eq (Option T))
+  :when (Eq T)
+  (= [a b]
+    (match a
+      [:none] (match b [:none] true _ false)
+      [:some x] (match b [:some y] (= x y) _ false))))
