@@ -866,13 +866,26 @@
               (match option
                 [:some value] (show value)
                 [:none] "[:none]"))))
-        (run)
+        (run :emit)
         #_:definitions))
 
 
   (com.gfredericks.debug-repl/unbreak!!)
 
   (com.gfredericks.debug-repl/unbreak!)
+
+  (letfn [(run [path]
+            (-> path
+                (lang.compiler/run :until :code-generator)))]
+    (do (println "\n–-—")
+        (run "std/lang/option.lang")
+        (run "std/lang/list.lang")
+        (run "std/lang/math.lang")
+        (run "std/lang/io.lang")
+        (run "std/lang/core.lang")
+        #_#_#_(run "examples/option.lang")
+        (run "examples/linked-list.lang")
+        (run "examples/arithmetic.lang")))
 
   )
 

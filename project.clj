@@ -6,7 +6,7 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.blancas/kern "1.1.0"]
                  [org.clojure/core.match "0.3.0"]
-                 [insn "0.5.0"]
+                 [insn "0.5.2"]
                  [potemkin "0.4.5"]
                  [com.taoensso/timbre "5.1.0"]]
   :main ^:skip-aot lang.core

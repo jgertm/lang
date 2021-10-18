@@ -10,6 +10,9 @@
             [lang.utils :as utils :refer [undefined]]
             [taoensso.timbre :as log]))
 
+;; TODO: resolve OPENED modules' injectors
+;; TODO: alert on UNKNOWN constructors
+
 (defn- absorb-definition
   [module {:keys [name] :as definition}]
   (letfn [(qualify-internal-references [expr]

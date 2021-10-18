@@ -621,7 +621,7 @@
               (vals variables))
             instance)
           (match-head [{:keys [parameters] :as proposition}
-                       {:keys [superclasses types] :as instance}]
+                       {:keys [superclasses types]}]
             (when
                 (->>
                   (map vector types parameters)
@@ -647,7 +647,7 @@
     (let [proposition (update proposition :parameters #(mapv (partial apply module) %))]
       (match proposition
         {:ast/constraint :instance :typeclass typeclass :parameters parameters}
-        (let [{:keys [instances superclasses] :as typeclass}
+        (let [{:keys [instances] :as typeclass}
               (-> module
                 (module/all-typeclasses)
                 (module/get typeclass))
@@ -722,13 +722,14 @@
     {:ast/type   :application
      :operator   operator
      :parameters parameters}
-    (type/instantiate-universals (denominalize  module operator) parameters)))
+    (type/instantiate-universals (denominalize module operator) parameters)))
 
 (defn- analysis:check
   "Γ ⊢ e ⇐ A p ⊣ Δ
   found on pg. 37"
   [module term [type principality]]
-  {:pre [(term/is? term)
+  {:pre [(ast/module? module)
+         (term/is? term)
          (type/is? type) principality? principality?]}
   (let [type (apply module type)]
     (annotate-term term type)
@@ -919,6 +920,7 @@
   "Γ ⊢ α^ := t : κ ⊣ Δ
   found on pg. 43"
   [module type [solution kind]]
+  {:pre [(ast/module? module)]}
   (match [type [solution kind]]
     [({:ast/type :existential-variable :id alpha} :as alpha-type)
      [({:ast/type :existential-variable :id beta} :as beta-type) _]]

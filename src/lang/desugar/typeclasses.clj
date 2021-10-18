@@ -60,7 +60,7 @@
            (:return (:type-checker.term/type expr))})
         (first dictionaries)
         (next dictionaries))
-      (undefined))))
+      (undefined ::lookup-dictionary))))
 
 (defn- introduce-dictionary-arguments
   "Adds arguments for typeclass dictionaries to lambdas, according to
@@ -304,6 +304,12 @@
         :definitions
         first
         #_(nth 2)))
+
+  (throw (ex-info "foo" {}))
+
+  (com.gfredericks.debug-repl/unbreak!!)
+
+  (com.gfredericks.debug-repl/unbreak!)
 
 
   )

@@ -58,44 +58,44 @@
                      lang.code_generator_test.type_definitions/some))))))
 
 (deftest typeclass-codegen
-       (do (run :code-generator
-           (defmodule lang.code-generator-test.typeclasses
-             (:skip-implicits))
-           (defclass (Veracious T)
-             (true? :$ (-> T Bool)))
-           (definstance (Veracious Bool)
-             (true? [bool] bool))
-           (defn is-it-true? [x] (true? x))
-           (def nope (is-it-true? false)))
-         (is (= false (eval 'lang.code_generator_test.typeclasses/nope)))))
+  (do (run :code-generator
+        (defmodule lang.code-generator-test.typeclasses
+          (:skip-implicits))
+        (defclass (Veracious T)
+          (true? :$ (-> T Bool)))
+        (definstance (Veracious Bool)
+          (true? [bool] bool))
+        (defn is-it-true? [x] (true? x))
+        (def nope (is-it-true? false)))
+      (is (= false (eval 'lang.code_generator_test.typeclasses/nope)))))
 
 (deftest import-codegen
-       (do (run :code-generator
-           (defmodule lang.code-generator-test.imports
-             (:skip-implicits)
-             (:import [lang.io :as io]))
-           (defn print [arg]
-             (io/println "foofoo")))
-           (is (= nil (eval '(lang.code_generator_test.imports/print 0))))))
+  (do (run :code-generator
+        (defmodule lang.code-generator-test.imports
+          (:skip-implicits)
+          (:import [lang.io :as io]))
+        (defn print [arg]
+          (io/println "foofoo")))
+      (is (= nil (eval '(lang.code_generator_test.imports/print 0))))))
 
 (deftest recursive-typedef-codegen
-       (do (run :code-generator
-             (defmodule lang.code-generator-test.list)
-             (deftype (List T)
-                 (| [:nil]
-                    [:cons {:value T :next (List T)}]))
-             (defn fold
-               [op init list]
-               (match list
-                      [:nil] init
-                      [:cons {:value n :next tl}] (op (fold op init tl) n)))
-             (def some-list
-               [:cons {:value 1 :next [:cons {:value 3 :next [:nil]}]}]))
-           (is (= 4
-                  (eval `(lang.code_generator_test.list/fold
-                          lang.math/_PLUS_
-                          ~(biginteger 0)
-                          lang.code_generator_test.list/some_list))))))
+  (do (run :code-generator
+        (defmodule lang.code-generator-test.list)
+        (deftype (List T)
+            (| [:nil]
+               [:cons {:value T :next (List T)}]))
+        (defn fold
+          [op init list]
+          (match list
+                 [:nil] init
+                 [:cons {:value n :next tl}] (op (fold op init tl) n)))
+        (def some-list
+          [:cons {:value 1 :next [:cons {:value 3 :next [:nil]}]}]))
+      (is (= 4
+             (eval `(lang.code_generator_test.list/fold
+                     lang.math/_PLUS_
+                     ~(biginteger 0)
+                     lang.code_generator_test.list/some_list))))))
 
 (deftest nested-typedef-codegen
        (do (run :code-generator
