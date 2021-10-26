@@ -613,14 +613,16 @@
   (reduce emit-term state operations))
 
 (defmethod emit-term :access
-  [state {:keys [object field] :as form}]
+  [state {:keys [object field]}]
   (match field
     {:ast/term :application :function function :arguments arguments}
     (let [class          (->> function :symbol :in :name (str/join "."))
           method         (:name (:symbol function))
-          signature      (:signature (:type-checker.term/type function))
-          static-method? (empty? arguments) ; FIXME: jank, some instance methods take no arguments as well
-          invoke-insn    (if static-method? :invokestatic :invokevirtual)]
+               type           (:type-checker.term/type function)
+               signature      (:signature type)
+               invoke-insn    (case (:type type)
+                                :static :invokestatic
+                                :instance :invokevirtual)]
       (-> state
         (emit-term object)
         (reduce-state emit-term arguments)

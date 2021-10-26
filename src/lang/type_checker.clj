@@ -275,9 +275,18 @@
       (update :body (partial apply module)))
 
     {:ast/type :application}
-    (-> type
-      (update :operator (partial apply module))
-      (update :parameters (partial mapv #(apply module %))))
+    (letfn [(collect-nested-applications [type]
+              (match type
+                     {:ast/type :application :operator {:ast/type :application :operator operator :parameters inner-params} :parameters outer-params}
+                     {:ast/type :application
+                      :operator operator
+                      :parameters (into inner-params outer-params)}
+
+                     _ type))]
+      (-> type
+          (update :operator (partial apply module))
+          (update :parameters (partial mapv #(apply module %)))
+          (collect-nested-applications)))
 
     {:ast/type :function}
     (-> type
@@ -1088,12 +1097,26 @@
 
         [{:ast/type :application :operator operator-1 :parameters parameters-1}
          {:ast/type :application :operator operator-2 :parameters parameters-2}]
-        (do (subtyping:equivalent module operator-1 operator-2)
-            (mapv
-              (fn [param-1 param-2] (subtyping:equivalent module param-1 param-2))
-              parameters-1
-              parameters-2)
-            nil)
+        (do
+          (cond
+            (not= (count parameters-1) (count parameters-2))
+            (let [[longer shorter] (sort-by count [type-a type-b])
+                  [inner outer] (split-at (count (:parameters shorter)) (:parameters longer))]
+              (subtyping:equivalent module
+                                    (assoc longer :parameters inner)
+                                    (:operator shorter))
+              (mapv (partial subtyping:equivalent module)
+                    outer
+                    (:parameters shorter)))
+
+            (= (count parameters-1) (count parameters-2))
+            (do
+              (subtyping:equivalent module operator-1 operator-2)
+              (mapv
+               (fn [param-1 param-2] (subtyping:equivalent module param-1 param-2))
+               parameters-1
+               parameters-2)))
+          nil)
 
         [{:ast/type :application :operator operator :parameters parameters} _]
         (subtyping:equivalent module
@@ -1539,6 +1562,7 @@
             (annotate-term function
               {:ast/type  :method
                :class     object-type
+                            :type (if (contains? (:flags member) :static) :static :instance)
                :signature (conj (:parameter-types member) (:return-type member))})
             [(from-jvm-type (:return-type member)) :principal])
 
@@ -1732,7 +1756,7 @@
                     (strip-guard)
                     (constrain-superclasses superclasses)
                     (introduce-universal-parameters (vals variables)))]
-              (analysis:check module term [type :principal])))
+              (analysis:check module term [(apply module type) :principal])))
           fields)
         (walk/postwalk #(if (type/is? %) (apply module %) %) instantiation))
       (throw (ex-info "Unknown typeclass" {:typeclass name})))))

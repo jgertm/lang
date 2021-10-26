@@ -98,31 +98,38 @@
                      lang.code_generator_test.list/some_list))))))
 
 (deftest nested-typedef-codegen
-       (do (run :code-generator
-             (defmodule lang.code-generator-test.alist
-               (:import [lang.io :as io]
-                        [lang.option :as option]))
-             (deftype (Alist T)
-                 (| [:nil]
-                    [:cons {:current T :next (Alist T)}]))
-             (deftype (Entry K V)
-                 {:key K :value V})
-             #_(deftype (Option T)
-                 (| [:none]
-                    [:some T]))
-             (defn insert [alist key value]
-               [:cons {:current {:key key :value value} :next alist}])
-             (defn get [alist key]
+  (do (run :code-generator
+        (defmodule lang.code-generator-test.alist
+          (:import [lang.io :as io]
+                   [lang.option :as option]))
+        (deftype (Alist K V)
+            (| [:nil]
+               [:cons {:key K :value V :next (Alist K V)}]))
+        (definstance (Functor (Alist K))
+          (map [f alist]
                (match alist
-                      [:nil] [:option/none]
-                      [:cons {:current {:key k :value v} :next next}]
-                      (match (= k key)
-                        true [:option/some v]
-                        false (get next key))))
-             (defn retrieve [arg]
-               (get (insert (insert (insert [:nil] 1 "one") 2 "two") 3 "three") 2))
-             (defn retrieve2 [arg]
-               (get (insert (insert [:nil] [:option/some 1] "one") [:option/some 2] "two") [:option/some 1])))
+                      [:nil] [:nil]
 
-           (is (= "two" (.value (eval `(lang.code_generator_test.alist/retrieve nil)))))
-           (is (= "one" (.value (eval `(lang.code_generator_test.alist/retrieve2 nil)))))))
+                      [:cons {:key k :value v :next next}]
+                      [:cons {:key k :value (f v) :next (map f next)}])))
+        (defn insert [alist key value]
+          [:cons {:key key :value value :next alist}])
+        (defn get [alist key]
+          (match alist
+                 [:nil] [:option/none]
+                 [:cons {:key k :value v :next next}]
+                 (if (= k key)
+                   [:option/some v]
+                   (get next key))))
+        (defn retrieve [arg]
+          (get (insert (insert (insert [:nil] 1 "one") 2 "two") 3 "three") 2))
+        (defn retrieve2 [arg]
+          (get (insert (insert [:nil] [:option/some 1] "one") [:option/some 2] "two") [:option/some 1]))
+        (defn to-upper [s :$ String]
+          (. s (java.lang.String/toUpperCase)))
+        (defn retrieve3 [arg]
+          (get (map to-upper (insert (insert (insert [:nil] 1 "one") 2 "two") 3 "three")) 2)))
+
+      (is (= "two" (.value (eval `(lang.code_generator_test.alist/retrieve nil)))))
+      (is (= "one" (.value (eval `(lang.code_generator_test.alist/retrieve2 nil)))))
+      (is (= "TWO" (.value (eval `(lang.code_generator_test.alist/retrieve3 nil)))))))
