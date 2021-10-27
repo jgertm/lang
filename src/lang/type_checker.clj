@@ -1313,12 +1313,12 @@
            _] 
           (let [type (-> module
                        (lookup-type (:name operator))
-                       (type/instantiate-universals parameters))]
+                         (type/instantiate-universals parameters))]
             (annotate-pattern pattern pattern-type)
             (match:check module
-              branches
-              [(cons type (next pattern-types)) pattern-principality]
-              return))
+                         branches
+                         [(cons type (next pattern-types)) pattern-principality]
+                         return))
 
           [_
            {:ast/type :named :name name}
@@ -1525,45 +1525,45 @@
                       :arguments arguments}} ; instance method
           (let [object-type
                 (->> object
-                  (synthesize module)
-                  (first)
-                  (to-jvm-type module))
-                object-bases
-                (->> object-type
-                  (bases)
-                  (map (fn [class] (symbol (. class Class/getName))))
-                  (set))
-                parameter-types
-                (mapv
-                  #(->> %
                      (synthesize module)
                      (first)
                      (to-jvm-type module))
-                  arguments)
+                object-bases
+                (->> object-type
+                     (bases)
+                     (map (fn [class] (symbol (. class Class/getName))))
+                     (set))
+                parameter-types
+                (mapv
+                 #(->> %
+                       (synthesize module)
+                       (first)
+                       (to-jvm-type module))
+                 arguments)
                 member
                 (->> function :symbol :in :name
-                  (str/join ".")
-                  (java.lang.Class/forName)
-                  (reflect)
-                  :members
-                  (filter
-                    (fn [member]
-                      (and
-                        #_(contains? (conj object-bases object-type) (:declaring-class member))
-                        (contains? (:flags member) :public)
-                        (= (:name member) (:name (:symbol function)))
-                        (jvm/subclass?
+                     (str/join ".")
+                     (java.lang.Class/forName)
+                     (reflect)
+                     :members
+                     (filter
+                      (fn [member]
+                        (and
+                         #_(contains? (conj object-bases object-type) (:declaring-class member))
+                         (contains? (:flags member) :public)
+                         (= (:name member) (:name (:symbol function)))
+                         (jvm/subclass?
                           (:parameter-types member)
                           (cond->> parameter-types
                             (contains? (:flags member) :static)
                             (into [object-type]))))))
-                  (sort-by :parameter-types jvm/subclass?)
-                  (last))]
+                     (sort-by :parameter-types jvm/subclass?)
+                     (last))]
             (annotate-term function
-              {:ast/type  :method
-               :class     object-type
+                           {:ast/type  :method
+                            :class     object-type
                             :type (if (contains? (:flags member) :static) :static :instance)
-               :signature (conj (:parameter-types member) (:return-type member))})
+                            :signature (conj (:parameter-types member) (:return-type member))})
             [(from-jvm-type (:return-type member)) :principal])
 
           {:ast/term :access

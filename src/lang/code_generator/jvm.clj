@@ -615,18 +615,18 @@
 (defmethod emit-term :access
   [state {:keys [object field]}]
   (match field
-    {:ast/term :application :function function :arguments arguments}
-    (let [class          (->> function :symbol :in :name (str/join "."))
-          method         (:name (:symbol function))
+         {:ast/term :application :function function :arguments arguments}
+         (let [class          (->> function :symbol :in :name (str/join "."))
+               method         (:name (:symbol function))
                type           (:type-checker.term/type function)
                signature      (:signature type)
                invoke-insn    (case (:type type)
                                 :static :invokestatic
                                 :instance :invokevirtual)]
-      (-> state
-        (emit-term object)
-        (reduce-state emit-term arguments)
-        (emit [[invoke-insn class method signature]])))))
+           (-> state
+               (emit-term object)
+               (reduce-state emit-term arguments)
+               (emit [[invoke-insn class method signature]])))))
 
 (defmethod emit-term :default ; FIXME(tjgr): rm
   [state form]
