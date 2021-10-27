@@ -27,11 +27,26 @@
 (def conjv
   (fnil conj []))
 
-(defn spy
-  [f v]
-  (f v)
-  v)
+(defn deep-merge
+  [& maps]
+  (apply
+    (fn m [& maps]
+      (cond
+        (every? map? maps)
+        (apply merge-with m maps)
+
+        (every? set? maps)
+        (apply set/union maps)
+
+        (every? vector? maps)
+        (reduce into maps)
+
+        :else (last maps)))
+    maps))
 
 (defn symmetric-difference
   [a b]
   (set/difference (set/union a b) (set/intersection a b)))
+
+(defn where []
+  (seq (.getStackTrace (Exception. "foo"))))

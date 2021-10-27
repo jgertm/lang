@@ -1,9 +1,17 @@
 (ns lang.name-resolution
   (:require [clojure.core.match :refer [match]]
+            [clojure.set :as set]
             [clojure.walk :as walk]
             [lang.ast :as ast]
+            [lang.definition :as definition]
             [lang.module :as module]
-            [lang.utils :as utils :refer [undefined]]))
+            [lang.pattern :as pattern]
+            [lang.term :as term]
+            [lang.utils :as utils :refer [undefined]]
+            [taoensso.timbre :as log]))
+
+;; TODO: resolve OPENED modules' injectors
+;; TODO: alert on UNKNOWN constructors
 
 (defn- absorb-definition
   [module {:keys [name] :as definition}]
@@ -63,15 +71,67 @@
   [module definition]
   (walk/prewalk (partial resolve-reference module) definition))
 
+(defn annotate-captures
+  ;; FIXME(tjgr): this is jank AF
+  [definition]
+  (letfn [(restrict [node symbols]
+            (cond
+              (term/lambda? node)
+              (reduce
+                (fn [symbols argument]
+                  (disj symbols (select-keys argument [:reference :name])))
+                symbols
+                (:arguments node))
+
+              (term/match? node)
+              (->> node
+                :branches
+                (mapcat :patterns)
+                (mapcat pattern/nodes)
+                (keep :symbol)
+                (set)
+                (set/difference symbols))
+
+              :else symbols))]
+    (->> definition
+      (walk/postwalk
+        (fn [node]
+          (cond
+            (not (term/is? node)) node
+
+            (and (term/symbol? node) (not (:in (:symbol node))))
+            (assoc node :name-resolution/captured-symbols #{(:symbol node)})
+
+            :else
+            (->> node
+              (term/children)
+              (map :name-resolution/captured-symbols)
+              (reduce set/union)
+              (restrict node)
+              (assoc node :name-resolution/captured-symbols)))))
+      (walk/prewalk
+        (fn [node]
+          (cond
+            (not (term/is? node)) node
+
+            (term/lambda? node)
+            node
+
+            :else
+            (dissoc node :name-resolution/captured-symbols)))))))
+
 (defn run
   [module]
   {:pre [(ast/module? module)]}
+  (log/debug "resolving names" (definition/name module))
   (->> module
     :definitions
     (reduce
       (fn [module definition]
         (let [module     (absorb-definition module definition)
-              definition (resolve-references module definition)]
+              definition (->> definition
+                           (resolve-references module)
+                           (annotate-captures))]
           (update module :definitions conj definition)))
       (assoc module :definitions []))))
 
@@ -88,9 +148,10 @@
     (lang.compiler/run :until :name-resolution)
     (module/all-bindings)))
 
-(-> "std/lang/io.lang"
+(-> "examples/alist.lang"
     (lang.compiler/run :until :name-resolution)
-    :definitions)
+    module/all-typeclasses
+    (module/get {:name "Eq", :reference :typeclass}))
 
 
   )

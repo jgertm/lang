@@ -1,8 +1,11 @@
-(defmodule lang.option) 
+(defmodule lang.option
+  (:import [lang.string :as string])) 
+
 
 (deftype (Option T)
   (| [:none]
      [:some T]))
+
 
 (defn default
   [option fallback]
@@ -10,9 +13,25 @@
     [:none] fallback
     [:some value] value))
 
-; (∀ X Y (-> (-> X Y) (Option X) (Option Y)))
+
 (definstance (Functor Option)
   (map [f option]
     (match option
       [:none]       [:none]
       [:some value] [:some (f value)])))
+
+
+(definstance (Show (Option T))
+  :when (Show T)
+  (show [option]
+    (match option
+      [:none]     "[:none]"
+      [:some val] (string/concat (string/concat "[:some" (show val)) "]"))))
+
+
+(definstance (Eq (Option T))
+  :when (Eq T)
+  (= [a b]
+    (match a
+      [:none] (match b [:none] true _ false)
+      [:some x] (match b [:some y] (= x y) _ false))))

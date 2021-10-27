@@ -19,6 +19,7 @@
     (parens
       (bind [_ (word "defmodule")
              name reference/module
+             ;; TODO(tjgr): order-independent module options
              skip-implicits (optional (<:> (parens (>> (word ":skip-implicits") (return true)))))
              imports (optional (<:> (parens (>> (word ":import") (many import)))))
              definitions (many (fwd expr))]
@@ -53,9 +54,14 @@
                :name           name
                :body           body}))))
 
+(def ^:private annotation
+  (<|>
+    (<:> (word ":$")) ; for writing tests
+    (sym \:)))
+
 (def ^:private function
   (let [argument (bind [symbol reference/variable
-                        type (optional (>> (sym \:) type/expr))]
+                        type (optional (>> annotation type/expr))]
                    (return
                      (if type
                        (assoc symbol :type type)
@@ -71,15 +77,13 @@
                  {:ast/term  :recur
                   :reference name
                   :body
-                  (->> arguments
-                    (rseq)
-                    (reduce
-                      (fn [term arg]
-                        {:ast/term :lambda
-                         :argument arg
-                         :body     term})
-                      {:ast/term   :sequence
-                       :operations operations}))}})))))
+                  {:ast/term  :lambda
+                   :arguments arguments
+                   :body
+                   (if (< 1 (count operations))
+                     {:ast/term   :sequence
+                      :operations operations}
+                     (first operations))}}})))))
 
 (def ^:private macro
   (parens
@@ -101,7 +105,7 @@
            (<$> (partial into (array-map))
              (many1 (parens (<*>
                               reference/variable
-                              (>> (sym \:) type/expr)))))]
+                              (>> annotation type/expr)))))]
       (return {:ast/definition :typeclass
                :name           name
                :params         params
@@ -114,25 +118,26 @@
                  arguments (brackets (many0 reference/variable))
                  operations (many1 term/expr)]
             (return [name
-                     (->> arguments
-                       (rseq)
-                       (reduce
-                         (fn [term arg]
-                           {:ast/term :lambda
-                            :argument arg
-                            :body     term})
-                         {:ast/term   :sequence
-                          :operations operations}))])))]
+                     {:ast/term  :lambda
+                      :arguments arguments
+                      :body
+                      (if (< 1 (count operations))
+                        {:ast/term   :sequence
+                         :operations operations}
+                        (first operations))}])))
+        instance (parens (<*> reference/typeclass (many1 type/expr)))]
     (parens
       (bind [_ (word "definstance")
-             [name types]
-             (parens (<*> reference/typeclass (many1 type/expr)))
+             [name types] instance
+             superclasses
+             (<$> (comp not-empty set) (many0 (>> (word ":when") instance)))
              fields
              (<$> (partial into (array-map))
                (many1 field))]
         (return {:ast/definition :typeclass-instance
                  :name           name
                  :types          types
+                 :superclasses   superclasses
                  :fields         fields})))))
 
 (def expr

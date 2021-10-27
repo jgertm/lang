@@ -14,14 +14,9 @@
     (bind [_ (word "fn")
            args (brackets (many reference/variable))
            body (fwd expr)]
-      (return (->> args
-                rseq
-                (reduce
-                  (fn [expr arg]
-                    {:ast/term :lambda
-                     :argument arg
-                     :body     expr})
-                  body))))))
+      (return {:ast/term  :lambda
+               :arguments args
+               :body      body}))))
 
 (def ^:private match
   (let [branch (bind [pattern pattern/expr
@@ -58,7 +53,8 @@
     (bind [injector reference/injector
            value (optional (fwd expr))]
       (return {:ast/term :variant
-               :variant  {:injector injector :value value}}))))
+               :injector injector
+               :value    value}))))
 
 (def ^:private record
   (braces

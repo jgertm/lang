@@ -57,6 +57,12 @@
     {:ast/type :universal-variable} true
     _ false))
 
+(defn function?
+  [type]
+  (match type
+    {:ast/type :function} true
+    _ false))
+
 (defn polarity
   [type]
   (case (:ast/type type)
@@ -128,11 +134,14 @@
               {:ast/type :record}
               (vals (:fields node))
 
+              {:ast/type :application :operator operator :parameters parameters}
+              (cons operator parameters)
+
               _
               (->> node
                 (vals)
                 (filter is?))))]
-    (set (tree-seq branch? children type))))
+    (tree-seq branch? children type)))
 
 (defn contains?
   [type child]
@@ -159,9 +168,13 @@
       {:ast/type :forall :body body}
       (contains? body child)
 
+      {:ast/type :guarded :body body}
+      (contains? body child)
+
       {:ast/type :fix :body body}
       (contains? body child)
 
+      ;; FIXME: this will bite me in the ass, dont have a fallthrough case!
       _ nil)))
 
 (defn free-variables

@@ -10,7 +10,7 @@ found in PureScript.
 * Features
 
 - [X] lambdas
-- [ ] argument capture
+- [X] argument capture
 - [X] algebraic data types
 - [X] type inference
 - [X] modules
@@ -19,7 +19,7 @@ found in PureScript.
 - [ ] macros that actually work
 - [ ] labelled arguments
 - [X] typeclasses
-- [ ] superclass constraints
+- [X] superclass constraints
 - [ ] lenses
 - [X] sum and product types
 - [ ] structural records and variants
