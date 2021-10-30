@@ -9,9 +9,9 @@
        {:definitions
         [{:ast/definition :constant
           :name           (equals
-                           {:reference :constant
+                           {:ast/reference :constant
                             :name      "foo"
-                            :in        {:reference :module
+                            :in        {:ast/reference :module
                                         :name      ["lang" "name-resolution-test" "definitions"]}})}]}
        (run :name-resolution
          (defmodule lang.name-resolution-test.definitions)
@@ -27,7 +27,7 @@
            {:ast/term :lambda
             :body
             {:ast/term :symbol
-             :symbol   (equals {:reference :constant
+             :symbol   (equals {:ast/reference :constant
                                 :name      "bar"})}}}}]}
        (run :name-resolution
          (defmodule lang.name-resolution-test.locals)

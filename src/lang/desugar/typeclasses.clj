@@ -15,14 +15,14 @@
   {:ast/type :named
    :name
    (-> name
-     (assoc :reference :type)
+     (assoc :ast/reference :type)
      (update :name #(format "D:%s" %)))})
 
 (defn- instance-value-name
   "Returns the name of an instances' dictionary value."
   [module typeclass types]
   {:pre [(every? type/is? types)]}
-  {:reference :constant
+  {:ast/reference :constant
    :name (format "I:%s:%s"
            (:name typeclass)
            (str/join "-" (map type/print types)))
@@ -31,7 +31,7 @@
 (defn- dictionary-argument-name
   "Returns the name of a dictionary as a function argument."
   [typeclass]
-  {:reference :dictionary
+  {:ast/reference :dictionary
    :name      (gensym (:name typeclass))})
 
 (defn add-dictionary-instance
@@ -168,7 +168,7 @@
         (if-let [[member type]
                  (and (term/application? node)
                       (typeclass-member (:function node)))]
-          (let [field      (assoc member :reference :field)
+          (let [field      (assoc member :ast/reference :field)
                 dictionary (first (:arguments node))]
             (-> node
               (update :arguments next)
@@ -204,7 +204,7 @@
          (let [universal
                {:ast/type  :universal-variable
                 :id        (gensym)
-                :reference param}]
+                :ast/reference param}]
            {:ast/type :forall
             :variable universal
             :body
@@ -214,7 +214,7 @@
        {:ast/type :record
         :fields   (->> fields
                     (map (fn [[name type]]
-                           [(assoc name :reference :field) type]))
+                           [(assoc name :ast/reference :field) type]))
                     (into (empty fields)))}
        params)}))
 
@@ -253,7 +253,7 @@
           {:ast/term :record
            :fields   (->> fields
                        (map (fn [[field term]]
-                              [(assoc field :reference :field)
+                              [(assoc field :ast/reference :field)
                                term]))
                        (into (empty fields)))
            :type-checker.term/type

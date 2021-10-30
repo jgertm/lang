@@ -18,7 +18,7 @@
   (letfn [(qualify-internal-references [expr]
             (walk/prewalk
               (fn [node]
-                (if (some-> node :reference #{:field :injector :constant})
+                (if (some-> node :ast/reference #{:field :injector :constant})
                   (assoc node :in (:name module))
                   node))
               expr))]
@@ -49,10 +49,10 @@
           (filter first)
           (into {}))]
     (match node
-      {:reference _ :in (source :guard (partial contains? modules))}
+      {:ast/reference _ :in (source :guard (partial contains? modules))}
       (assoc node :in (get modules source))
 
-      {:reference type}
+      {:ast/reference type}
       (if-let [[reference _] (module/find
                                ((case type
                                   :typeclass module/all-typeclasses
@@ -79,7 +79,7 @@
               (term/lambda? node)
               (reduce
                 (fn [symbols argument]
-                  (disj symbols (select-keys argument [:reference :name])))
+                  (disj symbols (select-keys argument [:ast/reference :name])))
                 symbols
                 (:arguments node))
 
@@ -151,7 +151,7 @@
 (-> "examples/alist.lang"
     (lang.compiler/run :until :name-resolution)
     module/all-typeclasses
-    (module/get {:name "Eq", :reference :typeclass}))
+    (module/get {:name "Eq", :ast/reference :typeclass}))
 
 
   )

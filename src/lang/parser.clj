@@ -11,9 +11,9 @@
       (kern/return (update module :definitions (fnil into []) children)))))
 
 (defn run
-  [path]
+  [path text]
   (log/debug "parsing file" path)
-  (let [result (kern/parse-file file path)]
+  (let [result (kern/parse file text path)]
     (if (:ok result)
       (:value result)
       (throw (ex-info "Parsing error" (:error result))))))

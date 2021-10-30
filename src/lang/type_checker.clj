@@ -100,7 +100,7 @@
   [symbol type principality]
   (swap! (:type-checker/facts *context*)
     zip/insert-left
-    {:fact/bind-symbol (select-keys symbol [:reference :name :in])
+    {:fact/bind-symbol (select-keys symbol [:ast/reference :name :in])
      :type             type
      :principality     principality})
   nil)
@@ -217,7 +217,7 @@
   (or
     (when-let [[type principality]
                (some->>
-                 (select-keys symbol [:reference :name :in])
+                 (select-keys symbol [:ast/reference :name :in])
                  (module/get (all-bindings module)))]
       [type principality])
     (throw (ex-info "Unknown binding"
@@ -1421,9 +1421,9 @@
             BigInteger "Integer"
             Void/TYPE  "Unit"}
         (map (fn [[k v]] [k {:ast/type :named
-                             :name     {:reference :type
+                             :name     {:ast/reference :type
                                         :name      v
-                                        :in        {:reference :module :name ["lang" "builtin"]}}}]))
+                                        :in        {:ast/reference :module :name ["lang" "builtin"]}}}]))
         (into {}))
       (->> {Boolean/TYPE :bool
             Integer/TYPE :int

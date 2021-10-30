@@ -21,9 +21,9 @@
 
     (is (match?
          [{:ast/type :named
-                 :name     {:reference :type
+                 :name     {:ast/reference :type
                             :name      "Integer"
-                            :in        {:reference :module :name ["lang" "builtin"]}}}
+                            :in        {:ast/reference :module :name ["lang" "builtin"]}}}
           :principal]
          foo))
 
@@ -250,10 +250,10 @@
                                        :proposition
                                        {:ast/constraint :instance
                                         :typeclass
-                                        {:reference :typeclass
+                                        {:ast/reference :typeclass
                                          :name      "Veracious"
                                          :in
-                                         {:reference :module
+                                         {:ast/reference :module
                                           :name      ["lang" "desugar" "typeclasses-test" "definitions"]}}
                                         :parameters
                                         [{:ast/type :universal-variable}]}
@@ -285,7 +285,7 @@
                                    :proposition
                                    {:ast/constraint :instance
                                     :typeclass
-                                    {:reference :typeclass
+                                    {:ast/reference :typeclass
                                      :name      "Veracious"}
                                     :parameters
                                     [{:ast/type :named
