@@ -10,6 +10,7 @@
                  [potemkin "0.4.5"]
                  [com.taoensso/timbre "5.1.0"]]
   :main ^:skip-aot lang.core
+  :source-paths ["src" "test"]
   :target-path "target/%s/"
   ;; :java-source-paths ["tmp"] ; slows down lein startup a lot
   :resource-paths ["std"]

@@ -1,5 +1,8 @@
 (ns user
-  (:require [com.gfredericks.debug-repl]))
+  (:require [com.gfredericks.debug-repl]
+            [clojure.tools.namespace.repl :as repl]))
+
+(repl/set-refresh-dirs "src" "test")
 
 (defn before-refresh []
   (try
