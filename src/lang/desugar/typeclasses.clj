@@ -49,7 +49,7 @@
     (get (module/all-typeclass-dictionaries module) constraint)
     (if-let [dictionaries
              (some->> constraint
-               (get @(:type-checker/instance-chains module))
+               (get (:type-checker/instance-chains module))
                (map (partial lookup-dictionary module)))]
       (reduce
         (fn [expr dictionary]
