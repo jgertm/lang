@@ -31,18 +31,17 @@
      ~params
      (let [subqueries# (atom {})
            key#
-           ~{:query (resolve name)
+           ~{:query (intern *ns* name)
              :args  (mapv #(vector (list `quote %) %) params)}]
-       (:result (cache/lookup-or-miss cache key#
-                              (fn [key#]
-                                (let [record#
-                                      {:result     (binding [*queries* subqueries#] ~@body)
-                                       :subqueries (->> @subqueries#
-                                                        (map (fn [[k# v#]] [k# (:result v#)]))
-                                                        (into {}))}]
-                                  (some-> *queries* (swap! assoc key# record#))
-                                  record#)))))))
-
-(macroexpand-1 '(defquery foo [bar quux] :baz))
+       ;; TODO: check subquery results
+       (let [record#
+             (cache/lookup-or-miss cache key#
+                                   (fn [key#]
+                                     {:result     (binding [*queries* subqueries#] ~@body)
+                                      :subqueries (->> @subqueries#
+                                                       (map (fn [[k# v#]] [k# (:result v#)]))
+                                                       (into {}))}))]
+         (some-> *queries* (swap! assoc key# record#))
+         (:result record#)))))
 
 @cache
