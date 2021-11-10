@@ -6,6 +6,8 @@
             [lang.definition :as definition]
             [lang.module :as module]
             [lang.pattern :as pattern]
+            [lang.parser :as parser]
+            [lang.state :refer [defquery]]
             [lang.term :as term]
             [lang.utils :as utils :refer [undefined]]
             [taoensso.timbre :as log]))
@@ -126,14 +128,43 @@
   (log/debug "resolving names" (definition/name module))
   (->> module
     :definitions
-    (reduce
-      (fn [module definition]
-        (let [module     (absorb-definition module definition)
-              definition (->> definition
-                           (resolve-references module)
-                           (annotate-captures))]
-          (update module :definitions conj definition)))
-      (assoc module :definitions []))))
+
+(defquery global-references [key]
+  (log/debug "collecting global references" key)
+  (let [module (parser/ast key)
+        unqualified-builtins
+        (->> module/builtins
+             keys
+             (map (fn [name] [(dissoc name :in) name]))
+             (into {}))
+        locals
+        (->> module
+             :definitions
+             (map (fn [definition]
+                    [(:name definition)
+                     (assoc (:name definition) :in (:name module))]))
+             (into {}))
+        imported
+        (->> module
+             :imports
+             (map
+              (fn [{:keys [module alias]}]
+                (->> (global-references [:module module])
+                     (keep (fn [[local full]]
+                             (when-not (:in local)
+                               [(assoc local :in alias)
+                                full])))
+                     (into {}))))
+             (reduce merge))]
+    (merge module/builtins unqualified-builtins locals imported)))
+
+(defquery ast [key]
+  (log/debug "name-resolving ast" key)
+  (let [ast (parser/ast key)
+        references (global-references key)]
+    (ast/map
+     (fn [node] (get references node node))
+     ast)))
 
 (comment
 
@@ -152,6 +183,21 @@
     (lang.compiler/run :until :name-resolution)
     module/all-typeclasses
     (module/get {:name "Eq", :ast/reference :typeclass}))
+
+  (global-references [:file "examples/arithmetic.lang"])
+
+
+  (ast [:file "examples/arithmetic.lang"])
+
+
+  (parser/ast [:file "examples/arithmetic.lang"])
+
+
+
+  (macroexpand-1  '(defquery global-references [key]
+     (log/debug "collecting global references" key)
+     (let [ast (parser/ast key)]
+       (map :name (:definitions ast)))))
 
 
   )

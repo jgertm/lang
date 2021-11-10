@@ -1,8 +1,10 @@
 (ns lang.parser
   (:require [blancas.kern.core :as kern]
             [clojure.core.match :refer [match]]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
             [lang.parser.definition :as definition]
-            [lang.state :refer [definput defquery]]
+            [lang.state :refer [defquery]]
             [taoensso.timbre :as log]))
 
 (def ^:private file
@@ -22,6 +24,13 @@
 (defquery source [key]
   (log/debug "reading file" key)
   (match key
+         [:module {:name ((["lang" & _] :seq) :as path)}]
+         (->> path
+              (str/join "/")
+              (format "%s.lang")
+              io/resource
+              slurp)
+
          [:file path]
          (slurp path)))
 

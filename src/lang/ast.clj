@@ -60,3 +60,7 @@
               (into {}))
          (meta ast)))
      ast)))
+
+(defn map
+  [f ast]
+  (walk (fn [_ _ node] [nil (f node)]) nil ast))
