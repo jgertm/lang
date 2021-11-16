@@ -6,7 +6,7 @@
 (deftest empty-module
   (is (match?
        {:ast/definition :module
-        :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}
+        :name           {:ast/reference :module :name ["lang" "parser-test" "empty-module"]}
         :skip-implicits nil
         :imports        nil
         :definitions    []}
@@ -15,10 +15,10 @@
 
   (is (match?
        {:ast/definition :module
-        :name           {:reference :module :name ["lang" "parser-test" "empty-module-w-imports"]}
+        :name           {:ast/reference :module :name ["lang" "parser-test" "empty-module-w-imports"]}
         :skip-implicits true
-        :imports        [{:module {:reference :module :name ["lang" "io"]}
-                          :alias  {:reference :module :name ["io"]}}
+        :imports        [{:module {:ast/reference :module :name ["lang" "io"]}
+                          :alias  {:ast/reference :module :name ["io"]}}
                          {:module {:name ["lang" "option"]}
                           :alias  {:name ["option"]}}]
         :definitions    []}
@@ -48,7 +48,7 @@
 (deftest parse-atoms
   (is (match?
        {:definitions [{:ast/definition :constant
-                       :name           {:reference :constant :name "foo"}
+                       :name           {:ast/reference :constant :name "foo"}
                        :body           {:ast/term :atom :atom {:atom :integer :value "2"}}}
                       {:body {:atom {:atom :string :value "bar"}}}
                       {:body {:atom {:atom :boolean :value true}}}
@@ -64,18 +64,18 @@
   (is (match?
        {:definitions [{:ast/definition :constant
                        :body           {:ast/term :variant
-                                        :injector {:reference :injector
+                                        :injector {:ast/reference :injector
                                                    :name      "foo"}}}
                       {:body {:injector {:name "bar"
                                          :in   {:name ["foo"]}}}}
                       {:body {:ast/term :record
-                              :fields   {{:reference :field
+                              :fields   {{:ast/reference :field
                                           :name      "quux"}
                                          {}}}}
                       {:body {:ast/term :record
-                              :fields   {{:reference :field
+                              :fields   {{:ast/reference :field
                                           :name      "baz"
-                                          :in        {:reference :module
+                                          :in        {:ast/reference :module
                                                       :name      ["quux"]}}
                                          {}}}}]}
        (run :parser
@@ -88,16 +88,16 @@
 (deftest parse-functions
   (is (match?
        {:definitions [{:ast/definition :constant
-                       :name           {:reference :constant :name "id"}
+                       :name           {:ast/reference :constant :name "id"}
                        :body
                        {:ast/term  :recur
                         :reference {:reference :constant :name "id"}
                         :body
                         {:ast/term :lambda
-                         :arguments [{:reference :constant :name "x"}]
+                         :arguments [{:ast/reference :constant :name "x"}]
                          :body
                          {:ast/term :symbol
-                          :symbol   {:reference :constant :name "x"}}}}}
+                          :symbol   {:ast/reference :constant :name "x"}}}}}
                       {:body
                        {:ast/term  :recur
                         :reference {:name "const"}
@@ -127,30 +127,30 @@
   (is (match?
        {:definitions
         [{:ast/definition :typeclass
-          :name           {:reference :typeclass
+          :name           {:ast/reference :typeclass
                            :name      "Veracious"}
           :params
-          [{:reference :type :name "T"}]
+          [{:ast/reference :type :name "T"}]
           :fields
-          {{:reference :constant :name "true?"}
+          {{:ast/reference :constant :name "true?"}
            {:ast/type :function
             :domain   {:ast/type :named
-                       :name     {:reference :type :name "T"}}
+                       :name     {:ast/reference :type :name "T"}}
             :return   {:ast/type :named
-                       :name     {:reference :type :name "Bool"}}}}}
+                       :name     {:ast/reference :type :name "Bool"}}}}}
          {:ast/definition :typeclass-instance
-          :name           {:reference :typeclass :name "Veracious"}
+          :name           {:ast/reference :typeclass :name "Veracious"}
           :types
-          [{:ast/type :named :name {:reference :type :name "Bool"}}]
+          [{:ast/type :named :name {:ast/reference :type :name "Bool"}}]
           :superclasses   nil
           :fields
-          {{:reference :constant :name "true?"}
+          {{:ast/reference :constant :name "true?"}
            {:ast/term :lambda
-            :arguments [{:reference :constant :name "bool"}]
+            :arguments [{:ast/reference :constant :name "bool"}]
             :body
             {:ast/term :symbol
              :symbol
-             {:reference :constant :name "bool"}}}}}]}
+             {:ast/reference :constant :name "bool"}}}}}]}
        (run :parser
          (defmodule lang.desugar.typeclasses-test.definitions
            (:skip-implicits))

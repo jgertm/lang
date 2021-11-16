@@ -16,14 +16,14 @@
            (defn is-it-true? [x] (true? x))
            (def nope (is-it-true? false)))
          :definitions)
-        module {:reference :module
+        module {:ast/reference :module
                 :name      ["lang" "desugar" "typeclasses-test" "simple-definitions"]}
         Bool   {:ast/type :named
                 :name
-                {:reference :type :name "Bool"}}]
+                {:ast/reference :type :name "Bool"}}]
 
     (is (match? {:ast/definition :type
-                 :name           {:reference :type :name "D:Veracious"}
+                 :name           {:ast/reference :type :name "D:Veracious"}
                  :params         [{:name "T"}]
                  :body
                  {:ast/type :forall
@@ -31,7 +31,7 @@
                              :reference {:name "T"}}
                   :body     {:ast/type :record
                              :fields
-                             {{:reference :field
+                             {{:ast/reference :field
                                :name      "true?"
                                :in        module}
                               {:ast/type :function
@@ -42,18 +42,18 @@
                 class))
 
     (is (match? {:ast/definition :constant
-                 :name           {:reference :constant :name "I:Veracious:Bool"}
+                 :name           {:ast/reference :constant :name "I:Veracious:Bool"}
                  :body
                  {:ast/term :record
                   :fields
-                  {{:reference :field
+                  {{:ast/reference :field
                     :name      "true?"
                     :in        module}
                    {:ast/term  :lambda
-                    :arguments [{:reference :constant :name "bool"}]
+                    :arguments [{:ast/reference :constant :name "bool"}]
                     :body
                     {:ast/term :symbol
-                     :symbol   {:reference :constant :name "bool"}
+                     :symbol   {:ast/reference :constant :name "bool"}
                      :type-checker.term/type
                      {:ast/type :named :name {:name "Bool"}}}
                     :type-checker.term/type
@@ -62,9 +62,9 @@
                      :return   Bool}}}}}
                 instance))
 
-    (let [dictionary {:reference :dictionary
+    (let [dictionary {:ast/reference :dictionary
                       :name      #(->> % (name) (re-find #"Veracious"))}
-          argument   {:reference :constant
+          argument   {:ast/reference :constant
                       :name      "x"}]
       (is (match? {:ast/definition :constant
                    :name           {:name "is-it-true?"}
@@ -76,7 +76,7 @@
                                      {:ast/term  :application
                                       :function  {:ast/term :extract
                                                   :record   {:ast/term :symbol :symbol dictionary}
-                                                  :field    {:reference :field :name "true?"}}
+                                                  :field    {:ast/reference :field :name "true?"}}
                                       :arguments [{:ast/term :symbol :symbol argument}]}}}}
                   is-it-true?)))
 
@@ -86,7 +86,7 @@
                                   :function  {:ast/term :symbol
                                               :symbol   {:name "is-it-true?"}}
                                   :arguments [{:ast/term :symbol
-                                               :symbol   {:reference :constant
+                                               :symbol   {:ast/reference :constant
                                                           :in        module
                                                           :name      "I:Veracious:Bool"}}
                                               {:ast/term :atom
@@ -122,11 +122,11 @@
      (match? {:ast/definition :constant
               :body
               {:ast/term :lambda
-               :arguments [{:reference :dictionary}]
+               :arguments [{:ast/reference :dictionary}]
                :body
                {:ast/term :record
-                :fields   {{:reference :field :name "show"
-                            :in        {:reference :module :name ["lang" "desugar" "typeclasses-test" "chained-definitions"]}}
+                :fields   {{:ast/reference :field :name "show"
+                            :in        {:ast/reference :module :name ["lang" "desugar" "typeclasses-test" "chained-definitions"]}}
                            {:ast/term :lambda
                             :body
                             {:ast/term :match
@@ -134,7 +134,7 @@
                              [{:action {:ast/term  :application
                                         :function  {:ast/term :extract
                                                     :record   {:ast/term :symbol
-                                                               :symbol   {:reference :dictionary}}}
+                                                               :symbol   {:ast/reference :dictionary}}}
                                         :arguments [{:ast/term :symbol}]}}]}}}}}}
              identity-instance))
 
@@ -156,7 +156,7 @@
               {:ast/term :recur
                :body
                {:ast/term :lambda
-                :arguments [{:reference :dictionary} {:reference :constant}]
+                :arguments [{:ast/reference :dictionary} {:ast/reference :constant}]
                 :body
                 {:ast/term  :application
                  :function  {:ast/term :extract
@@ -164,6 +164,6 @@
                                         :function  {:ast/term :symbol
                                                     :symbol   {:name "I:Show:(Identity α)"}}
                                         :arguments [{:ast/term :symbol
-                                                     :symbol   {:reference :dictionary}}]}}
+                                                     :symbol   {:ast/reference :dictionary}}]}}
                  :arguments [{:ast/term :variant}]}}}}
              wrap-and-show))))

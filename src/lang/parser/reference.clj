@@ -5,24 +5,24 @@
 
 (def module-name
   (bind [name (sep-by1 (sym* \.) identifier)] 
-    (return {:reference :module :name name})))
+    (return {:ast/reference :module :name name})))
 
 (def module
   (lexeme module-name))
 
 (def ^:private type-name
   (bind [name (<+> upper (many0 letter))]
-    (return {:reference :type :name name}))) 
+    (return {:ast/reference :type :name name})))
 
 (def type
   (lexeme type-name))
 
 (def typeclass
-  (<$> #(assoc % :reference :typeclass) type))
+  (<$> #(assoc % :ast/reference :typeclass) type))
 
 (def ^:private variable-name
   (let [local (bind [name identifier]
-                (return {:reference :constant :name name}))
+                (return {:ast/reference :constant :name name}))
         qualified (bind [path module-name
                          _ (sym* \/)
                          name local]
@@ -35,10 +35,10 @@
 (def keyword
   (lexeme
     (bind [name (>> (sym* \:) variable-name)]
-      (return (assoc name :reference :keyword)))))
+      (return (assoc name :ast/reference :keyword)))))
 
 (def injector
-  (<$> #(assoc % :reference :injector) keyword))
+  (<$> #(assoc % :ast/reference :injector) keyword))
 
 (def field
-  (<$> #(assoc % :reference :field) keyword))
+  (<$> #(assoc % :ast/reference :field) keyword))

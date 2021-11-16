@@ -8,7 +8,8 @@
                  [org.clojure/core.match "0.3.0"]
                  [insn "0.5.2"]
                  [potemkin "0.4.5"]
-                 [com.taoensso/timbre "5.1.0"]]
+                 [com.taoensso/timbre "5.1.0"]
+                 [org.clojure/core.cache "1.0.217"]]
   :main ^:skip-aot lang.core
   :source-paths ["src" "test"]
   :target-path "target/%s/"

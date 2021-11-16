@@ -1,11 +1,11 @@
 (ns lang.compiler
-  (:require [clojure.java.io :as io]
+  (:require [clojure.core.match :refer [match]]
+            [clojure.java.io :as io]
             [clojure.string :as str]
-            [lang.code-generator.jvm :as code-generator]
-            [lang.desugar :as desugar]
-            [lang.name-resolution :as name-resolution]
+            [clojure.walk :as walk]
+            [lang.ast :as ast]
             [lang.parser :as parser]
-            [lang.type-checker :as type-checker]
+            [lang.state :as state :refer [state]]
             [taoensso.timbre :as log]))
 
 (declare run)
@@ -14,7 +14,7 @@
   (->> [["lang" "core"]
         ["lang" "math"]]
     (map (fn [name]
-           {:reference :module
+           {:ast/reference :module
             :name      name}))
     (set)))
 
@@ -42,6 +42,27 @@
                        :open open)
                      (dissoc :definitions))))))))))
 
+(defn- inject-ids
+  [key ast]
+  (ast/walk
+   (fn [id child node]
+     (let [id
+           (if (ast/node? node)
+             (into id child)
+             id)]
+       [id
+        (vary-meta node assoc :ast/id id)]))
+   [key :ast]
+   ast))
+
+(defn- inline-meta
+  ([ast] (inline-meta ast nil))
+  ([ast keys]
+   (ast/walk
+    (fn [_ _ node]
+      [nil (merge node (cond-> (meta node) (not-empty keys) (select-keys keys)))])
+    ast)))
+
 (defn run
   ([path]
    (run path :until :code-generator))
@@ -50,19 +71,51 @@
      (log/debug "compiling module" path)
      (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
            phases     (conj
-                        (->> all-phases
-                          (take-while (partial not= until))
-                          (set))
-                        until)
-           result (cond-> path
-                    (:parser phases)              (parser/run)
-                    (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
-                    (:name-resolution phases)     (name-resolution/run)
-                    (:type-checker phases)        (type-checker/run)
-                    (:desugar phases)             (desugar/run)
-                    (:code-generator phases)      (code-generator/run :emit!))]
-       (log/debug "done compiling" path)
-       result)
+                       (->> all-phases
+                            (take-while (partial not= until))
+                            (set))
+                       until)
+           #_#_result (cond-> path
+                        (:parser phases)              (parser/run)
+                        (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
+                        (:name-resolution phases)     (name-resolution/run)
+                        (:type-checker phases)        (type-checker/run)
+                        (:desugar phases)             (desugar/run)
+                        (:code-generator phases)      (code-generator/run :emit!))
+           key [:file path]]
+       (swap! state update key
+              (fn [file-state]
+                (assoc file-state
+                       :text (delay (slurp path))
+                       :ast (delay (->> @(get-in @state [key :text])
+                                        (parser/run key)
+                                        (inject-ids key)))
+                       :imports (delay (mapv
+                                        (fn [{:keys [module]}]
+                                          (run (format "%s.lang" (str/join "/" (cons "std" (:name module))))))
+                                        (:imports @(get-in @state [key :ast])))))))
+       key)
      (catch Exception e
        (println (format "Error while compiling %s" path))
        (throw e)))))
+
+
+(comment
+
+  (do (state/void!)
+      (run "std/lang/string.lang")
+      @state
+      (->> @(get-in @state [[:file "std/lang/string.lang"] :ast])
+           inline-meta))
+
+
+  (meta (map identity (with-meta [1 2 3] {:foo "bar"})))
+
+  @state
+
+  (walk/prewalk
+   (fn [node] (if (delay? node) @node node))
+   @state)
+
+
+  )

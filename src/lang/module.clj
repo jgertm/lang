@@ -7,19 +7,19 @@
 
 (def builtins
   (->>
-    {{:reference :type :name "Unit"}    {:ast/type :primitive :primitive :unit}
-     {:reference :type :name "String"}  {:ast/type :primitive :primitive :string}
-     {:reference :type :name "Integer"} {:ast/type :primitive :primitive :integer}
-     {:reference :type :name "int"}     {:ast/type :primitive :primitive :int}
-     {:reference :type :name "Bool"}    {:ast/type :primitive :primitive :boolean}
-     {:reference :type :name "bool"}    {:ast/type :primitive :primitive :bool}
-     {:reference :type :name "Object"}  {:ast/type :primitive :primitive :object}
-     {:reference :type :name "Array"}
+    {{:ast/reference :type :name "Unit"}    {:ast/type :primitive :primitive :unit}
+     {:ast/reference :type :name "String"}  {:ast/type :primitive :primitive :string}
+     {:ast/reference :type :name "Integer"} {:ast/type :primitive :primitive :integer}
+     {:ast/reference :type :name "int"}     {:ast/type :primitive :primitive :int}
+     {:ast/reference :type :name "Bool"}    {:ast/type :primitive :primitive :boolean}
+     {:ast/reference :type :name "bool"}    {:ast/type :primitive :primitive :bool}
+     {:ast/reference :type :name "Object"}  {:ast/type :primitive :primitive :object}
+     {:ast/reference :type :name "Array"}
      (let [universal-variable (gensym)]
        {:ast/type :forall
         :variable universal-variable
         :body     {:ast/type :primitive :primitive :array :element universal-variable}})}
-    (map (fn [[k v]] [(assoc k :in {:reference :module :name ["lang" "builtin"]}) v]))
+    (map (fn [[k v]] [(assoc k :in {:ast/reference :module :name ["lang" "builtin"]}) v]))
     (into {})))
 
 (defn dequalifier
@@ -274,7 +274,7 @@
   [table symbol]
   (let [entry (clojure.core/get table symbol)]
     (match entry
-      ({:reference _ :in _} :as qualified-reference)
+      ({:ast/reference _ :in _} :as qualified-reference)
       (recur table qualified-reference)
 
       nil nil
@@ -297,7 +297,7 @@
                       (if-let [params (type/parameters v)]
                         (format "  type (%s %s)"
                           (:name k)
-                          (str/join " " (map (comp :name :reference) params)))
+                          (str/join " " (map (comp :name :ast/reference) params)))
                         (format "  type %s" (:name k))))
                  (surface-types module))
         typeclasses (->> module

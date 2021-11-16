@@ -54,7 +54,7 @@
   ([name] (class-name name ""))
   ([name super]
    (munge
-     (case (:reference name)
+     (case (:ast/reference name)
        :module
        (str/join "." (:name name))
 
@@ -190,9 +190,9 @@
 (defn- specialize-type
   [type]
   (let [object {:ast/type :named
-                :name     {:reference :type
+                :name     {:ast/reference :type
                            :name      "Object"
-                           :in        {:reference :module
+                           :in        {:ast/reference :module
                                        :name      ["lang" "builtin"]}}}
         type   (walk/prewalk
                  #(if (type/universal-variable? %) object %)
@@ -226,9 +226,9 @@
   (letfn [(array? [type]
             (= type
               {:ast/type :named
-               :name     {:reference :type
+               :name     {:ast/reference :type
                           :name      "Array"
-                          :in        {:reference :module :name ["lang" "builtin"]}}}))]
+                          :in        {:ast/reference :module :name ["lang" "builtin"]}}}))]
     (let [type (specialize-type type)]
       (match type
         {:ast/type :named :name name}
@@ -418,7 +418,7 @@
         lambda-bindings
         (map
           (fn [symbol class]
-            [(select-keys symbol [:reference :name])
+            [(select-keys symbol [:ast/reference :name])
              {:class class}])
           arguments
           lambda-desc)
