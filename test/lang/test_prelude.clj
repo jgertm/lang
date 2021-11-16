@@ -6,9 +6,15 @@
 
 (defmacro run
   [phase & fs]
-  `(binding [*print-namespace-maps* false]
-       (-> (str/join " " (map pr-str (quote ~fs)))
-         (str/replace #"[,]" "")
-         (StringReader.)
-         (compiler/run :until ~phase))))
-
+  (binding [*print-namespace-maps* false]
+    (let [program
+          (mapv
+           (fn normalize-form [f]
+             (if (string? f)
+               f
+               (pr-str f)))
+           fs)]
+      `(-> (str/join " " ~program)
+           (str/replace #"[,]" "")
+           (StringReader.)
+           (compiler/run :until ~phase)))))

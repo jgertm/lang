@@ -158,3 +158,22 @@
            (true? :$ (-> T Bool)))
          (definstance (Veracious Bool)
            (true? [bool] bool))))))
+
+(deftest underscore_numbers
+  (is
+   (match?
+    {:ast/definition :module
+     :name {:reference :module, :name ["lang" "ints-module"]}
+     :skip-implicits nil
+     :imports nil
+     :definitions [{:ast/definition :constant
+                    :name {:reference :constant, :name "a"}
+                    :body {:ast/term :atom, :atom {:atom :integer, :value "11"}}}
+                   {:ast/definition :constant
+                    :name {:reference :constant :name "b"}
+                    :body {:ast/term :atom, :atom {:atom :integer, :value "11"}}}]}
+    (run :parser
+         "(defmodule lang.ints-module)"
+         "(def a 1_1)"
+         "(def b 11)"
+         "(def c 1_1.2_2)"))))
