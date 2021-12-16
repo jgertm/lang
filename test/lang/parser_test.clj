@@ -1,7 +1,20 @@
 (ns lang.parser-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is are]]
             [lang.test-prelude :refer :all]
+            [lang.parser :refer [run-expr]]
             matcher-combinators.test))
+
+(deftest parse-expressions  
+  (are [expr result]
+       (match? result (run-expr expr))
+    "(defmodule lang.parser-test.empty-module)"
+    {:ast/definition :module
+     :name           {:reference :module :name ["lang" "parser-test" "empty-module"]}     
+     :definitions    []}
+    "(def a 1)"
+    {:ast/definition :constant
+     :name {:reference :constant :name "a"}
+     :body {:ast/term :atom :atom {:atom :integer :value "1"}}}))
 
 (deftest empty-module
   (is (match?
