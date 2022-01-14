@@ -1,0 +1,3 @@
+{:lint-as {lang.state/defquery clojure.core/defn
+           lang.test-prelude/run clojure.core/comment
+           blancas.kern.core/bind clojure.core/let}}
