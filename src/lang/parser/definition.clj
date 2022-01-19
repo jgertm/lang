@@ -114,31 +114,31 @@
 (def ^:private typeclass-instance
   (let [field
         (parens
-          (bind [name reference/variable
-                 arguments (brackets (many0 reference/variable))
-                 operations (many1 term/expr)]
-            (return [name
-                     {:ast/term  :lambda
-                      :arguments arguments
-                      :body
-                      (if (< 1 (count operations))
-                        {:ast/term   :sequence
-                         :operations operations}
-                        (first operations))}])))
+         (bind [name reference/variable
+                arguments (brackets (many0 reference/variable))
+                operations (many1 term/expr)]
+               (return [name
+                        {:ast/term  :lambda
+                         :arguments arguments
+                         :body
+                         (if (< 1 (count operations))
+                           {:ast/term   :sequence
+                            :operations operations}
+                           (first operations))}])))
         instance (parens (<*> reference/typeclass (many1 type/expr)))]
     (parens
       (bind [_ (word "definstance")
-             [name types] instance
+             [typeclass types] instance
              superclasses
              (<$> (comp not-empty set) (many0 (>> (word ":when") instance)))
              fields
              (<$> (partial into (array-map))
                (many1 field))]
-        (return {:ast/definition :typeclass-instance
-                 :name           name
-                 :types          types
-                 :superclasses   superclasses
-                 :fields         fields})))))
+            (return {:ast/definition :typeclass-instance
+                     :typeclass      typeclass
+                     :types          types
+                     :superclasses   superclasses
+                     :fields         fields})))))
 
 (def expr
   (<|>

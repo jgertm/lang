@@ -1,5 +1,7 @@
 (ns lang.db
-  (:require [clojure.walk :as walk]))
+  (:require [clojure.pprint]
+            [clojure.walk :as walk]
+            [lang.utils :refer [undefined]]))
 
 (defrecord Ref
     [eid
@@ -7,12 +9,29 @@
      lookup
      component?])
 
+(comment
+  (instance? clojure.lang.IRecord (->ref 2))
+
+  (let [ref (->ref 'foo)]
+    (= ref (reduce (fn [r x] (conj r x)) (->ref 0) ref)))
+
+  (let [tempids {'foo 1}]
+    (partial walk/postwalk #(if (and (ref? %) (contains? tempids (:tempid %)))
+                              (assoc %
+                                     :eid (get tempids (:tempid %))
+                                     :tempid nil)
+                              %) (->ref 'foo))))
+
 (defmethod print-method Ref
   [{:keys [eid tempid lookup] :as e} ^java.io.Writer w]
   (cond
     eid (.write w (format "#ref[%d]" eid))
     tempid (.write w (format "#temp[%s]" (pr-str tempid)))
-    lookup (.write w (format "#lookup%s" (pr-str lookup)))))
+    lookup (.write w (format "#lookup[%s]" (pr-str lookup)))))
+
+(defmethod clojure.pprint/simple-dispatch Ref
+  [^Ref ref]
+  (pr ref))
 
 (defn ->ref
   ([x] (->ref x false))
@@ -91,7 +110,7 @@
                  (contains? #{:db/add :db/retract} (first fact))
                  (= 4 (count fact))))
           (map-form? [fact]
-            (map? fact))]
+            (associative? fact))]
     (cond
       (list-form? fact)
       [(zipmap [:m :e :a :v] fact)]
@@ -115,7 +134,7 @@
 
   )
 
-(defn- next-txid
+(defn next-txid
   [db]
   (->> db
        :datoms
@@ -127,7 +146,8 @@
   [txid facts]
   (let [tempids
         (zipmap (->> facts
-                     (keep #(when-let [tempid (:tempid (->ref (:e %)))] tempid))
+                     (map :e)
+                     (filter #(and (not (pos-int? %)) (not (vector? %)) %))
                      distinct)
                 (map (partial + txid 1) (range)))]
     {:tempids tempids
@@ -138,31 +158,61 @@
             (update :e #(get tempids % %))
             (update :v (partial walk/postwalk
                                 (fn [node]
-                                  (if (and (ref? node) (contains? tempids (:tempid node)))
+                                  (cond
+                                    (and (ref? node) (contains? tempids (:tempid node)))
                                     (assoc node
                                            :eid (get tempids (:tempid node))
                                            :tempid nil)
-                                    node))))))
+
+                                    (and (ref? node) (:tempid node))
+                                    (throw (ex-info "cannot resolve tempid"
+                                                    {:fact fact
+                                                     :ref node
+                                                     :tempids tempids}))
+
+                                    :else node))))))
       facts)}))
+
+(defn- remove-noops
+  [db facts]
+  (letfn [(integrate [index {:keys [m e a v]}]
+            (case m
+              :db/add
+              (assoc-in index [e a] v)))]
+    (->> facts
+         (reduce
+          (fn [acc {:keys [m e a v] :as fact}]
+            (case m
+              :db/add
+              (let [old (get-in acc [:eav e a])]
+                (if (not= old v)
+                  (-> acc
+                      (update :eav integrate fact)
+                      (update :facts conj fact))
+                  acc))))
+          {:facts []
+           :eav   (reduce integrate {} (:datoms db))})
+         :facts)))
 
 (defn with
   ([db facts] (with db facts nil))
   ([db facts tx-meta]
    {:pre [(db? db)]}
-   (let [txid (next-txid db)
+   (let [txid     (or (:db/id tx-meta) (next-txid db))
          {:keys [facts tempids]}
          (->> facts
               (mapcat expand-fact)
               (reify-eids txid))
+         facts    (remove-noops db facts)
          tx-facts (map (fn [[k v]] {:m :db/add :e txid :a k :v v}) tx-meta)
-         datoms (->> facts
+         datoms   (->> facts
                      (concat tx-facts)
                      (map #(->Datom (:m %) (:e %) (:a %) (:v %) (->ref txid))))]
      {:db-before db
-      :db-after (update db :datoms into (when (not-empty facts) datoms))
-      :tx-data (map (juxt :m :e :a :v #(-> % :tx :eid)) datoms)
-      :tempids tempids
-      :tx-meta tx-meta})))
+      :db-after  (update db :datoms into (when (not-empty facts) datoms))
+      :tx-data   (map (juxt :m :e :a :v #(-> % :tx :eid)) datoms)
+      :tempids   tempids
+      :tx-meta   tx-meta})))
 
 (comment
   (with (init) [[:db/add -1 :foo "bar"]
@@ -181,25 +231,31 @@
   [db]
   (map (juxt :m :e :a :v #(-> % :tx :eid)) (:datoms db)))
 
-(defn index
-  [db order]
-  {:pre [(db? db)]}
-  (reduce
-   (fn [acc datom]
-     (let [{:keys [m e a v tx]} datom
-           path (case order
-                  :eavt [e a v tx]
-                  :avet [a v e tx])]
-       (case m
-         :db/add (assoc-in acc path datom))))
-   nil
-   (:datoms db)))
-
 (defn get-latest
   [index k1 k2]
   (some->> (get-in index [k1 k2])
            (apply max-key #(->> % val keys (map :eid) (apply max)))
            key))
+
+(defn get-all
+  [index k1 k2]
+  (some->> (get-in index [k1 k2])
+           keys))
+
+(defn index
+  [db order]
+  {:pre [(db? db)]}
+  (get
+   (reduce
+    (fn [acc datom]
+      (let [{:keys [m e a v tx]} datom]
+        (case m
+          :db/add (-> acc
+                      (assoc-in [:eavt e a v tx] datom)
+                      (assoc-in [:avet a v e tx] datom)))))
+    nil
+    (:datoms db))
+   order))
 
 (defn dereference
   [db {:keys [eid tempid lookup] :as ref}]
@@ -243,6 +299,15 @@
         :else v)))
   (valAt [this a not-found] (or (.valAt this a) not-found))
 
+  clojure.lang.Associative
+  (equiv [this other] (= (into {} (seq this))
+                         (into {} (seq other))))
+  (containsKey [this k] (not= ::nf (.valAt this k ::nf)))
+  (entryAt [this k] (some->> (.valAt this k) (clojure.lang.MapEntry. k)))
+
+  (empty [e] (throw (UnsupportedOperationException.)))
+  (assoc [this k v] (assoc (into {} (seq this)) k v))
+
   clojure.lang.IFn
   (invoke [this a] (.valAt this a))
   (invoke [this a not-found] (.valAt this a not-found)))
@@ -263,8 +328,9 @@
 
 (defn touch [e]
   {:pre [(entity? e)]}
-  (->> e
+  (some->> e
        seq
+       not-empty
        (into {})
        (walk/prewalk
         #(if (and (ref? %) (:component? %))

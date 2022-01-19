@@ -7,7 +7,7 @@
 
 (defn is?
   [form]
-  (and (map? form) (:ast/type form)))
+  (and (associative? form) (:ast/type form)))
 
 (defn universally-quantified?
   [type]

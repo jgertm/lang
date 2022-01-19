@@ -1,18 +1,21 @@
 (ns lang.ast
-  (:require [lang.term :as term]
-            [lang.type :as type]))
+  (:require [clojure.core.match :refer [match]]
+            [lang.term :as term]
+            [lang.type :as type]
+            [lang.db :as db]
+            [lang.pattern :as pattern]
+            [lang.definition :as definition]
+            [lang.utils :refer [undefined]]))
+
+(defn definition?
+  [form]
+  (definition/is? form))
 
 (defn module?
   [form]
   (and
-    (map? form)
-    (= :module (get form :ast/definition))))
-
-(defn definition?
-  [form]
-  (and
-    (map? form)
-    (contains? form :ast/definition)))
+   (definition? form)
+   (= :module (get form :ast/definition))))
 
 (defn term?
   [form]
@@ -24,39 +27,38 @@
 
 (defn reference?
   [form]
-  (and (map? form) (contains? form :ast/reference)))
+  (and (associative? form)
+       (contains? form :ast/reference)))
+
+(defn pattern?
+  [form]
+  (pattern/is? form))
 
 (defn node?
   [form]
-  ((some-fn definition? term? type? reference?) form))
+  ((some-fn definition? term? type? pattern? reference?) form))
 
 (defn walk
   ([f ast] (walk f nil ast))
   ([f init ast]
-   (walk f init nil ast))
-  ([f init child ast]
-   (if (node? ast)
-     (let [[next ast] (f init child ast)]
-       (with-meta
+   (cond
+     (node? ast)
+     (let [[next ast] (f init ast)]
+       (if (node? ast)
          (->> ast
-              (map
-               (fn [[k v]]
-                 [k (cond
-                      (node? v)
-                      (walk f next [k] v)
+              (map (fn [[k v]] [k (walk f next v)]))
+              (into (empty ast)))
+         ast))
 
-                      (and (vector? v) (every? node? v))
-                      (vec (map-indexed (fn [i v] (walk f next [k i] v)) v))
+     (sequential? ast)
+     (->> ast
+          (map (fn [v] (walk f init v)))
+          (into (empty ast)))
 
-                      (map? v)
-                      (->> v
-                           (map
-                            (fn [[l v]]
-                              [(cond-> l (node? l) (walk f next [k l]))
-                               (cond-> v (node? v) (walk f next [k l]))]))
-                           (into {}))
+     (and (map? ast) (not (db/ref? ast)))
+     (->> ast
+          (map (fn [[k v]]
+                 [(walk f init k) (walk f init v)]))
+          (into (empty ast)))
 
-                      :else v)]))
-              (into {}))
-         (meta ast)))
-     ast)))
+     :else ast)))

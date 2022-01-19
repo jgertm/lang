@@ -4,7 +4,12 @@
 
 (defn is?
   [form]
-  (and (map? form) (:ast/pattern form)))
+  (and (associative? form)
+       (:ast/pattern form)))
+
+(defn symbol?
+  [form]
+  (-> form is? (= :symbol)))
 
 (defn record?
   [form]

@@ -12,7 +12,8 @@
 
 (def ^:private symbol
   (bind [symbol reference/variable]
-    (return {:ast/pattern :symbol :symbol symbol})))
+        (return {:ast/pattern :symbol
+                 :symbol symbol})))
 
 (def ^:private variant
   (brackets

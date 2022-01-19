@@ -4,7 +4,7 @@
 
 (defn is?
   [form]
-  (and (map? form) (:ast/definition form)))
+  (and (associative? form) (:ast/definition form)))
 
 (defn name
   [{:keys [name] :as form}]

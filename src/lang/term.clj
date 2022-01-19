@@ -4,7 +4,7 @@
 
 (defn is?
   [form]
-  (and (map? form) (:ast/term form)))
+  (and (associative? form) (:ast/term form)))
 
 (defn lambda?
   [form]
