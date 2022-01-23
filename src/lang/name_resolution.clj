@@ -223,7 +223,6 @@
     (reset! db/state (db/init))
     (#'lang.compiler/run module))
 
-
   (db/datoms @db/state)
 
   (throw (ex-info "foo" {}))

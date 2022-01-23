@@ -51,7 +51,7 @@
 
 (defrecord Datom
     [^clojure.lang.Keyword m
-     ^int e
+     ^long e
      ^clojure.lang.Keyword a
      v
      ^Ref tx])
@@ -142,7 +142,7 @@
        (reduce max 0)
        inc))
 
-(defn- reify-eids
+(defn- reify-datoms
   [txid facts]
   (let [tempids
         (zipmap (->> facts
@@ -151,7 +151,7 @@
                      distinct)
                 (map (partial + txid 1) (range)))]
     {:tempids tempids
-     :facts
+     :datoms
      (map
       (fn [fact]
         (-> fact
@@ -170,47 +170,53 @@
                                                      :ref node
                                                      :tempids tempids}))
 
-                                    :else node))))))
+                                    :else node))))
+            (assoc :tx (map->Ref {:eid txid}))
+            (map->Datom)))
       facts)}))
 
-(defn- remove-noops
-  [db facts]
-  (letfn [(integrate [index {:keys [m e a v]}]
+(defn- integrate
+  [db datoms]
+  (letfn [(into-indices [indices {:keys [m e a v tx] :as datom}]
             (case m
-              :db/add
-              (assoc-in index [e a] v)))]
-    (->> facts
-         (reduce
-          (fn [acc {:keys [m e a v] :as fact}]
-            (case m
-              :db/add
-              (let [old (get-in acc [:eav e a])]
-                (if (not= old v)
-                  (-> acc
-                      (update :eav integrate fact)
-                      (update :facts conj fact))
-                  acc))))
-          {:facts []
-           :eav   (reduce integrate {} (:datoms db))})
-         :facts)))
+              :db/add (-> indices
+                          (assoc-in [:eav e a] v)
+                          (assoc-in [:ave a v] e)
+                          (assoc-in [:eavt e a v tx] datom)
+                          (assoc-in [:avet a v e tx] datom))))
+          (into-datoms [datoms datom]
+            (conj datoms datom))]
+    (reduce
+     (fn [acc {:keys [m e a v] :as datom}]
+       (case m
+         :db/add
+         (let [old-v (get-in acc [:indices :eav e a])]
+           (if (not= old-v v)
+             (-> acc
+                 (update :indices into-indices datom)
+                 (update :datoms into-datoms datom))
+             acc))))
+     (merge (select-keys db [:indices])
+            {:datoms []})
+     datoms)))
 
 (defn with
   ([db facts] (with db facts nil))
   ([db facts tx-meta]
    {:pre [(db? db)]}
    (let [txid     (or (:db/id tx-meta) (next-txid db))
-         {:keys [facts tempids]}
+         {:keys [datoms tempids]}
          (->> facts
               (mapcat expand-fact)
-              (reify-eids txid))
-         facts    (remove-noops db facts)
-         tx-facts (map (fn [[k v]] {:m :db/add :e txid :a k :v v}) tx-meta)
-         datoms   (->> facts
-                     (concat tx-facts)
-                     (map #(->Datom (:m %) (:e %) (:a %) (:v %) (->ref txid))))]
+              (reify-datoms txid))
+         {:keys [datoms indices]}    (integrate db datoms)
+         tx-datoms (map (fn [[k v]]
+                          (map->Datom {:m :db/add :e txid :a k :v v :tx (map->Ref {:eid txid})})) tx-meta)]
      {:db-before db
-      :db-after  (update db :datoms into (when (not-empty facts) datoms))
-      :tx-data   (map (juxt :m :e :a :v #(-> % :tx :eid)) datoms)
+      :db-after  (-> db
+                     (update :datoms into (when (not-empty datoms) (concat tx-datoms datoms)))
+                     (assoc :indices indices))
+      :tx-data   datoms
       :tempids   tempids
       :tx-meta   tx-meta})))
 
@@ -245,17 +251,7 @@
 (defn index
   [db order]
   {:pre [(db? db)]}
-  (get
-   (reduce
-    (fn [acc datom]
-      (let [{:keys [m e a v tx]} datom]
-        (case m
-          :db/add (-> acc
-                      (assoc-in [:eavt e a v tx] datom)
-                      (assoc-in [:avet a v e tx] datom)))))
-    nil
-    (:datoms db))
-   order))
+  (get (:indices db) order))
 
 (defn dereference
   [db {:keys [eid tempid lookup] :as ref}]
@@ -269,7 +265,7 @@
 
     lookup
     (let [[a v] lookup]
-      (get-latest (index db :avet) a v))))
+      (get (index db :ave) a v))))
 
 (declare ->Entity)
 
@@ -281,9 +277,9 @@
   clojure.lang.Seqable
   (seq [_]
     (let [eid (dereference db ref)
-          as (keys (get (index db :eavt) eid))]
-      (some->> as
-               (map (fn [a] [a (get-latest (index db :eavt) eid a)]))
+          avs (get (index db :eav) eid)]
+      (some->> avs
+               not-empty
                (cons [:db/id eid]))))
 
   clojure.lang.ILookup
