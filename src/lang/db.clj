@@ -23,7 +23,7 @@
                               %) (->ref 'foo))))
 
 (defmethod print-method Ref
-  [{:keys [eid tempid lookup] :as e} ^java.io.Writer w]
+  [{:keys [eid tempid lookup]} ^java.io.Writer w]
   (cond
     eid (.write w (format "#ref[%d]" eid))
     tempid (.write w (format "#temp[%s]" (pr-str tempid)))
@@ -190,7 +190,7 @@
      (fn [acc {:keys [m e a v] :as datom}]
        (case m
          :db/add
-         (let [old-v (get-in acc [:indices :eav e a])]
+         (let [old-v (get-in acc [:indices :eav e a] ::nf)]
            (if (not= old-v v)
              (-> acc
                  (update :indices into-indices datom)
@@ -237,13 +237,13 @@
   [db]
   (map (juxt :m :e :a :v #(-> % :tx :eid)) (:datoms db)))
 
-(defn get-latest
+(defn- get-latest
   [index k1 k2]
   (some->> (get-in index [k1 k2])
            (apply max-key #(->> % val keys (map :eid) (apply max)))
            key))
 
-(defn get-all
+(defn- get-all
   [index k1 k2]
   (some->> (get-in index [k1 k2])
            keys))
@@ -265,7 +265,7 @@
 
     lookup
     (let [[a v] lookup]
-      (get (index db :ave) a v))))
+      (get-in (index db :ave) [a v]))))
 
 (declare ->Entity)
 
@@ -299,9 +299,12 @@
   (equiv [this other] (= (into {} (seq this))
                          (into {} (seq other))))
   (containsKey [this k] (not= ::nf (.valAt this k ::nf)))
-  (entryAt [this k] (some->> (.valAt this k) (clojure.lang.MapEntry. k)))
+  (entryAt [this k] (let [v (.valAt this k ::nf)]
+                      (if (not= ::nf v)
+                        (clojure.lang.MapEntry. k v)
+                        nil)))
 
-  (empty [e] (throw (UnsupportedOperationException.)))
+  (empty [_] (throw (UnsupportedOperationException.)))
   (assoc [this k v] (assoc (into {} (seq this)) k v))
 
   clojure.lang.IFn

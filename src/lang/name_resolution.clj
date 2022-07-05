@@ -5,7 +5,6 @@
             [lang.ast :as ast]
             [lang.db :as db]
             [lang.definition :as definition]
-            [lang.module :as module]
             [lang.pattern :as pattern]
             [lang.term :as term]
             [lang.utils :as utils :refer [undefined]]
@@ -64,7 +63,6 @@
 
   )
 
-(imported-symbols (db/->entity @db/state 2))
 
 (defn annotate-captures
   ;; FIXME(tjgr): this is jank AF
@@ -136,8 +134,7 @@
 
 (defn- reify-labels
   [{mid :db/id :as module}]
-  (let [txid (db/next-txid @db/state)
-        module
+  (let [module
         (update module :definitions
                 (partial mapv (fn [{did :db/id :as definition}]
                                 (match definition
@@ -176,9 +173,14 @@
                                     (ast/walk
                                      (fn [references node]
                                        (match node
-                                              {:ast/definition :type}
+                                              {:ast/definition (:or :type :typeclass)}
                                               (-> node
                                                   (reify-bindings :params)
+                                                  (update 0 (partial merge references)))
+
+                                              {:ast/definition :macro}
+                                              (-> node
+                                                  (reify-bindings :arguments)
                                                   (update 0 (partial merge references)))
 
                                               {:ast/term :lambda}
@@ -204,7 +206,7 @@
                                               _ [references (get references node node)]))
                                      references
                                      definition))))
-          {:keys [db-after] :as result}
+          {:keys [db-after]}
           (db/tx! db/state [module]
                   {:lang.compiler/pass ::resolve-syntax-references})]
       (db/touch (db/->entity db-after id)))))

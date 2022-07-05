@@ -1615,58 +1615,63 @@
       apply)))
 
 (defn- abstract-typeclass
-  [module {:keys [name params fields]}]
-  (letfn [(universally-quantify-parameters [params type]
-            (let [param-type->universal-variable
-                  (->> params
-                    (mapv (fn [param]
-                            (-> module
-                              (fresh-universal)
-                              (assoc :reference param))))
-                    (zipmap (map (fn [param] {:ast/type :named :name param}) params)))]
-              (->> params
-                (reverse)
-                (reduce
-                  (fn [type param]
-                    {:ast/type :forall
-                     :variable (get param-type->universal-variable {:ast/type :named :name param})
-                     :body     type})
-                  (walk/prewalk-replace param-type->universal-variable type)))))
-          (universally-quantify-unknowns [type]
+  [module {:keys [db/id params members] :as declaration}]
+  (letfn [(universally-quantify-unknowns [type]
             (let [named-types   (->> type
-                                  (type/nodes)
-                                  (keep #(when (-> % :ast/type (= :named))
-                                           (:name %)))
-                                  (set))
+                                     (type/nodes)
+                                     (keep #(when (-> % :ast/type (= :named))
+                                              (:name %)))
+                                     (set))
                   known-types   (set/union
-                                  (set (keys (module/all-types module)))
-                                  (set params))
+                                 (set (map #(-> % :db/id db/->ref) params))
+                                 (set (vals (surface-types module)))
+                                 (set (vals (imported-types module))))
                   unknown-types (set/difference named-types known-types)]
               (->> unknown-types
-                (reverse)
-                (reduce
-                  (fn [inner type]
-                    (let [universal (assoc (fresh-universal) :reference type)]
+                   (reverse)
+                   (reduce
+                    (fn [inner unknown-type]
+                      (let [universal (assoc (fresh-universal) :reference unknown-type)]
+                        {:ast/type :forall
+                         :variable universal
+                         :body (walk/prewalk-replace
+                                {{:ast/type :named :name unknown-type} universal}
+                                inner)}))
+                    type))))
+          (universally-quantify-parameters [params type]
+            (let [param-type->universal-variable
+                  (->> params
+                       (mapv (fn [{:keys [db/id]}]
+                               (-> module
+                                   (fresh-universal)
+                                   (assoc :reference (db/->ref id)))))
+                       (zipmap (map :db/id params)))]
+              (->> params
+                   (reverse)
+                   (reduce
+                    (fn [type {:keys [db/id]}]
                       {:ast/type :forall
-                       :variable universal
-                       :body     (walk/prewalk-replace {{:ast/type :named :name type} universal} inner)}))
-                  type))))]
-    (let [fields (->> fields
-                   (map (fn [[k v]]
-                          [k
-                           (->>
-                             {:ast/type :guarded
-                              :proposition
-                              {:ast/constraint :instance
-                               :typeclass      name
-                               :parameters     (mapv (fn [param] {:ast/type :named :name param}) params)}
-                              :body     (universally-quantify-unknowns v)}
-                             (universally-quantify-parameters params)
-                             apply)]))
-                   (into (empty fields)))]
-      {:name       name
-       :parameters params
-       :fields     fields})))
+                       :variable (get param-type->universal-variable id)
+                       :body     type})
+                    type)
+                   (walk/prewalk
+                    (fn [node] (or (and (= :named (ast/type? node))
+                                        (get param-type->universal-variable (:eid (:name node))))
+                                   node))))))]
+    (merge declaration
+           {:members (->> members
+                          (map (fn [member]
+                                 (->> {:ast/type :guarded
+                                       :proposition
+                                       {:ast/constraint :instance
+                                        :typeclass      (db/->ref id)
+                                        :parameters
+                                        (mapv (fn [{:keys [db/id]}] {:ast/type :named :name (db/->ref id)}) params)}
+                                       :body (universally-quantify-unknowns (:type member))}
+                                      (universally-quantify-parameters params)
+                                      apply
+                                      (assoc member :type))))
+                          (into (empty members)))})))
 
 (defn- instantiate-typeclass
   "Check an instance declaration against the typeclass.
@@ -1724,9 +1729,7 @@
                  :body type})
               type
               universal-variables))]
-    (if-let [typeclass (-> module
-                         (module/all-typeclasses)
-                         (module/get name))]
+    (if-let [typeclass (db/touch (db/->entity @db/state typeclass))]
       (let [[types variables] (->> types
                                 (mapv apply)
                                 (abstract-parameters))
