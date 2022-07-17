@@ -49,6 +49,22 @@
 (defn ref? [x]
   (instance? Ref x))
 
+(defn- ref=
+  [this other]
+  (cond
+    (ref? other)
+    (= (:eid this) (:eid other))
+
+    (:db/id other)
+    (= (:eid this) (:db/id other))
+
+    (and (sequential? this) (sequential? other))
+    (every? (fn [[t o]] (ref= t o)) (zipmap this other))
+    ;; TODO: handle maps
+
+    :else
+    (= this other)))
+
 (defrecord Datom
     [^clojure.lang.Keyword m
      ^long e
@@ -127,10 +143,10 @@
   (expand-fact [:db/add 1 :foo :bar])
 
   (expand-fact {:foo :bar
-                  :bar "baz"})
+                :bar "baz"})
 
   (expand-fact {:foo :bar
-                  :baz {:db/id -1 :name "ba"}})
+                :baz {:db/id -1 :name "ba"}})
 
   )
 
@@ -183,15 +199,28 @@
                           (assoc-in [:eav e a] v)
                           (assoc-in [:ave a v] e)
                           (assoc-in [:eavt e a v tx] datom)
-                          (assoc-in [:avet a v e tx] datom))))
+                          (assoc-in [:avet a v e tx] datom))
+              :db/retract (-> indices
+                              (update-in [:eav e] dissoc a)
+                              (update-in [:ave a] dissoc v)
+                              (assoc-in [:eavt e a v tx] datom)
+                              (assoc-in [:avet a v e tx] datom))))
           (into-datoms [datoms datom]
             (conj datoms datom))]
+    ;; TODO: use transient
     (reduce
      (fn [acc {:keys [m e a v] :as datom}]
-       (case m
-         :db/add
-         (let [old-v (get-in acc [:indices :eav e a] ::nf)]
-           (if (not= old-v v)
+       (let [old-v (get-in acc [:indices :eav e a] ::nf)]
+         (case m
+           :db/add
+           (if (not (ref= old-v v))
+             (-> acc
+                 (update :indices into-indices datom)
+                 (update :datoms into-datoms datom))
+             acc)
+
+           :db/retract
+           (if (ref= old-v v)
              (-> acc
                  (update :indices into-indices datom)
                  (update :datoms into-datoms datom))
@@ -328,31 +357,39 @@
 (defn touch [e]
   {:pre [(entity? e)]}
   (some->> e
-       seq
-       not-empty
-       (into {})
-       (walk/prewalk
-        #(if (and (ref? %) (:component? %))
-           (touch (->entity (.db e) %))
-           %))))
+           seq
+           not-empty
+           (into {})
+           (walk/prewalk
+            #(if (and (ref? %) (:component? %))
+               (touch (->entity (.db e) %))
+               %))))
 
 (comment
   (do
     (def conn (create))
 
     (tx! conn
-               [[:db/add -1 :name "Foo"]
-                [:db/add -2 :friend (->ref [:name "Foo"] true)]]
-               {:foo true})
+         [[:db/add -1 :name "Foo"]
+          [:db/add -2 :friend (->ref [:name "Foo"] true)]]
+         {:foo true})
 
     (datoms @conn)
 
     (touch (->entity @conn 3)))
 
+  (db/->entity @state (->ref 35))
+
+  (get (index @state :eav) 35)
+
+  (filter #(-> % second (= 35)) (datoms @state))
+
+  (filter #(-> % (nth 4) (= 50)) (datoms @state))
+
 
   (tx! conn [[:db/add -1 :name "Foo"]
-                   [:db/add -1 :age 20]
-                   [:db/add -2 :name "Bar"]])
+             [:db/add -1 :age 20]
+             [:db/add -2 :name "Bar"]])
 
   (tx! conn [[:db/add 2 :age 21]])
 

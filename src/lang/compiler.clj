@@ -4,118 +4,127 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [lang.ast :as ast]
+            [lang.db :as db]
             [lang.parser :as parser]
-            [lang.state :as state :refer [state]]
+            [lang.name-resolution :as name-resolution]
+            [lang.type-checker :as type-checker]
+            [lang.utils :refer [undefined]]
+            [lang.desugar :as desugar]
+            [lang.code-generator.jvm :as code-generator]
             [taoensso.timbre :as log]))
 
 (declare run)
 
+(def ^:private native-module
+  (let [atoms
+        {"Unit" :unit
+         "String" :string
+         "Integer" :integer
+         "Bool" :boolean
+         "Object" :object}
+        primitives
+        {"int" :int
+         "bool" :bool}]
+    {:ast/definition :module
+     :name {:ast/reference :module :name ["lang" "native" "jvm"]}
+     :skip-implicits true
+     :definitions
+     (->> primitives
+          (merge atoms)
+          (map (fn [[k v]]
+                 [k
+                  {:ast/type :primitive
+                   :primitive v}]))
+          ;; TODO(tjaeger): maybe add a param here
+          (cons ["Array"
+                 (let [uvar (gensym)]
+                   {:ast/type :forall
+                    :variable uvar
+                    :body {:ast/type :primitive
+                           :primitive :array
+                           :element uvar}})])
+          (map (fn [[k v]] {:ast/definition :type
+                            :name {:ast/reference :type :name k}
+                            :body v}))
+          vec)}))
+
+(defn init []
+  (reset! db/state (db/init))
+  (let [{{eid -1} :tempids db :db-after}
+        (db/tx! db/state
+                [(-> native-module
+                     (update :definitions (partial mapv #(assoc % :db/id (gensym))))
+                     (assoc :db/id -1))]
+                {::pass :boot})]
+    (name-resolution/run (db/touch (db/->entity db eid)))))
+
 (def ^:private default-imports
-  (->> [["lang" "core"]
-        ["lang" "math"]]
-    (map (fn [name]
-           {:ast/reference :module
-            :name      name}))
-    (set)))
+  #{{:ast/reference :module :name ["lang" "core"]}
+    {:ast/reference :module :name ["lang" "math"]}})
 
-(defn- resolve-dependencies
-  [module phase]
-  (let [additional-imports
-        (when-not (:skip-implicits module)
-          (map
-            (fn [m] {:module m :open true})
-            default-imports))]
-    (update module :imports
-      (fn [imports]
-        (->> imports
-          (concat additional-imports)
-          (map (fn [{:keys [module alias open]}]
-                 (let [file (when (= "lang" (first (:name module)))
-                              (-> "/"
-                                (str/join (:name module))
-                                (str ".lang")
-                                (io/resource)))
-                       module (run file :until phase)]
-                   (-> module
-                     (assoc
-                       :alias alias
-                       :open open)
-                     (dissoc :definitions))))))))))
+(defn prepare-ast
+  [ast root-eid]
+  (merge
+   (walk/postwalk
+    (fn [node]
+      (cond
+        (or (ast/definition? node)
+            (ast/term? node)
+            ;; (ast/type? node)
+            (ast/pattern? node))
+        (assoc node :db/id (gensym))
 
-(defn- inject-ids
-  [key ast]
-  (ast/walk
-   (fn [id child node]
-     (let [id
-           (if (ast/node? node)
-             (into id child)
-             id)]
-       [id
-        (vary-meta node assoc :ast/id id)]))
-   [key :ast]
-   ast))
-
-(defn- inline-meta
-  ([ast] (inline-meta ast nil))
-  ([ast keys]
-   (ast/walk
-    (fn [_ _ node]
-      [nil (merge node (cond-> (meta node) (not-empty keys) (select-keys keys)))])
-    ast)))
+        :else node))
+    ast)
+   {:db/id root-eid}))
 
 (defn run
-  ([path]
-   (run path :until :code-generator))
-  ([path & {:keys [until]}]
-   (try
-     (log/debug "compiling module" path)
-     (let [all-phases [:parser :dependency-analyzer :name-resolution :type-checker :desugar :code-generator]
-           phases     (conj
-                       (->> all-phases
-                            (take-while (partial not= until))
-                            (set))
-                       until)
-           #_#_result (cond-> path
-                        (:parser phases)              (parser/run)
-                        (:dependency-analyzer phases) (resolve-dependencies (last (vec (keep phases all-phases))))
-                        (:name-resolution phases)     (name-resolution/run)
-                        (:type-checker phases)        (type-checker/run)
-                        (:desugar phases)             (desugar/run)
-                        (:code-generator phases)      (code-generator/run :emit!))
-           key [:file path]]
-       (swap! state update key
-              (fn [file-state]
-                (assoc file-state
-                       :text (delay (slurp path))
-                       :ast (delay (->> @(get-in @state [key :text])
-                                        (parser/run key)
-                                        (inject-ids key)))
-                       :imports (delay (mapv
-                                        (fn [{:keys [module]}]
-                                          (run (format "%s.lang" (str/join "/" (cons "std" (:name module))))))
-                                        (:imports @(get-in @state [key :ast])))))))
-       key)
-     (catch Exception e
-       (println (format "Error while compiling %s" path))
-       (throw e)))))
-
+  [{:keys [name] :as module}]
+  (or (some-> @db/state (db/->entity [:name module]) db/touch)
+      (let [path
+            (if (= "lang" (first name))
+              (io/resource (format "%s.lang" (str/join "/" name)))
+              (apply io/file (System/getProperty "user.dir") name))
+            {{eid -1} :tempids}
+            (db/tx! db/state [{:db/id -1 :path path}] {::pass :init})
+            source (slurp path)
+            {db :db-after :as result}
+            (db/tx! db/state
+                    [(-> source (parser/run (.getPath path)) (prepare-ast eid))]
+                    {::pass :parser})
+            parser-ast (db/touch (db/->entity db eid))
+            imports (concat [{:module {:ast/reference :module
+                                       :name ["lang" "native" "jvm"]}
+                              :open true}]
+                            (:imports parser-ast)
+                            (when-not (:skip-implicits parser-ast)
+                              (map (fn [module] {:module module :open true}) default-imports)))
+            name-resolution-ast
+            (-> parser-ast
+                (assoc :imports imports)
+                (update :imports
+                        (partial mapv
+                                 (fn [{:keys [module] :as import}]
+                                   (assoc import :module (db/->ref (:db/id (run module)))))))
+                (update :imports not-empty)
+                name-resolution/run)
+            {db :db-after} (type-checker/run name-resolution-ast)]
+        (db/touch (db/->entity db eid)))))
 
 (comment
 
-  (do (state/void!)
-      (run "std/lang/string.lang")
-      @state
-      (->> @(get-in @state [[:file "std/lang/string.lang"] :ast])
-           inline-meta))
+  (let [module {:ast/reference :module :name ["lang" "core"]}]
+    (init)
+    (run module)
+    #_(db/touch (db/->entity @db/state [:name {:ast/reference :module :name ["lang" "option"]}])))
 
 
-  (meta (map identity (with-meta [1 2 3] {:foo "bar"})))
+  (db/datoms @db/state)
 
-  @state
+  (db/->entity @db/state 85)
 
-  (walk/prewalk
-   (fn [node] (if (delay? node) @node node))
-   @state)
+
+  (com.gfredericks.debug-repl/unbreak!!)
 
 
   )

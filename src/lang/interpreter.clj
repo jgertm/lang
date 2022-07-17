@@ -6,7 +6,8 @@
 (defn- lookup-binding ; TODO: include globals
   [environment symbol]
   (or
-    (get environment symbol)
+    (get environment (:eid symbol))
+    (undefined ::lookup-binding)
     (throw (ex-info "Unknown binding" {:symbol symbol}))))
 
 (defn run

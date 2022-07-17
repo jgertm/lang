@@ -24,12 +24,15 @@
               kind :ast/definition
               :as definition}]
           (cond-> []
-            (contains? #{:constant :type :macro :typeclass} kind)
+            (contains? #{:constant :type :macro :typeclass/declaration} kind)
             (conj definition)
 
             (= :type kind)
             (concat (keys (type/injectors body))
-                    (keys (type/fields body))))))
+                    (keys (type/fields body)))
+
+            (= :typeclass/declaration kind)
+            (concat (:members definition)))))
        (map (fn [{:keys [db/id name]}]
               [(select-keys name [:ast/reference :name]) (db/->ref id)]))
        (into {})))
@@ -63,6 +66,7 @@
 
   )
 
+;; (surface-symbols (db/->entity @db/state 10))
 
 (defn annotate-captures
   ;; FIXME(tjgr): this is jank AF
@@ -125,8 +129,11 @@
                        (partial mapv
                                 (fn [definition]
                                   (cond-> definition
-                                    (contains? #{:type :constant :macro :typeclass} (:ast/definition definition))
-                                    (update :name #(get names % %))))))
+                                    (contains? #{:type :constant :macro :typeclass/declaration} (:ast/definition definition))
+                                    (update :name #(get names % %))
+
+                                    (= :typeclass/declaration (:ast/definition definition))
+                                    (update :members (partial mapv (fn [member] (assoc-in member [:name :in] (db/->ref (:db/id definition))))))))))
         {:keys [db-after]}
         (db/tx! db/state [module]
                 {:lang.compiler/pass ::canonicalize-definition-names})]
@@ -173,7 +180,7 @@
                                     (ast/walk
                                      (fn [references node]
                                        (match node
-                                              {:ast/definition (:or :type :typeclass)}
+                                              {:ast/definition (:or :type :typeclass/declaration)}
                                               (-> node
                                                   (reify-bindings :params)
                                                   (update 0 (partial merge references)))
@@ -222,10 +229,16 @@
 
 (comment
   (let [module {:ast/reference :module :name ["lang" "option"]}]
-    (reset! db/state (db/init))
+    (#'lang.compiler/init)
     (#'lang.compiler/run module))
 
   (db/datoms @db/state)
+
+  (reset! db/state (db/init))
+
+  (db/->entity @db/state [:name {:ast/reference :module
+                                 :name ["lang" "native" "jvm"]}])
+
 
   (throw (ex-info "foo" {}))
 
@@ -233,10 +246,6 @@
 
   (com.gfredericks.debug-repl/unbreak!)
 
-  (filter (fn [[k _]] (re-matches #".*println.*" (str k)))
-          (-> "examples/arithmetic.lang"
-              (lang.compiler/run :until :name-resolution)
-              (module/all-bindings)))
 
   (-> "examples/alist.lang"
       (lang.compiler/run :until :name-resolution)

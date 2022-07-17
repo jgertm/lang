@@ -145,37 +145,7 @@
 
 (defn contains?
   [type child]
-  (if (= type child)
-    child
-    (match type
-      {:ast/type :variant :injectors injectors}
-      (->> injectors
-        (vals)
-        (filter some?)
-        (some #(contains? % child)))
-
-      {:ast/type :record :fields fields}
-      (->> fields
-        (vals)
-        (some #(contains? % child)))
-
-      {:ast/type :application :operator operator :parameters parameters}
-      (some #(contains? % child) (conj parameters operator))
-
-      {:ast/type :function :domain domain :return return}
-      (or (contains? domain child) (contains? return child))
-
-      {:ast/type :forall :body body}
-      (contains? body child)
-
-      {:ast/type :guarded :body body}
-      (contains? body child)
-
-      {:ast/type :fix :body body}
-      (contains? body child)
-
-      ;; FIXME: this will bite me in the ass, dont have a fallthrough case!
-      _ nil)))
+  (some (partial = child) (nodes type)))
 
 (defn free-variables
   [type]

@@ -6,10 +6,9 @@
   (reset! state {}))
 
 (defn get! [path]
-  (reduce
-   (fn [val step]
-     (if (delay? val)
-       (get @val step)
-       (get val step)))
-   @state
-   path))
+  (->> path
+       (reduce
+        (fn [val step]
+          (get (force val) step))
+        @state)
+       force))

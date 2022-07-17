@@ -5,6 +5,7 @@
 
 (defn -main
   [& args]
+  (compiler/init)
   (run!
     (case (first args)
       "signature"

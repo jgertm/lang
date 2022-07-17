@@ -3,6 +3,7 @@
   (:require [clojure.core.match :refer [match]]
             [clojure.string :as str]
             [lang.type :as type]
+            [lang.state :as state]
             [lang.utils :as utils :refer [undefined]]))
 
 (def builtins
@@ -44,127 +45,120 @@
 
 (defn importer
   [projection-fn module]
-  (->> module
-    :imports
-    (map
-      (fn [import]
-        (match import
-          {:open true}
-          (dequalifier projection-fn import)
+  (->>
+   (state/get! [module :imports])
+   (map
+    (fn [import]
+      (match import
+             {:open true}
+             (dequalifier projection-fn (:module import))
 
-          {:alias alias}
-          (->> import
-            (dequalifier projection-fn)
-            (map (fn [[k v]]
-                   [(cond
-                      (set? k) ; records/variants
-                      (->> k
-                        (map #(assoc % :in alias))
-                        (into (empty k)))
+             {:alias alias}
+             (->> (:module import)
+                  (dequalifier projection-fn)
+                  (map (fn [[k v]]
+                         [(cond
+                            (set? k) ; records/variants
+                            (->> k
+                                 (map #(assoc % :in alias))
+                                 (into (empty k)))
 
-                      (vector? k) ; typeclass dictionary instance
-                      k
+                            (vector? k) ; typeclass dictionary instance
+                            k
 
-                      (not (:in k))
-                      (assoc k :in alias)
+                            (not (:in k))
+                            (assoc k :in alias)
 
-                      :else k)
-                    v]))
-            (into {})))))
-    (apply utils/deep-merge)))
+                            :else k)
+                          v]))
+                  (into {})))))
+   (apply utils/deep-merge)))
+
+(defn surface-symbols
+  [module]
+  (->> (state/get! [module :parser/ast :definitions])
+       (mapcat
+        (fn [{type :ast/definition :keys [name] :as definition}]
+          (concat
+           [(when (contains? #{:typeclass :constant :type :macro} type)
+              [name (assoc name
+                           :ast/reference type
+                           :in module)])]
+           (when (= :typeclass type)
+             (->> definition
+                  :fields
+                  keys
+                  (map (fn [field] [field (assoc field :in module)])))))))
+       (into {})))
+
+(defn imported-symbols
+  [module]
+  (importer surface-symbols module))
+
+(defn all-symbols
+  [module]
+  (merge
+   (imported-symbols module)
+   (surface-symbols module)))
+
+(defn type-of
+  [{:keys [in] :as symbol}]
+  (some
+   #(and (-> :name (= symbol)) %)
+   (:definitions (state/get! [in :type-checker/ast]))))
+
+(comment
+
+  (all-symbols {:ast/reference :module :name ["lang" "core"]})
+
+  )
+
+(defn- filter-type
+  [type table]
+  (->> table
+       (filter (fn [[k _]] (-> k :ast/reference (= type))))
+       (into (empty table))))
 
 (defn surface-typeclasses
   [module]
-  (:typeclasses module))
-
-(defn imported-typeclasses
-  [module]
-  (importer surface-typeclasses module))
+  (filter-type :typeclass (surface-symbols module)))
 
 (defn all-typeclasses
   [module]
-  (utils/deep-merge
-    (imported-typeclasses module)
-    (dequalifier surface-typeclasses module)))
-
-(defn surface-typeclass-fields
-  [module]
-  (->> module
-    :typeclasses
-    (vals)
-    (mapcat (fn [{:keys [fields]}]
-              (map (fn [[name type]] [name [type :principal]]) fields)))
-    (into {})))
-
-(defn imported-typeclass-fields
-  [module]
-  (importer surface-typeclass-fields module))
-
-(defn all-typeclass-fields
-  [module]
-  (merge
-    (imported-typeclass-fields module)
-    (dequalifier surface-typeclass-fields module)))
+  (filter-type :typeclass (all-symbols module)))
 
 (defn surface-macros
   [module]
-  (:macros module))
-
-(defn imported-macros
-  [module]
-  (importer surface-macros module))
+  (filter-type :macro (surface-symbols module)))
 
 (defn all-macros
   [module]
-  (merge
-    (imported-macros module)
-    (dequalifier surface-macros module)))
+  (filter-type :macro (all-symbols module)))
 
 (defn macro?
   [module symbol]
   (contains? (all-macros module) symbol))
 
-
 (defn surface-bindings
   [module]
-  (:values module))
-
-(defn imported-bindings
-  [module]
-  (importer surface-bindings module))
+  (filter-type :constant (surface-symbols module)))
 
 (defn all-bindings
   [module]
-  (merge
-    (all-typeclass-fields module)
-    (all-macros module)
-    (imported-bindings module)
-    (dequalifier surface-bindings module)))
+  (filter-type :constant (all-symbols module)))
 
 (defn surface-types
   [module]
-  (:types module))
-
-(defn imported-types
-  [module]
-  (merge 
-    builtins
-    (->> builtins
-      (keys)
-      (map (fn [name] [(dissoc name :in) name]))
-      (into {}))
-    (importer surface-types module)))
+  (filter-type :type (surface-symbols module)))
 
 (defn all-types
   [module]
-  (merge
-    (imported-types module)
-    (dequalifier surface-types module)))
+  (filter-type :type (all-symbols module)))
 
 (defn surface-injectors
   [module]
   (->> module
-    :types
+    surface-types
     (mapcat (fn [[name type]]
               (->> type
                 (type/injectors)

@@ -1,22 +1,30 @@
-(defmodule examples.linked-list
-  (:import [lang.list :as list]
-           [lang.io :as io]))
+(defmodule examples.linked-list)
 
-(defn show
-  [bool : Bool]
-  (. bool (java.lang.Boolean/toString)))
+(deftype IntList
+  (| [:nil Unit]
+     [:cons {Integer IntList}]))
 
-(def lst
-     [:list/cons {:list/value true :list/next [:list/nil]}])
+(deftype (List T)
+  (| [:nil Unit]
+     [:cons {T (List T)}]))
 
-(defn not
-  [bool]
-  (match bool
-    true  false
-    false true))
+(defn empty? [list]
+  (match list
+    ([:nil _] true)
+    ([:cons _] false)))
 
-(defn main
-  [argv : (Array String)]
-  (match (map not lst)
-    [:list/nil] (io/println "NIL")
-    [:list/cons {:list/value el}] (io/println (show el))))
+(defn sum [list]
+  (match list
+    ([:nil _] 0)
+    ([:cons {n tl}] (+ n (sum tl)))))
+
+(defn fold
+  [op init list]
+  (match list
+    ([:nil _] init)
+    ([:cons {n tl}] (op n (fold op init tl)))))
+
+(def sum* (fold + 0))
+
+(defn main []
+  (sum* [:cons {2 [:cons {12 [:nil nil]}]}]))

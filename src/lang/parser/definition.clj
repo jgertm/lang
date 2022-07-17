@@ -96,49 +96,52 @@
                :arguments      arguments
                :body           body}))))
 
-(def ^:private typeclass
-  (parens
-    (bind [_ (word "defclass")
-           [name params]
-           (parens (<*> reference/typeclass (many1 reference/type)))
-           fields
-           (<$> (partial into (array-map))
-             (many1 (parens (<*>
-                              reference/variable
-                              (>> annotation type/expr)))))]
-      (return {:ast/definition :typeclass
-               :name           name
-               :params         params
-               :fields         fields}))))
+(def ^:private typeclass-declaration
+  (let [member (parens (bind [name reference/variable
+                              _ annotation
+                              type type/expr]
+                             (return {:ast/definition :typeclass.declaration/member
+                                      :name           name
+                                      :type           type})))]
+    (parens
+     (bind [_ (word "defclass")
+            [name params]
+            (parens (<*> reference/typeclass (many1 reference/type)))
+            members (many1 member)]
+           (return {:ast/definition :typeclass/declaration
+                    :name           name
+                    :params         params
+                    :members        members})))))
 
 (def ^:private typeclass-instance
-  (let [field
+  (let [member
         (parens
          (bind [name reference/variable
                 arguments (brackets (many0 reference/variable))
                 operations (many1 term/expr)]
-               (return [name
-                        {:ast/term  :lambda
-                         :arguments arguments
-                         :body
-                         (if (< 1 (count operations))
-                           {:ast/term   :sequence
-                            :operations operations}
-                           (first operations))}])))
+               (return
+                {:ast/definition :typeclass.instance/member
+                 :member name
+                 :body
+                 {:ast/term  :lambda
+                  :arguments arguments
+                  :body
+                  (if (< 1 (count operations))
+                    {:ast/term   :sequence
+                     :operations operations}
+                    (first operations))}})))
         instance (parens (<*> reference/typeclass (many1 type/expr)))]
     (parens
       (bind [_ (word "definstance")
              [typeclass types] instance
              superclasses
              (<$> (comp not-empty set) (many0 (>> (word ":when") instance)))
-             fields
-             (<$> (partial into (array-map))
-               (many1 field))]
-            (return {:ast/definition :typeclass-instance
+             members (many1 member)]
+            (return {:ast/definition :typeclass/instance
                      :typeclass      typeclass
                      :types          types
                      :superclasses   superclasses
-                     :fields         fields})))))
+                     :members members})))))
 
 (def expr
   (<|>
@@ -147,7 +150,7 @@
     (<:> constant)
     (<:> function)
     (<:> macro)
-    (<:> typeclass)
+    (<:> typeclass-declaration)
     (<:> typeclass-instance)))
 
 (comment

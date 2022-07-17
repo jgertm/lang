@@ -1,13 +1,26 @@
-(defmodule examples.option
-  (:import [lang.io :as io]
-           [lang.option :as option]))
+(defmodule examples.option)
 
+(deftype (Option T)
+  (| [:none Unit]
+     [:some T]))
 
-(def val
-  [:option/some "Planet"])
+(defn foo
+  [option]
+  (match option
+         ([:none _] "foo")
+         ([:some n] n)))
 
+(defn default
+  [option fallback]
+  (match option
+    ([:none _] fallback)
+    ([:some value] value)))
 
-(defn main
-  [argv : (Array String)]
-  (io/println (option/default ((fn [x] x) val) "Hello"))
-  (io/println (option/default (map (fn [x] "World") val) "fail")))
+(defn flip-default
+  [fallback option]
+  (match option
+    ([:none _] fallback)
+    ([:some value] value)))
+
+(defn main []
+  (default [:some 2] 3))

@@ -21,8 +21,9 @@
 (def ^:private match
   (let [branch (bind [pattern pattern/expr
                       action (fwd expr)]
-                 (return {:patterns [pattern]
-                          :action  action}))]
+                     (return {:ast/term :branch
+                              :patterns [pattern]
+                              :action  action}))]
     (parens
       (bind [_ (word "match")
              body (fwd expr)

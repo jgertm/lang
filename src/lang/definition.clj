@@ -6,6 +6,10 @@
   [form]
   (and (associative? form) (:ast/definition form)))
 
+(defn type?
+  [form]
+  (-> form is? (= :type)))
+
 (defn name
   [{:keys [name] :as form}]
   (letfn [(module-name [name] (str/join "." (:name name)))]
