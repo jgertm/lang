@@ -240,8 +240,11 @@
   [module ref]
   ;; {:pre [(db/ref? symbol)]}
   (or
-   (and (db/ref? ref) (get (local-bindings) ref)) ; local ref
-   (and (db/ref? ref) (:type (db/->entity @db/state ref))) ; global ref
+   (and (db/ref? ref) ; local ref
+        (get (local-bindings) ref))
+   (and (db/ref? ref) ; global ref
+        (some-> (:type (db/->entity @db/state ref))
+                (vector :principal)))
    (undefined ::lookup-binding)
    (throw (ex-info "Unknown binding"
                    {:symbol ref
@@ -257,12 +260,6 @@
                       :module   (:name module)})))
     (catch Throwable t
       (undefined ::lookup-type))))
-
-(comment
-  ref
-  t
-
-  )
 
 (defn- lookup-macro
   [module ref]
@@ -452,15 +449,19 @@
        :parameters parameters}
       type)))
 
+(defn- annotate-node
+  [node type]
+  (db/tx! db/state
+          [(merge node {::type type})]
+          {:lang.compiler/pass [::annotate-node (db/->ref (:db/id node))]}))
+
 (defn- annotate-term
   [term type]
-  (when-let [promise (:type-checker.term/type term)]
-    (deliver promise type)))
+  (annotate-node term type))
 
 (defn- annotate-pattern
   [pattern type]
-  (when-let [promise (:type-checker.pattern/type pattern)]
-    (deliver promise type)))
+  (annotate-node pattern type))
 
 (defn- generalize
   [mark type]
@@ -658,34 +659,34 @@
     (let [proposition (update proposition :parameters #(mapv apply %))]
       (match proposition
         {:ast/constraint :instance :typeclass typeclass :parameters parameters}
-        (let [{:keys [instances] :as typeclass}
-              (-> module
-                (module/all-typeclasses)
-                (module/get typeclass))
+        (let [instances (->> typeclass
+                             (db/->entity @db/state)
+                             :instances
+                             (map #(->> % (db/->entity @db/state) db/touch)))
               instance-chain
               (if (some (some-fn type/existential-variable? type/universal-variable?) parameters)
                 (do
                   (run!
-                    (fn [param]
-                      (match param
-                        {:ast/type :existential-variable :id alpha}
-                        (restrict-existential alpha #{proposition})
+                   (fn [param]
+                     (match param
+                            {:ast/type :existential-variable :id alpha}
+                            (restrict-existential alpha #{proposition})
 
-                        {:ast/type :universal-variable :id alpha}
-                        (constrain-universal alpha #{proposition}))
-                      true)
-                    parameters)
+                            {:ast/type :universal-variable :id alpha}
+                            (constrain-universal alpha #{proposition}))
+                     true)
+                   parameters)
                   (list proposition))
                 (some
-                  (fn [instance] (find-chain proposition instance))
-                  instances))]
+                 (fn [instance] (find-chain proposition instance))
+                 instances))]
           (when-not instance-chain
             (throw (ex-info "Missing instance"
-                     {:typeclass  typeclass
-                      :parameters parameters})))
+                            {:typeclass  typeclass
+                             :parameters parameters})))
           (when (not-empty instance-chain)
             (swap! (:type-checker/instance-chains *context*)
-              assoc proposition instance-chain))
+                   assoc proposition instance-chain))
           instance-chain)))))
 
 (defn- proposition:true
@@ -1411,7 +1412,6 @@
 
       :else (undefined ::recovering-apply-spine))))
 
-;; FIXME
 (defn- to-jvm-type
   [module type]
   (match type
@@ -1420,37 +1420,21 @@
       (lookup-type module)
       (recur module))
 
-    {:ast/type :primitive}
-    (get jvm/primitives type)
+    {:ast/type :primitive :jvm/class class}
+    class
 
-    {:ast/type :object :class class}
+    {:ast/type :object :jvm/class class}
     class))
 
-;; FIXME
 (defn- from-jvm-type
   [type]
-  (undefined ::from-jvm-type)
-
-  type
-
-  (get
-    (merge
-      (->> {Boolean    "Bool"
-            String     "String"
-            BigInteger "Integer"
-            Void/TYPE  "Unit"}
-        (map (fn [[k v]] [k {:ast/type :named
-                             :name     {:ast/reference :type
-                                        :name      v
-                                        :in        {:ast/reference :module :name ["lang" "builtin"]}}}]))
-        (into {}))
-      (->> {Boolean/TYPE :bool
-            Integer/TYPE :int
-            Object       :object}
-        (map (fn [[k v]] [k {:ast/type  :primitive
-                             :primitive v}]))
-        (into {})))
-    type))
+  (let [builtins (db/->entity @db/state
+                              [:name {:ast/reference :module
+                                      :name ["lang" "native" "jvm"]}])]
+    (->> builtins
+         :definitions
+         (map :body)
+         (some #(and (-> % :jvm/class (= type)) %)))))
 
 (defn expand-macro
   [module term]
@@ -1522,12 +1506,6 @@
   found on pg. 37"
   [module term]
   (let [mark (fresh-mark)
-        ;; _ (when (-> term :ast/term (= :application)) (undefined ::application))
-
-        _
-        [term
-         (db/touch (db/->entity @db/state (:symbol (:function term))))]
-
         [type principality]
         (match term
           {:ast/term :symbol :symbol (symbol :guard jvm/native?)}
@@ -1539,7 +1517,7 @@
                         :members
                         (filter #(= (:name symbol) (:name %)))
                         (first))]
-            [{:ast/type :object :class (:type field)}
+            [{:ast/type :object :jvm/class (:type field)}
              :principal])
 
           {:ast/term :symbol :symbol symbol}
@@ -1627,17 +1605,6 @@
             [(get (existential-solutions) alpha alpha) :non-principal]))]
     (annotate-term term type)
     [(generalize mark type) principality]))
-
-(defn- init
-  [module]
-  {:pre [(ast/module? module)]}
-  (merge module
-         {:definitions []}))
-
-(defn- finalize
-  [module]
-  (assoc module :type-checker/instance-chains
-         @(:type-checker/instance-chains *context*)))
 
 (ns-unmap *ns* 'typecheck-definition)
 
@@ -1813,7 +1780,7 @@
 
 (defmethod typecheck-definition :constant
   [module {:keys [body] :as definition}]
-  (let [type (synthesize module body)]
+  (let [[type _principality] (synthesize module body)]
     [(merge definition {:type type})]))
 
 (defmethod typecheck-definition :macro
@@ -1829,11 +1796,10 @@
               arguments)
         return-type (fresh-existential)
         _           (analysis:check module body [return-type :non-principal])
-        type        [(->> return-type
-                          (conj argument-types)
-                          (type/function)
-                          (generalize mark))
-                     :non-principal]]
+        type (->> return-type
+                  (conj argument-types)
+                  (type/function)
+                  (generalize mark))]
     [(merge definition
             {:type   type
              :expand (fn [application]
@@ -1848,24 +1814,20 @@
   (binding [*context* #:type-checker{:current-variable (atom 0)
                                      :facts            (atom zip/empty)
                                      :instance-chains  (atom {})}]
-    (->> module
-         :definitions
-         (reduce
-          (fn [module definition]
-            (reset! (:type-checker/facts *context*) zip/empty)
-            (db/tx! db/state
-                    (typecheck-definition module definition)
-                    {:lang.compiler/pass [::run (:ast/definition definition)]})
-            (swap! (:type-checker/instance-chains *context*)
-                   (fn [chains]
-                     (walk/prewalk
-                      #(if (-> % :ast/type (= :existential-variable))
-                         (apply %)
-                         %)
-                      chains)))
-            module)
-          (init module))
-         (finalize))
+    (run!
+     (fn [definition]
+       (reset! (:type-checker/facts *context*) zip/empty)
+       (db/tx! db/state
+               (typecheck-definition module definition)
+               {:lang.compiler/pass [::run (:ast/definition definition)]})
+       (swap! (:type-checker/instance-chains *context*)
+              (fn [chains]
+                (walk/prewalk
+                 #(if (-> % :ast/type (= :existential-variable))
+                    (apply %)
+                    %)
+                 chains))))
+     (:definitions module))
     {:db-after @db/state}))
 
 (comment

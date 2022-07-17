@@ -17,35 +17,38 @@
 
 (def ^:private native-module
   (let [atoms
-        {"Unit" :unit
-         "String" :string
-         "Integer" :integer
-         "Bool" :boolean
-         "Object" :object}
+        {"Unit"    [:unit {:jvm/class Void/TYPE}]
+         "String"  [:string {:jvm/class String}]
+         "Integer" [:integer {:jvm/class BigInteger}]
+         "Bool"    [:boolean {:jvm/class Boolean}]
+         "Object"  [:object {:jvm/class Object}]}
         primitives
-        {"int" :int
-         "bool" :bool}]
+        {"int"  [:int {:jvm/class Integer/TYPE}]
+         "bool" [:bool {:jvm/class Boolean/TYPE}]}]
     {:ast/definition :module
-     :name {:ast/reference :module :name ["lang" "native" "jvm"]}
+     :name           {:ast/reference :module :name ["lang" "native" "jvm"]}
      :skip-implicits true
      :definitions
      (->> primitives
           (merge atoms)
-          (map (fn [[k v]]
+          (map (fn [[k [v opts]]]
                  [k
-                  {:ast/type :primitive
-                   :primitive v}]))
+                  (merge
+                   {:ast/type  :primitive
+                    :primitive v}
+                   opts)]))
           ;; TODO(tjaeger): maybe add a param here
+          ;; TODO: add/derive class references
           (cons ["Array"
                  (let [uvar (gensym)]
                    {:ast/type :forall
                     :variable uvar
-                    :body {:ast/type :primitive
-                           :primitive :array
-                           :element uvar}})])
+                    :body     {:ast/type  :primitive
+                               :primitive :array
+                               :element   uvar}})])
           (map (fn [[k v]] {:ast/definition :type
-                            :name {:ast/reference :type :name k}
-                            :body v}))
+                            :name           {:ast/reference :type :name k}
+                            :body           v}))
           vec)}))
 
 (defn init []
@@ -78,6 +81,8 @@
     ast)
    {:db/id root-eid}))
 
+;; TODO: only expect eid in passes instead of whole-ass AST
+;; TODO: support only running some phases
 (defn run
   [{:keys [name] :as module}]
   (or (some-> @db/state (db/->entity [:name module]) db/touch)
@@ -87,10 +92,9 @@
               (apply io/file (System/getProperty "user.dir") name))
             {{eid -1} :tempids}
             (db/tx! db/state [{:db/id -1 :path path}] {::pass :init})
-            source (slurp path)
             {db :db-after :as result}
             (db/tx! db/state
-                    [(-> source (parser/run (.getPath path)) (prepare-ast eid))]
+                    [(-> path slurp (parser/run (.getPath path)) (prepare-ast eid))]
                     {::pass :parser})
             parser-ast (db/touch (db/->entity db eid))
             imports (concat [{:module {:ast/reference :module
@@ -108,7 +112,10 @@
                                    (assoc import :module (db/->ref (:db/id (run module)))))))
                 (update :imports not-empty)
                 name-resolution/run)
-            {db :db-after} (type-checker/run name-resolution-ast)]
+            {db :db-after} (type-checker/run name-resolution-ast)
+            ;; type-checker-ast (db/touch (db/->entity db eid))
+            ;; {db :db-after} (desugar/run type-checker-ast)
+            ]
         (db/touch (db/->entity db eid)))))
 
 (comment

@@ -9,11 +9,10 @@
      false ,fls))
 
 
-;;; typeclasses ----
-
-;; Show ------------
-
 (defn id [x] x)
+
+
+;;; typeclasses ----
 
 (defclass (Show T)
   (show : (-> T String)))
@@ -23,13 +22,15 @@
   (show [b]
     (if b "true" "false")))
 
+(def foo (show true))
 
-(definstance (Show Integer)
-  (show [i]
-    (. i (java.math.BigInteger/toString))))
+(defn bar [x] (show x))
 
 
-;; Eq --------------
+; (definstance (Show Integer)
+;   (show [i]
+;     (. i (java.math.BigInteger/toString))))
+
 
 ; (defclass (Eq T)
 ;   (= : (-> T T Bool)))
@@ -44,8 +45,6 @@
 ;   (= [a b]
 ;      (. (. a (java.lang.String/equals b)) (java.lang.Boolean/valueOf))))
 
-
-; ;; Functor ---------
 
 ; (defclass (Functor F)
 ;   (map : (-> (-> A B) (F A) (F B))))

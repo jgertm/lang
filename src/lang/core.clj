@@ -5,6 +5,7 @@
 
 (defn -main
   [& args]
+  ;; TODO: use CLI args parser
   (compiler/init)
   (run!
     (case (first args)
