@@ -171,13 +171,19 @@
     (filter #(-> % :ast/type (= :existential-variable)))
     (set)))
 
+(defn substitute
+  [type smap]
+  {:pre [(is? type) (map? smap)]}
+  (walk/prewalk-replace smap type))
+
 (defn instantiate-universals
   [type instantiations]
+  {:pre [(is? type)]}
   (match [type instantiations]
     [{:ast/type :forall :variable universal-variable :body body}
      [instantiation & more-instantiations]]
     (recur
-      (walk/postwalk-replace {universal-variable instantiation} body)
+      (substitute body {universal-variable instantiation})
       more-instantiations)
 
     [_ []]
