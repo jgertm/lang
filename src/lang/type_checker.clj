@@ -16,7 +16,8 @@
             [lang.zip :as zip]
             [taoensso.timbre :as log]
             [lang.definition :as definition]
-            [lang.pattern :as pattern])
+            [lang.pattern :as pattern]
+            [lang.reference :as reference])
   (:import java.lang.Class))
 
 (def ^:dynamic *context* nil)
@@ -30,7 +31,7 @@
                (when (= :type kind)
                  definition)))
        (map (fn [{:keys [db/id name]}]
-              [(select-keys name [:ast/reference :name]) (db/->ref id)]))
+              [(reference/canonicalize name) (db/->ref id)]))
        (into {})))
 
 (defn imported-types
@@ -260,7 +261,8 @@
                      {:type     name
                       :module   (:name module)})))
     (catch Throwable t
-      (undefined ::lookup-type))))
+      (undefined ::lookup-type)
+      (throw t))))
 
 (defn- lookup-macro
   [module ref]
@@ -423,9 +425,9 @@
 
 (defn- find-variant
   [module injector]
-  (let [{parameters :params name :name}
+  (let [{parameters :params id :db/id}
         (:belongs-to (db/->entity @db/state injector))
-        type {:ast/type :named :name name}]
+        type {:ast/type :named :name (db/->ref id)}]
     (if (seq parameters)
       {:ast/type   :application
        :operator   type
@@ -1225,28 +1227,24 @@
           [{:ast/pattern :variant :injector injector :value value}
            {:ast/type :variant :injectors injectors}
            _]                           ; Match+ₖ
-          (let [injectors (->> injectors
-                               (map (fn [[k v]] [(:db/id k) v]))
-                               (into (empty injectors)))
-                injector (:eid injector)]
-            (cond
-              (and (some? value)
-                   (some? (get injectors injector)))
-              (match:check module
-                           [(update branch :patterns (fn [patterns] (cons value (next patterns))))]
-                           [(cons (get injectors injector) (next pattern-types)) pattern-principality]
-                           return)
+          (cond
+            (and (some? value)
+                 (some? (get injectors injector)))
+            (match:check module
+                         [(update branch :patterns (fn [patterns] (cons value (next patterns))))]
+                         [(cons (get injectors injector) (next pattern-types)) pattern-principality]
+                         return)
 
-              (and (nil? value)
-                   (nil? (get injectors injector ::nf)))
-              (match:check module
-                           [(update branch :patterns next)]
-                           [(next pattern-types) pattern-principality]
-                           return)
+            (and (nil? value)
+                 (nil? (get injectors injector ::nf)))
+            (match:check module
+                         [(update branch :patterns next)]
+                         [(next pattern-types) pattern-principality]
+                         return)
 
-              :else
-              (do (undefined ::unknown-injector)
-                  (throw (ex-info "Unknown injector" {:injector injector})))))
+            :else
+            (do (undefined ::unknown-injector)
+                (throw (ex-info "Unknown injector" {:injector injector}))))
 
           [{:ast/pattern :variant :injector injector}
            {:ast/type :existential-variable :id alpha} ; Match+ₖα^
@@ -1430,11 +1428,12 @@
   [type]
   (let [builtins (db/->entity @db/state
                               [:name {:ast/reference :module
-                                      :name ["lang" "native" "jvm"]}])]
-    (->> builtins
-         :definitions
-         (map :body)
-         (some #(and (-> % :jvm/class (= type)) %)))))
+                                      :name ["lang" "native" "jvm"]}])
+        {:keys [db/id]}
+        (->> builtins
+             :definitions
+             (some #(and (-> % :body :jvm/class (= type)) %)))]
+    {:ast/type :named :name (db/->ref id)}))
 
 (defn expand-macro
   [module term]
@@ -1644,7 +1643,7 @@
                      :variable (get param-type->universal-variable {:ast/type :named :name param})
                      :body     type})
                   (type/substitute type param-type->universal-variable)))))]
-    [(->> body (universally-quantify-parameters params) apply)]))
+    [(assoc definition :body (->> body (universally-quantify-parameters params) apply))]))
 
 (defmethod typecheck-definition :typeclass/declaration
   [module {:keys [db/id params members] :as definition}]
@@ -1840,6 +1839,7 @@
                                        :instance-chains  (atom {})}]
       (run!
        (fn [definition]
+         (log/trace "type-checking" (definition/name definition))
          (reset! (:type-checker/facts *context*) zip/empty)
          (db/tx! db/state
                  (->> definition

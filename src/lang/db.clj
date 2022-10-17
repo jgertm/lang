@@ -6,21 +6,7 @@
 (defrecord Ref
     [eid
      tempid
-     lookup
-     component?])
-
-(comment
-  (instance? clojure.lang.IRecord (->ref 2))
-
-  (let [ref (->ref 'foo)]
-    (= ref (reduce (fn [r x] (conj r x)) (->ref 0) ref)))
-
-  (let [tempids {'foo 1}]
-    (partial walk/postwalk #(if (and (ref? %) (contains? tempids (:tempid %)))
-                              (assoc %
-                                     :eid (get tempids (:tempid %))
-                                     :tempid nil)
-                              %) (->ref 'foo))))
+     lookup])
 
 (defmethod print-method Ref
   [{:keys [eid tempid lookup]} ^java.io.Writer w]
@@ -36,15 +22,17 @@
 (defn ->ref
   ([x] (->ref x false))
   ([x component?]
-   (cond
-     (pos-int? x)
-     (map->Ref {:eid x :component? component?})
+   (with-meta
+     (cond
+       (pos-int? x)
+       (map->Ref {:eid x})
 
-     (vector? x)
-     (map->Ref {:lookup x :component? component?})
+       (vector? x)
+       (map->Ref {:lookup x})
 
-     :else
-     (map->Ref {:tempid x :component? component?}))))
+       :else
+       (map->Ref {:tempid x}))
+     {:component? component?})))
 
 (defn ref? [x]
   (instance? Ref x))
@@ -355,15 +343,16 @@
     (->Entity db (->ref x))))
 
 (defn touch [e]
-  {:pre [(entity? e)]}
-  (some->> e
-           seq
-           not-empty
-           (into {})
-           (walk/prewalk
-            #(if (and (ref? %) (:component? %))
-               (touch (->entity (.db e) %))
-               %))))
+  (if (entity? e)
+    (some->> e
+             seq
+             not-empty
+             (into {})
+             (walk/prewalk
+              #(if (and (ref? %) (:component? (meta %)))
+                 (touch (->entity (.db e) %))
+                 %)))
+    (recur (->entity @state e))))
 
 (comment
   (do

@@ -14,7 +14,8 @@
             [lang.term :as term]
             [lang.type :as type]
             [lang.utils :refer [undefined]]
-            [taoensso.timbre :as log])
+            [taoensso.timbre :as log]
+            [lang.reference :as reference])
   (:import [java.lang.invoke CallSite LambdaMetafactory MethodHandle MethodHandles$Lookup MethodType]))
 
 (def modules (atom {}))
@@ -418,7 +419,7 @@
         lambda-bindings
         (map
           (fn [symbol class]
-            [(select-keys symbol [:ast/reference :name])
+            [(reference/canonicalize symbol)
              {:class class}])
           arguments
           lambda-desc)

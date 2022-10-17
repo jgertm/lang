@@ -1,7 +1,10 @@
 (ns lang.core
   (:gen-class)
   (:require [lang.compiler :as compiler]
-            [lang.module :as module]))
+            [lang.module :as module]
+            [taoensso.timbre :as log]))
+
+(log/set-level! :trace)
 
 (defn -main
   [& args]

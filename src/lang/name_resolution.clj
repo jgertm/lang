@@ -6,6 +6,7 @@
             [lang.db :as db]
             [lang.definition :as definition]
             [lang.pattern :as pattern]
+            [lang.reference :as reference]
             [lang.term :as term]
             [lang.utils :as utils :refer [undefined]]
             [taoensso.timbre :as log]
@@ -34,7 +35,7 @@
             (= :typeclass/declaration kind)
             (concat (:members definition)))))
        (map (fn [{:keys [db/id name]}]
-              [(select-keys name [:ast/reference :name]) (db/->ref id)]))
+              [(reference/canonicalize name) (db/->ref id)]))
        (into {})))
 
 (defn imported-symbols
@@ -77,7 +78,7 @@
               (term/lambda? node)
               (reduce
                (fn [symbols argument]
-                 (disj symbols (select-keys argument [:ast/reference :name])))
+                 (disj symbols (reference/canonicalize argument)))
                symbols
                (:arguments node))
 
@@ -169,7 +170,7 @@
   [{:keys [db/id] :as module}]
   (letfn [(reify-bindings [node key]
             (let [tempids (repeatedly gensym)]
-              [(zipmap (get node key)
+              [(zipmap (map reference/canonicalize (get node key))
                        (map db/->ref tempids))
                (update node key (partial mapv (fn [id arg] (assoc arg :db/id id)) tempids))]))]
     (let [references (merge (surface-symbols module)

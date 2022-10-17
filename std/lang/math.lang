@@ -24,4 +24,5 @@
 
 (defn **
   [x : Integer y : Integer]
+  ;; NOTE: Java does not implement exponentiation with arbitrary precision exponents.
   (. x (java.math.BigInteger/pow (. y (java.lang.Number/intValue)))))
