@@ -3,6 +3,8 @@
             [clojure.walk :as walk]
             [lang.utils :refer [undefined]]))
 
+(declare state)
+
 (defrecord Ref
     [eid
      tempid

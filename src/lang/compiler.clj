@@ -92,26 +92,24 @@
               (apply io/file (System/getProperty "user.dir") name))
             {{eid -1} :tempids}
             (db/tx! db/state [{:db/id -1 :path path}] {::pass :init})
-            {db :db-after :as result}
+            {db :db-after}
             (db/tx! db/state
                     [(-> path slurp (parser/run (.getPath path)) (prepare-ast eid))]
                     {::pass :parser})
             parser-ast (db/touch (db/->entity db eid))
-            imports (concat [{:module {:ast/reference :module
-                                       :name ["lang" "native" "jvm"]}
-                              :open true}]
-                            (:imports parser-ast)
-                            (when-not (:skip-implicits parser-ast)
-                              (map (fn [module] {:module module :open true}) default-imports)))
-            name-resolution-ast
-            (-> parser-ast
-                (assoc :imports imports)
-                (update :imports
-                        (partial mapv
-                                 (fn [{:keys [module] :as import}]
-                                   (assoc import :module (db/->ref (:db/id (run module)))))))
-                (update :imports not-empty)
-                name-resolution/run)
+            imports (mapv
+                     (fn [import] (update import :module #(-> % run :db/id db/->ref)))
+                     (concat [{:module {:ast/reference :module
+                                        :name ["lang" "native" "jvm"]}
+                               :open true}]
+                             (:imports parser-ast)
+                             (when-not (:skip-implicits parser-ast)
+                               (map (fn [module] {:module module :open true}) default-imports))))
+            {db :db-after}
+            (db/tx! db/state
+                    [(-> parser-ast (assoc :imports (not-empty imports)) name-resolution/run)]
+                    {:pass :name-resolution})
+            name-resolution-ast (db/touch (db/->entity db eid))
             {db :db-after} (type-checker/run name-resolution-ast)
             ;; type-checker-ast (db/touch (db/->entity db eid))
             ;; {db :db-after} (desugar/run type-checker-ast)

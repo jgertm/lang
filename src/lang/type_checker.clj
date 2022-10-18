@@ -1630,17 +1630,15 @@
   [_module {:keys [params body] :as definition}]
   (letfn [(universally-quantify-parameters [params type]
             (let [param-type->universal-variable
-                  (->> params
-                    (mapv (fn [param]
-                            (-> (fresh-universal)
-                                (assoc :reference param))))
-                    (zipmap (map (fn [param] {:ast/type :named :name param}) params)))]
+                  (zipmap
+                   (map (fn [{:keys [db/id]}] {:ast/type :named :name (db/->ref id)}) params)
+                   (mapv (fn [param] (with-meta (fresh-universal) {:reference param})) params))]
               (->> params
                 (reverse)
                 (reduce
-                  (fn [type param]
+                  (fn [type {:keys [db/id]}]
                     {:ast/type :forall
-                     :variable (get param-type->universal-variable {:ast/type :named :name param})
+                     :variable (get param-type->universal-variable {:ast/type :named :name (db/->ref id)})
                      :body     type})
                   (type/substitute type param-type->universal-variable)))))]
     [(assoc definition :body (->> body (universally-quantify-parameters params) apply))]))
@@ -1726,11 +1724,10 @@
                         (distinct)
                         (keep (fn [type]
                                 (match type
-                                  {:ast/type :named :name ref}
-                                  (when (and
-                                         (not (definition/type? (db/->entity @db/state ref)))
-                                         (not (contains? type->universal-variable type)))
-                                    [type (assoc (fresh-universal) :reference type)])
+                                  {:ast/type :named :name name}
+                                  (when (or (not (db/ref? name))
+                                            (not (definition/type? (db/->entity @db/state name))))
+                                    [type (with-meta (fresh-universal) {:reference type})])
 
                                   _ nil)))
                         (into {})
@@ -1858,7 +1855,7 @@
 
 (comment
 
-  (let [module {:ast/reference :module :name ["lang" "core"]}]
+  (let [module {:ast/reference :module :name ["lang" "option"]}]
     (#'lang.compiler/init)
     (-> (#'lang.compiler/run module)
         (update :definitions last)))
