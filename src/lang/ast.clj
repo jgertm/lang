@@ -50,15 +50,15 @@
               (into (empty ast)))
          ast))
 
-     (sequential? ast)
-     (->> ast
-          (map (fn [v] (walk f init v)))
-          (into (empty ast)))
-
      (and (map? ast) (not (db/ref? ast)))
      (->> ast
           (map (fn [[k v]]
                  [(walk f init k) (walk f init v)]))
+          (into (empty ast)))
+
+     (and (coll? ast) (not (db/ref? ast)))
+     (->> ast
+          (map (fn [v] (walk f init v)))
           (into (empty ast)))
 
      :else ast)))

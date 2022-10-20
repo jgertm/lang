@@ -245,7 +245,7 @@
    (and (db/ref? ref) ; local ref
         (get (local-bindings) ref))
    (and (db/ref? ref) ; global ref
-        (some-> (:type (db/->entity @db/state ref))
+        (some-> (::type (db/->entity @db/state ref))
                 (vector :principal)))
    (undefined ::lookup-binding)
    (throw (ex-info "Unknown binding"
@@ -804,7 +804,7 @@
             mark (fresh-mark)
             argument-alphas (mapv
                               (fn [arg]
-                                (or (some->> arg :type apply)
+                                (or (some->> arg :lang.parser/type apply)
                                     (fresh-existential)))
                               arguments)
             return-alpha    (fresh-existential)
@@ -1688,14 +1688,14 @@
                                    node))))))]
     (map (fn [member]
            (merge member
-                  {:type
+                  {::type
                    (->> {:ast/type :guarded
                          :proposition
                          {:ast/constraint :instance
                           :typeclass      (db/->ref id)
                           :parameters
                           (mapv (fn [{:keys [db/id]}] {:ast/type :named :name (db/->ref id)}) params)}
-                         :body (universally-quantify-unknowns (:type member))}
+                         :body (universally-quantify-unknowns (:lang.parser/type member))}
                         (universally-quantify-parameters params)
                         apply)}))
          members)))
@@ -1774,13 +1774,11 @@
         ;; TODO: nested transaction with rollback in case of conflict
         (db/tx! db/state [(update typeclass :instances (fnil conj #{}) (db/->ref id))]
                 {:lang.compiler/pass ::instantiate-typeclass})
-        ;; (undefined ::instantiate-typeclass)
-
         (for [{:keys [body member] :as definition} members]
           (let [type
                 (->
                  (db/->entity @db/state member)
-                 :type
+                 ::type
                  (type/instantiate-universals types)
                  (strip-guard)
                  (constrain-superclasses superclasses)
@@ -1857,8 +1855,7 @@
 
   (let [module {:ast/reference :module :name ["lang" "option"]}]
     (#'lang.compiler/init)
-    (-> (#'lang.compiler/run module)
-        (update :definitions last)))
+    (#'lang.compiler/run module))
 
   (com.gfredericks.debug-repl/unbreak!!)
 

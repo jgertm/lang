@@ -210,7 +210,6 @@
                                                                       (assoc node :db/id id)
                                                                       node))))])
 
-
                                               _ [references (get references node node)]))
                                      references
                                      definition))))

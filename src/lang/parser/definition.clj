@@ -64,7 +64,7 @@
                         type (optional (>> annotation type/expr))]
                    (return
                      (if type
-                       (assoc symbol :type type)
+                       (assoc symbol :lang.parser/type type)
                        symbol)))]
     (parens
       (bind [_ (word "defn")
@@ -100,9 +100,9 @@
   (let [member (parens (bind [name reference/variable
                               _ annotation
                               type type/expr]
-                             (return {:ast/definition :typeclass.declaration/member
-                                      :name           name
-                                      :type           type})))]
+                             (return {:ast/definition   :typeclass.declaration/member
+                                      :name             name
+                                      :lang.parser/type type})))]
     (parens
      (bind [_ (word "defclass")
             [name params]
