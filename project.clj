@@ -5,7 +5,8 @@
             :url  "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.blancas/kern "1.1.0"]
-                 [org.clojure/core.match "0.3.0"]
+                 [org.clojure/core.match "1.0.0"]
+                 [org.clojure/core.logic "1.0.1"]
                  [insn "0.5.2"]
                  [potemkin "0.4.5"]
                  [com.taoensso/timbre "5.1.0"]]
